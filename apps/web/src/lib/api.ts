@@ -2,6 +2,12 @@ export const API_BASE = import.meta.env.DEV
 	? import.meta.env.PUBLIC_API_URL || "http://localhost:3000"
 	: "";
 
+const SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL || "";
+
+export function attachmentUrl(storagePath: string): string {
+	return `${SUPABASE_URL}/storage/v1/object/public/request-attachments/${storagePath}`;
+}
+
 export interface SessionUser {
   id: string;
   name: string;

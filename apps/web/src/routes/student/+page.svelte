@@ -96,27 +96,28 @@
 		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100';
 </script>
 
-<div class="mx-auto max-w-2xl space-y-8">
-	<div>
-		<h1 class="text-2xl font-extrabold tracking-tight text-ink-900">
-			{translate($lang, 'myRequests')}
-		</h1>
-		<p class="mt-1 text-sm text-ink-500">{translate($lang, 'tagline')}</p>
-	</div>
-
-	{#if errorMsg}
-		<div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-			{errorMsg}
+<div class="grid grid-cols-1 gap-8 xl:grid-cols-5">
+	<div class="xl:col-span-2">
+		<div>
+			<h1 class="text-3xl font-extrabold tracking-tight text-ink-900">
+				{translate($lang, 'myRequests')}
+			</h1>
+			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'tagline')}</p>
 		</div>
-	{/if}
-	{#if successMsg}
-		<div class="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-			{successMsg}
-		</div>
-	{/if}
 
-	<!-- Submit form -->
-	<div class="rounded-3xl border border-ink-100 bg-white p-6 shadow-soft">
+		{#if errorMsg}
+			<div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+				{errorMsg}
+			</div>
+		{/if}
+		{#if successMsg}
+			<div class="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+				{successMsg}
+			</div>
+		{/if}
+
+		<!-- Submit form -->
+		<div class="mt-4 rounded-3xl border border-ink-100 bg-white p-6 shadow-soft xl:sticky xl:top-24">
 		<div class="mb-5 flex items-center gap-2.5">
 			<span class="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
 				<FileText size={18} />
@@ -187,10 +188,16 @@
 			</button>
 		</form>
 	</div>
+	</div>
 
 	<!-- Requests list -->
-	<div class="space-y-3">
-		<h2 class="text-lg font-bold text-ink-900">{translate($lang, 'allRequests')}</h2>
+	<div class="space-y-4 xl:col-span-3">
+		<div class="flex items-center justify-between">
+			<h2 class="text-2xl font-bold text-ink-900">{translate($lang, 'allRequests')}</h2>
+			<span class="rounded-full bg-ink-100 px-3 py-1 text-sm font-semibold text-ink-600">
+				{requests.length}
+			</span>
+		</div>
 		{#if requests.length === 0}
 			<div class="rounded-2xl border border-dashed border-ink-200 bg-white/60 px-6 py-10 text-center">
 				<FileText size={28} class="mx-auto mb-2 text-ink-300" />

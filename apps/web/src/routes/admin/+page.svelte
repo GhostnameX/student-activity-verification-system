@@ -76,15 +76,15 @@
 <div class="space-y-6">
 	<div class="flex flex-wrap items-center justify-between gap-3">
 		<div>
-			<h1 class="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-ink-900">
-				<LayoutDashboard size={24} class="text-brand-600" />
+			<h1 class="flex items-center gap-2 text-3xl font-extrabold tracking-tight text-ink-900">
+				<LayoutDashboard size={26} class="text-brand-600" />
 				{translate($lang, 'dashboard')}
 			</h1>
 			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'stats')}</p>
 		</div>
 		<button
 			onclick={refresh}
-			class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3 py-1.5 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
+			class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
 		>
 			<RefreshCw size={15} />
 			{translate($lang, 'refresh')}

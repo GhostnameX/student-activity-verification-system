@@ -1,6 +1,6 @@
-export const API_BASE =
-	import.meta.env.PUBLIC_API_URL ||
-	(import.meta.env.DEV ? "http://localhost:3000" : "https://ua-api-19x4.onrender.com");
+export const API_BASE = import.meta.env.DEV
+	? import.meta.env.PUBLIC_API_URL || "http://localhost:3000"
+	: "";
 
 export interface SessionUser {
   id: string;

@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "sveltekit",
-  "buildCommand": "bun run build"
+  "buildCommand": "bun run build",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://ua-api-19x4.onrender.com/api/$1"
+    }
+  ]
 }

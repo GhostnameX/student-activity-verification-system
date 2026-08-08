@@ -192,7 +192,9 @@
 			class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4 backdrop-blur-sm"
 			role="dialog"
 			aria-modal="true"
+			tabindex="-1"
 			onclick={(e) => { if (e.target === e.currentTarget) detail = null; }}
+			onkeydown={(e) => { if (e.key === 'Escape') detail = null; }}
 		>
 			<div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-6 shadow-lift">
 				{#if detailLoading}
@@ -320,6 +322,8 @@
 			class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4 backdrop-blur-sm"
 			role="dialog"
 			aria-modal="true"
+			tabindex="-1"
+			onkeydown={(e) => { if (e.key === 'Escape') rejectId = null; }}
 		>
 			<div class="w-full max-w-md rounded-3xl bg-white p-6 shadow-lift">
 				<h3 class="mb-4 text-lg font-bold text-ink-900">{translate($lang, 'reject')}</h3>

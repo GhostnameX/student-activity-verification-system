@@ -27,6 +27,7 @@ export const auth = betterAuth({
         type: "string",
         input: false,
         required: true,
+        defaultValue: "student",
       },
       faculty: {
         type: "string",

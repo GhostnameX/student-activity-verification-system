@@ -15,6 +15,13 @@
       "when": 1786279145170,
       "tag": "0001_illegal_blockbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786291260608,
+      "tag": "0002_silent_sentry",
+      "breakpoints": true
     }
   ]
 }

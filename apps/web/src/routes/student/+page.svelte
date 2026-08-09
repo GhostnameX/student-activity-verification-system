@@ -92,6 +92,14 @@
 		return translate($lang, status as 'pending');
 	}
 
+	function activityTitle(r: RequestItem) {
+		return r.activityName
+			? r.activityName
+			: $lang === 'th'
+				? r.activity.title
+				: r.activity.titleEn;
+	}
+
 	const inputClass =
 		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100';
 </script>
@@ -211,7 +219,7 @@
 							<div class="flex items-center gap-2">
 								<FileText size={16} class="shrink-0 text-brand-500" />
 								<p class="truncate font-semibold text-ink-900">
-									{$lang === 'th' ? r.activity.title : r.activity.titleEn}
+									{activityTitle(r)}
 								</p>
 							</div>
 							<p class="mt-1.5 flex items-center gap-1.5 text-sm text-ink-500">

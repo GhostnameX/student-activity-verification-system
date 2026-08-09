@@ -380,6 +380,7 @@ export const app = new Elysia()
           status: requests.status,
           note: requests.note,
           rejectionReason: requests.rejectionReason,
+          activityName: requests.activityName,
           submittedAt: requests.submittedAt,
           reviewedAt: requests.reviewedAt,
           activity: {
@@ -403,6 +404,7 @@ export const app = new Elysia()
         status: requests.status,
         note: requests.note,
         rejectionReason: requests.rejectionReason,
+        activityName: requests.activityName,
         submittedAt: requests.submittedAt,
         reviewedAt: requests.reviewedAt,
         activity: {
@@ -441,6 +443,7 @@ export const app = new Elysia()
         id: requests.id,
         status: requests.status,
         note: requests.note,
+        activityName: requests.activityName,
         submittedAt: requests.submittedAt,
         reviewedAt: requests.reviewedAt,
         activity: {
@@ -611,7 +614,9 @@ export const app = new Elysia()
   )
 
   // ===== Staff review actions =====
-  .post("/api/requests/:id/approve", async ({ params, headers, set }) => {
+  .post(
+    "/api/requests/:id/approve",
+    async ({ params, body, headers, set }) => {
     const session = await auth.api.getSession({ headers });
     if (!session?.user?.id) {
       set.status = 401;
@@ -640,6 +645,7 @@ export const app = new Elysia()
       .update(requests)
       .set({
         status: "approved",
+        activityName: body.activityName ?? null,
         reviewedById: session.user.id,
         reviewedAt: sql`now()`,
         updatedAt: sql`now()`,
@@ -658,6 +664,7 @@ export const app = new Elysia()
         studentEmail: users.email,
         activityTitle: activities.title,
         activityTitleEn: activities.titleEn,
+        activityName: requests.activityName,
       })
       .from(requests)
       .innerJoin(users, eq(requests.studentId, users.id))
@@ -666,10 +673,11 @@ export const app = new Elysia()
 
     if (detail.length > 0) {
       const d = detail[0];
+      const displayTitle = d.activityName ?? d.activityTitle;
       await notifyUser({
         userId: d.studentId,
         title: "คำร้องได้รับการอนุมัติ",
-        body: `คำร้องเข้าร่วม "${d.activityTitle}" ของคุณได้รับการอนุมัติแล้ว`,
+        body: `คำร้องเข้าร่วม "${displayTitle}" ของคุณได้รับการอนุมัติแล้ว`,
         requestId: params.id,
       });
       await writeAuditLog({
@@ -677,16 +685,21 @@ export const app = new Elysia()
         action: "approve",
         targetType: "request",
         targetId: params.id,
-        metadata: { status: "approved" },
+        metadata: { status: "approved", activityName: d.activityName ?? null },
       });
       await sendStatusEmail({
         to: d.studentEmail,
         studentName: d.studentName,
-        activityTitle: d.activityTitle,
+        activityTitle: displayTitle,
         status: "approved",
       });
     }
     return updated;
+  },
+  {
+    body: t.Object({
+      activityName: t.Optional(t.String()),
+    }),
   })
 
   .post(
@@ -722,6 +735,7 @@ export const app = new Elysia()
           status: "rejected",
           note: body.reason ?? null,
           rejectionReason: body.reason ?? null,
+          activityName: body.activityName ?? null,
           reviewedById: session.user.id,
           reviewedAt: sql`now()`,
           updatedAt: sql`now()`,
@@ -740,6 +754,7 @@ export const app = new Elysia()
           studentEmail: users.email,
           activityTitle: activities.title,
           activityTitleEn: activities.titleEn,
+          activityName: requests.activityName,
         })
         .from(requests)
         .innerJoin(users, eq(requests.studentId, users.id))
@@ -748,10 +763,11 @@ export const app = new Elysia()
 
       if (detail.length > 0) {
         const d = detail[0];
+        const displayTitle = d.activityName ?? d.activityTitle;
         await notifyUser({
           userId: d.studentId,
           title: "คำร้องถูกไม่อนุมัติ",
-          body: `คำร้องเข้าร่วม "${d.activityTitle}" ของคุณถูกไม่อนุมัติ${body.reason ? `\nเหตุผล: ${body.reason}` : ""}`,
+          body: `คำร้องเข้าร่วม "${displayTitle}" ของคุณถูกไม่อนุมัติ${body.reason ? `\nเหตุผล: ${body.reason}` : ""}`,
           requestId: params.id,
         });
         await writeAuditLog({
@@ -759,12 +775,12 @@ export const app = new Elysia()
           action: "reject",
           targetType: "request",
           targetId: params.id,
-          metadata: { status: "rejected", reason: body.reason ?? null },
+          metadata: { status: "rejected", reason: body.reason ?? null, activityName: d.activityName ?? null },
         });
         await sendStatusEmail({
           to: d.studentEmail,
           studentName: d.studentName,
-          activityTitle: d.activityTitle,
+          activityTitle: displayTitle,
           status: "rejected",
           reason: body.reason,
         });
@@ -774,6 +790,7 @@ export const app = new Elysia()
     {
       body: t.Object({
         reason: t.Optional(t.String()),
+        activityName: t.Optional(t.String()),
       }),
     },
   )

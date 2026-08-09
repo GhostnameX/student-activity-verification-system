@@ -21,6 +21,7 @@
 	let rejectReason: string = $state('');
 	let detail: RequestItem | null = $state(null);
 	let detailLoading: boolean = $state(false);
+	let activityName: string = $state('');
 
 	onMount(async () => {
 		if (!$user || ($user.role !== 'staff' && $user.role !== 'admin')) {
@@ -41,7 +42,8 @@
 
 	async function approve(id: string) {
 		try {
-			await approveRequest(id);
+			await approveRequest(id, activityName || undefined);
+			activityName = '';
 			if (detail?.id === id) detail = null;
 			await refresh();
 		} catch (e) {
@@ -51,9 +53,10 @@
 
 	async function doReject(id: string) {
 		try {
-			await rejectRequest(id, rejectReason || undefined);
+			await rejectRequest(id, rejectReason || undefined, activityName || undefined);
 			rejectId = null;
 			rejectReason = '';
+			activityName = '';
 			if (detail?.id === id) detail = null;
 			await refresh();
 		} catch (e) {
@@ -64,6 +67,7 @@
 	async function openDetail(id: string) {
 		detailLoading = true;
 		detail = null;
+		activityName = '';
 		try {
 			detail = await getRequest(id);
 		} catch (e) {
@@ -71,6 +75,14 @@
 		} finally {
 			detailLoading = false;
 		}
+	}
+
+	function activityTitle(r: RequestItem) {
+		return r.activityName
+			? r.activityName
+			: $lang === 'th'
+				? r.activity.title
+				: r.activity.titleEn;
 	}
 
 	function statusClass(status: string) {
@@ -137,7 +149,7 @@
 							onclick={() => openDetail(r.id)}
 						>
 							<td class="px-5 py-4 font-medium text-ink-900">
-								{$lang === 'th' ? r.activity.title : r.activity.titleEn}
+								{activityTitle(r)}
 							</td>
 							<td class="px-5 py-4">
 								<div class="font-medium text-ink-800">{r.student?.name}</div>
@@ -206,7 +218,7 @@
 					<div class="mb-4 flex items-start justify-between gap-3">
 						<div>
 							<h3 class="text-lg font-bold text-ink-900">
-								{$lang === 'th' ? detail.activity.title : detail.activity.titleEn}
+								{activityTitle(detail)}
 							</h3>
 							<span
 								class={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusClass(detail.status)}`}
@@ -291,6 +303,18 @@
 					</div>
 
 					{#if detail.status === 'pending'}
+						<div class="mb-4 border-t border-ink-100 pt-4">
+							<label for="activity-name" class="mb-1.5 block text-sm font-medium text-ink-700">
+								{translate($lang, 'activityByStaff')}
+							</label>
+							<input
+								id="activity-name"
+								bind:value={activityName}
+								type="text"
+								placeholder={activityTitle(detail)}
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100"
+							/>
+						</div>
 						<div class="flex justify-end gap-2 border-t border-ink-100 pt-4">
 							<button
 								onclick={() => approve(detail!.id)}

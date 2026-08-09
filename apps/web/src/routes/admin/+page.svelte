@@ -80,6 +80,13 @@
 		return $lang === 'th' ? a.title : a.titleEn;
 	}
 
+	function requestActivityTitle(r: {
+		activity: { title: string; titleEn: string };
+		activityName?: string | null;
+	}) {
+		return r.activityName ? r.activityName : activityTitle(r.activity);
+	}
+
 	function actionLabel(action: string) {
 		const map: Record<string, string> = {
 			approve: $lang === 'th' ? 'อนุมัติ' : 'Approve',
@@ -238,7 +245,7 @@
 					{#each requests as r (r.id)}
 						<tr class="border-b border-ink-50 transition last:border-0 hover:bg-ink-50/50">
 							<td class="px-5 py-4 font-medium text-ink-900">
-								{$lang === 'th' ? r.activity.title : r.activity.titleEn}
+								{requestActivityTitle(r)}
 							</td>
 							<td class="px-5 py-4 font-medium text-ink-800">{r.student?.name}</td>
 							<td class="hidden px-5 py-4 text-ink-600 lg:table-cell">

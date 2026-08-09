@@ -136,6 +136,7 @@ export const requests = pgTable(
     status: requestStatusEnum("status").default("pending").notNull(),
     note: text("note"),
     rejectionReason: text("rejection_reason"),
+    activityName: text("activity_name"),
     reviewedById: text("reviewed_by_id").references(() => users.id),
     reviewedAt: timestamp("reviewed_at"),
     submittedAt: timestamp("submitted_at")

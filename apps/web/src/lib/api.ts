@@ -54,6 +54,7 @@ export interface RequestItem {
   status: RequestStatus;
   note?: string | null;
   rejectionReason?: string | null;
+  activityName?: string | null;
   submittedAt: string;
   reviewedAt?: string | null;
   activity: {
@@ -185,14 +186,17 @@ export async function uploadFile(file: File): Promise<Attachment> {
   return data as Attachment;
 }
 
-export async function approveRequest(id: string): Promise<void> {
-  await apiFetch(`/api/requests/${id}/approve`, { method: "POST" });
+export async function approveRequest(id: string, activityName?: string): Promise<void> {
+  await apiFetch(`/api/requests/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify(activityName ? { activityName } : {}),
+  });
 }
 
-export async function rejectRequest(id: string, reason?: string): Promise<void> {
+export async function rejectRequest(id: string, reason?: string, activityName?: string): Promise<void> {
   await apiFetch(`/api/requests/${id}/reject`, {
     method: "POST",
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ reason, ...(activityName ? { activityName } : {}) }),
   });
 }
 

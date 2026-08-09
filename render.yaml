@@ -21,3 +21,7 @@ services:
         sync: false
       - key: API_PORT
         value: "3000"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false

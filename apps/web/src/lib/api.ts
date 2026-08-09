@@ -28,7 +28,24 @@ export interface Activity {
   location: string;
   description?: string | null;
   descriptionEn?: string | null;
+  submissionDeadline?: string | null;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+export type ActivityInput = {
+  title: string;
+  titleEn: string;
+  type: string;
+  organizer: string;
+  date: string;
+  location: string;
+  description?: string | null;
+  descriptionEn?: string | null;
+  submissionDeadline?: string | null;
+  isActive?: boolean;
+};
 
 export type RequestStatus = "pending" | "approved" | "rejected";
 
@@ -36,6 +53,7 @@ export interface RequestItem {
   id: string;
   status: RequestStatus;
   note?: string | null;
+  rejectionReason?: string | null;
   submittedAt: string;
   reviewedAt?: string | null;
   activity: {
@@ -53,6 +71,26 @@ export interface RequestItem {
     studentId?: string | null;
   };
   attachments?: Attachment[];
+}
+
+export interface NotificationItem {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  requestId?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export interface AuditLogItem {
+  id: string;
+  actorId?: string | null;
+  action: string;
+  targetType: string;
+  targetId: string;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 export interface Attachment {
@@ -83,8 +121,29 @@ export async function getMe(): Promise<{ user: SessionUser | null }> {
   return apiFetch("/api/me");
 }
 
-export async function getActivities(): Promise<Activity[]> {
-  return apiFetch("/api/activities");
+export async function getActivities(includeInactive = false): Promise<Activity[]> {
+  return apiFetch(`/api/activities${includeInactive ? "?includeInactive=true" : ""}`);
+}
+
+export async function createActivity(body: ActivityInput): Promise<Activity> {
+  return apiFetch("/api/activities", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateActivity(
+  id: string,
+  body: Partial<ActivityInput>,
+): Promise<Activity> {
+  return apiFetch(`/api/activities/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteActivity(id: string): Promise<Activity> {
+  return apiFetch(`/api/activities/${id}`, { method: "DELETE" });
 }
 
 export async function getRequests(): Promise<RequestItem[]> {
@@ -135,4 +194,47 @@ export async function rejectRequest(id: string, reason?: string): Promise<void> 
     method: "POST",
     body: JSON.stringify({ reason }),
   });
+}
+
+export async function getNotifications(): Promise<NotificationItem[]> {
+  return apiFetch("/api/notifications");
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  await apiFetch(`/api/notifications/${id}/read`, { method: "POST" });
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  await apiFetch("/api/notifications/read-all", { method: "POST" });
+}
+
+export async function getAuditLogs(): Promise<AuditLogItem[]> {
+  return apiFetch("/api/audit");
+}
+
+export async function getStats(): Promise<StatsResponse> {
+  return apiFetch("/api/stats");
+}
+
+export interface StatsResponse {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  byActivity: {
+    id: string;
+    title: string;
+    titleEn: string;
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+  }[];
+  byFaculty: {
+    faculty: string;
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+  }[];
 }

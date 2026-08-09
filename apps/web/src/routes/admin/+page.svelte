@@ -4,7 +4,7 @@
 	import { user } from '$lib/auth';
 	import { translate } from '$lib/i18n';
 	import { goto } from '$app/navigation';
-	import { getRequests, type RequestItem } from '$lib/api';
+	import { getRequests, getStats, getAuditLogs, type RequestItem, type StatsResponse, type AuditLogItem } from '$lib/api';
 	import {
 		RefreshCw,
 		FileText,
@@ -12,10 +12,16 @@
 		CircleCheck,
 		CircleX,
 		LayoutDashboard,
+		ScrollText,
+		Users,
+		CalendarDays,
 	} from 'lucide-svelte';
 
 	let requests: RequestItem[] = $state([]);
+	let stats = $state<StatsResponse | null>(null);
+	let auditLogs: AuditLogItem[] = $state([]);
 	let loading: boolean = $state(true);
+	let activeTab: 'stats' | 'audit' = $state('stats');
 
 	onMount(async () => {
 		if (!$user || $user.role !== 'admin') {
@@ -28,16 +34,14 @@
 	async function refresh() {
 		loading = true;
 		try {
-			requests = await getRequests();
+			const [req, st, audit] = await Promise.all([getRequests(), getStats(), getAuditLogs()]);
+			requests = req;
+			stats = st;
+			auditLogs = audit;
 		} finally {
 			loading = false;
 		}
 	}
-
-	let total = $derived(requests.length);
-	let approved = $derived(requests.filter((r) => r.status === 'approved').length);
-	let rejected = $derived(requests.filter((r) => r.status === 'rejected').length);
-	let pending = $derived(requests.filter((r) => r.status === 'pending').length);
 
 	function statusClass(status: string) {
 		if (status === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
@@ -45,32 +49,47 @@
 		return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
 	}
 
-	const stats = $derived([
+	const statCards = $derived([
 		{
 			label: 'totalRequests',
-			value: total,
+			value: stats?.total ?? 0,
 			icon: FileText,
 			classes: 'from-ink-500 to-ink-700',
 		},
 		{
 			label: 'totalPending',
-			value: pending,
+			value: stats?.pending ?? 0,
 			icon: Clock,
 			classes: 'from-amber-400 to-amber-600',
 		},
 		{
 			label: 'totalApproved',
-			value: approved,
+			value: stats?.approved ?? 0,
 			icon: CircleCheck,
 			classes: 'from-green-500 to-green-700',
 		},
 		{
 			label: 'totalRejected',
-			value: rejected,
+			value: stats?.rejected ?? 0,
 			icon: CircleX,
 			classes: 'from-red-500 to-red-700',
 		},
 	]);
+
+	function activityTitle(a: { title: string; titleEn: string }) {
+		return $lang === 'th' ? a.title : a.titleEn;
+	}
+
+	function actionLabel(action: string) {
+		const map: Record<string, string> = {
+			approve: $lang === 'th' ? 'อนุมัติ' : 'Approve',
+			reject: $lang === 'th' ? 'ไม่อนุมัติ' : 'Reject',
+			activity_create: $lang === 'th' ? 'สร้างกิจกรรม' : 'Create activity',
+			activity_update: $lang === 'th' ? 'แก้ไขกิจกรรม' : 'Update activity',
+			activity_delete: $lang === 'th' ? 'ลบกิจกรรม' : 'Delete activity',
+		};
+		return map[action] ?? action;
+	}
 </script>
 
 <div class="space-y-6">
@@ -82,27 +101,33 @@
 			</h1>
 			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'stats')}</p>
 		</div>
-		<button
-			onclick={refresh}
-			class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
-		>
-			<RefreshCw size={15} />
-			{translate($lang, 'refresh')}
-		</button>
-	</div>
-
-	<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-		{#each stats as s (s.label)}
-			<div class="rounded-3xl border border-ink-100 bg-white p-5 shadow-soft transition hover:shadow-lift">
-				<div
-					class={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${s.classes} text-white shadow-soft`}
+		<div class="flex items-center gap-2">
+			<div class="flex items-center gap-1 rounded-2xl border border-ink-100 bg-white p-1 shadow-soft">
+				<button
+					onclick={() => (activeTab = 'stats')}
+					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+						activeTab === 'stats' ? 'bg-ink-900 text-white shadow-soft' : 'text-ink-600 hover:bg-ink-50'
+					}`}
 				>
-					<s.icon size={19} />
-				</div>
-				<p class="text-sm text-ink-500">{translate($lang, s.label as 'stats')}</p>
-				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{s.value}</p>
+					{translate($lang, 'stats')}
+				</button>
+				<button
+					onclick={() => (activeTab = 'audit')}
+					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+						activeTab === 'audit' ? 'bg-ink-900 text-white shadow-soft' : 'text-ink-600 hover:bg-ink-50'
+					}`}
+				>
+					{translate($lang, 'auditLog')}
+				</button>
 			</div>
-		{/each}
+			<button
+				onclick={refresh}
+				class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
+			>
+				<RefreshCw size={15} />
+				{translate($lang, 'refresh')}
+			</button>
+		</div>
 	</div>
 
 	{#if loading}
@@ -110,12 +135,93 @@
 			<Clock size={16} class="animate-spin" />
 			{translate($lang, 'submitting')}
 		</div>
-	{:else if requests.length === 0}
-		<div class="rounded-2xl border border-dashed border-ink-200 bg-white/60 px-6 py-12 text-center">
-			<FileText size={30} class="mx-auto mb-2 text-ink-300" />
-			<p class="text-sm text-ink-500">{translate($lang, 'noRequests')}</p>
+	{:else if activeTab === 'stats'}
+		<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+			{#each statCards as s (s.label)}
+				<div class="rounded-3xl border border-ink-100 bg-white p-5 shadow-soft transition hover:shadow-lift">
+					<div
+						class={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${s.classes} text-white shadow-soft`}
+					>
+						<s.icon size={19} />
+					</div>
+					<p class="text-sm text-ink-500">{translate($lang, s.label as 'stats')}</p>
+					<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{s.value}</p>
+				</div>
+			{/each}
 		</div>
-	{:else}
+
+		<div class="grid gap-6 lg:grid-cols-2">
+			<div class="rounded-3xl border border-ink-100 bg-white p-6 shadow-soft">
+				<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
+					<CalendarDays size={18} class="text-brand-600" />
+					{translate($lang, 'byActivity')}
+				</h2>
+				{#if stats && stats.byActivity.length === 0}
+					<p class="text-sm text-ink-500">{translate($lang, 'noRequests')}</p>
+				{:else}
+					<div class="overflow-x-auto">
+						<table class="w-full text-left text-sm">
+							<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
+								<tr>
+									<th class="px-3 py-2">{translate($lang, 'activity')}</th>
+									<th class="px-3 py-2 text-right">{translate($lang, 'totalRequests')}</th>
+									<th class="px-3 py-2 text-right">{translate($lang, 'totalPending')}</th>
+									<th class="px-3 py-2 text-right">{translate($lang, 'totalApproved')}</th>
+									<th class="px-3 py-2 text-right">{translate($lang, 'totalRejected')}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each stats!.byActivity as a (a.id)}
+									<tr class="border-b border-ink-50 last:border-0">
+										<td class="px-3 py-2.5 font-medium text-ink-900">{activityTitle(a)}</td>
+										<td class="px-3 py-2.5 text-right text-ink-700">{a.total}</td>
+										<td class="px-3 py-2.5 text-right text-amber-600">{a.pending}</td>
+										<td class="px-3 py-2.5 text-right text-green-600">{a.approved}</td>
+										<td class="px-3 py-2.5 text-right text-red-600">{a.rejected}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+			</div>
+
+			<div class="rounded-3xl border border-ink-100 bg-white p-6 shadow-soft">
+				<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
+					<Users size={18} class="text-brand-600" />
+					{translate($lang, 'byFaculty')}
+				</h2>
+				{#if stats && stats.byFaculty.length === 0}
+					<p class="text-sm text-ink-500">{translate($lang, 'noRequests')}</p>
+				{:else}
+					<div class="overflow-x-auto">
+						<table class="w-full text-left text-sm">
+							<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
+								<tr>
+									<th class="px-3 py-2">{translate($lang, 'faculty')}</th>
+									<th class="px-3 py-2 text-right">{translate($lang, 'totalRequests')}</th>
+									<th class="px-3 py-2 text-right">{translate($lang, 'totalPending')}</th>
+									<th class="px-3 py-2 text-right">{translate($lang, 'totalApproved')}</th>
+									<th class="px-3 py-2 text-right">{translate($lang, 'totalRejected')}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each stats!.byFaculty as f (f.faculty)}
+									<tr class="border-b border-ink-50 last:border-0">
+										<td class="px-3 py-2.5 font-medium text-ink-900">{f.faculty}</td>
+										<td class="px-3 py-2.5 text-right text-ink-700">{f.total}</td>
+										<td class="px-3 py-2.5 text-right text-amber-600">{f.pending}</td>
+										<td class="px-3 py-2.5 text-right text-green-600">{f.approved}</td>
+										<td class="px-3 py-2.5 text-right text-red-600">{f.rejected}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+			</div>
+		</div>
+
 		<div class="overflow-x-auto rounded-3xl border border-ink-100 bg-white shadow-soft">
 			<table class="w-full text-left text-sm">
 				<thead class="border-b border-ink-100 bg-ink-50/70 text-xs font-semibold uppercase tracking-wide text-ink-500">
@@ -155,6 +261,46 @@
 					{/each}
 				</tbody>
 			</table>
+		</div>
+	{:else}
+		<div class="rounded-3xl border border-ink-100 bg-white p-6 shadow-soft">
+			<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
+				<ScrollText size={18} class="text-brand-600" />
+				{translate($lang, 'auditLog')}
+			</h2>
+			{#if auditLogs.length === 0}
+				<p class="text-sm text-ink-500">{translate($lang, 'noAuditLogs')}</p>
+			{:else}
+				<div class="overflow-x-auto">
+					<table class="w-full text-left text-sm">
+						<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
+							<tr>
+								<th class="px-3 py-2">{translate($lang, 'createdAt')}</th>
+								<th class="px-3 py-2">{translate($lang, 'actor')}</th>
+								<th class="px-3 py-2">{translate($lang, 'action')}</th>
+								<th class="px-3 py-2">{translate($lang, 'target')}</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each auditLogs as log (log.id)}
+								<tr class="border-b border-ink-50 last:border-0">
+									<td class="px-3 py-2.5 whitespace-nowrap text-ink-600">
+										{new Date(log.createdAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
+									</td>
+									<td class="px-3 py-2.5 text-ink-700">{log.actorId ? log.actorId.slice(0, 8) : '-'}</td>
+									<td class="px-3 py-2.5 font-medium text-ink-900">{actionLabel(log.action)}</td>
+									<td class="px-3 py-2.5 text-ink-600">
+										<span class="rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-600">
+											{log.targetType}
+										</span>
+										<span class="ml-2 font-mono text-xs text-ink-400">{log.targetId.slice(0, 8)}</span>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

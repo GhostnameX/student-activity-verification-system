@@ -20,6 +20,19 @@ export const auth = betterAuth({
   }),
   emailAndPassword: {
     enabled: true,
+    minPasswordLength: 8,
+    maxPasswordLength: 128,
+  },
+  rateLimit: {
+    enabled: true,
+    storage: "memory",
+    window: 60,
+    max: 20,
+    customRules: {
+      "/sign-in/email": { window: 60, max: 5 },
+      "/sign-up/email": { window: 3600, max: 10 },
+      "/forget-password": { window: 300, max: 5 },
+    },
   },
   user: {
     additionalFields: {

@@ -6,6 +6,8 @@ import {
   pgEnum,
   index,
   uniqueIndex,
+  boolean,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -14,6 +16,9 @@ export const requestStatusEnum = pgEnum("request_status", [
   "pending",
   "approved",
   "rejected",
+]);
+export const notificationTypeEnum = pgEnum("notification_type", [
+  "request_status_change",
 ]);
 
 export const users = pgTable(
@@ -104,7 +109,12 @@ export const activities = pgTable(
     location: text("location").notNull(),
     description: text("description"),
     descriptionEn: text("description_en"),
+    submissionDeadline: timestamp("submission_deadline"),
+    isActive: boolean("is_active").default(true).notNull(),
     createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+    updatedAt: timestamp("updated_at")
       .default(sql`now()`)
       .notNull(),
   },
@@ -125,6 +135,7 @@ export const requests = pgTable(
       .references(() => activities.id),
     status: requestStatusEnum("status").default("pending").notNull(),
     note: text("note"),
+    rejectionReason: text("rejection_reason"),
     reviewedById: text("reviewed_by_id").references(() => users.id),
     reviewedAt: timestamp("reviewed_at"),
     submittedAt: timestamp("submitted_at")
@@ -159,4 +170,54 @@ export const requestAttachments = pgTable(
       .notNull(),
   },
   (t) => [index("attachments_request_idx").on(t.requestId)],
+);
+
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: notificationTypeEnum("type").default("request_status_change").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    requestId: text("request_id").references(() => requests.id, {
+      onDelete: "set null",
+    }),
+    readAt: timestamp("read_at"),
+    createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+  },
+  (t) => [
+    index("notifications_user_idx").on(t.userId),
+    index("notifications_user_read_idx").on(t.userId, t.readAt),
+  ],
+);
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    actorId: text("actor_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    action: text("action").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+  },
+  (t) => [
+    index("audit_logs_actor_idx").on(t.actorId),
+    index("audit_logs_target_idx").on(t.targetType, t.targetId),
+    index("audit_logs_created_idx").on(t.createdAt),
+  ],
 );

@@ -1,9 +1,16 @@
 import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { auth } from "./auth";
-import { requests, activities, requestAttachments, users } from "@ua/db/schema";
+import {
+  requests,
+  activities,
+  requestAttachments,
+  users,
+  notifications,
+  auditLogs,
+} from "@ua/db/schema";
 import { db } from "@ua/db/client";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, count, isNull } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 
@@ -11,6 +18,8 @@ const PUBLIC_API_URL = process.env.PUBLIC_API_URL || "http://localhost:3000";
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
 const SUPABASE_URL = process.env.PUBLIC_SUPABASE_URL || "";
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const EMAIL_FROM = process.env.EMAIL_FROM || "onboarding@resend.dev";
 
 const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
@@ -18,6 +27,79 @@ const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 
 const ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf"]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+async function sendStatusEmail(opts: {
+  to: string;
+  studentName: string;
+  activityTitle: string;
+  status: "approved" | "rejected";
+  reason?: string | null;
+}) {
+  if (!RESEND_API_KEY) {
+    console.log(`[email] skipped (no RESEND_API_KEY) -> ${opts.to} (${opts.status})`);
+    return { skipped: true };
+  }
+  const th = opts.status === "approved"
+    ? "คำร้องของคุณได้รับการอนุมัติ"
+    : "คำร้องของคุณถูกไม่อนุมัติ";
+  const body = opts.status === "approved"
+    ? `สวัสดี คุณ${opts.studentName} คำร้องเข้าร่วม "${opts.activityTitle}" ของคุณได้รับการอนุมัติแล้ว`
+    : `สวัสดี คุณ${opts.studentName} คำร้องเข้าร่วม "${opts.activityTitle}" ของคุณถูกไม่อนุมัติ${opts.reason ? `\nเหตุผล: ${opts.reason}` : ""}`;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: [opts.to],
+        subject: `${th} — ระบบคำร้องกิจกรรม`,
+        text: body,
+      }),
+    });
+    if (!res.ok) {
+      console.log(`[email] send failed: ${res.status} ${await res.text()}`);
+      return { error: res.status };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.log(`[email] exception: ${e}`);
+    return { error: "exception" };
+  }
+}
+
+async function writeAuditLog(opts: {
+  actorId: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  metadata?: Record<string, unknown>;
+}) {
+  await db.insert(auditLogs).values({
+    actorId: opts.actorId,
+    action: opts.action,
+    targetType: opts.targetType,
+    targetId: opts.targetId,
+    metadata: opts.metadata ?? null,
+  }).catch((e) => console.log(`[audit] write failed: ${e}`));
+}
+
+async function notifyUser(opts: {
+  userId: string;
+  title: string;
+  body: string;
+  requestId?: string;
+}) {
+  await db.insert(notifications).values({
+    userId: opts.userId,
+    type: "request_status_change",
+    title: opts.title,
+    body: opts.body,
+    requestId: opts.requestId ?? null,
+  }).catch((e) => console.log(`[notify] insert failed: ${e}`));
+}
 
 export const app = new Elysia()
   .use(
@@ -32,12 +114,178 @@ export const app = new Elysia()
   .get("/health", () => ({ status: "ok", ts: Date.now() }))
 
   // ===== Activities =====
-  .get("/api/activities", async ({ set }) => {
+  .get("/api/activities", async ({ query, set }) => {
+    const includeInactive = (query as any).includeInactive === "true";
+    const where = includeInactive
+      ? undefined
+      : eq(activities.isActive, true);
     const list = await db
       .select()
       .from(activities)
+      .where(where)
       .orderBy(desc(activities.date));
     return list;
+  })
+
+  .post(
+    "/api/activities",
+    async ({ body, headers, set }) => {
+      const session = await auth.api.getSession({ headers });
+      if (!session?.user?.id) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      const role = (session.user as any).role ?? "student";
+      if (role !== "admin") {
+        set.status = 403;
+        return { error: "admin_only" };
+      }
+
+      const [created] = await db
+        .insert(activities)
+        .values({
+          title: body.title,
+          titleEn: body.titleEn,
+          type: body.type,
+          organizer: body.organizer,
+          date: new Date(body.date),
+          location: body.location,
+          description: body.description ?? null,
+          descriptionEn: body.descriptionEn ?? null,
+          submissionDeadline: body.submissionDeadline
+            ? new Date(body.submissionDeadline)
+            : null,
+          isActive: body.isActive ?? true,
+        })
+        .returning();
+      await writeAuditLog({
+        actorId: session.user.id,
+        action: "activity_create",
+        targetType: "activity",
+        targetId: created.id,
+        metadata: { title: created.title },
+      });
+      return created;
+    },
+    {
+      body: t.Object({
+        title: t.String(),
+        titleEn: t.String(),
+        type: t.String(),
+        organizer: t.String(),
+        date: t.String(),
+        location: t.String(),
+        description: t.Optional(t.String()),
+        descriptionEn: t.Optional(t.String()),
+        submissionDeadline: t.Optional(t.String()),
+        isActive: t.Optional(t.Boolean()),
+      }),
+    },
+  )
+
+  .patch(
+    "/api/activities/:id",
+    async ({ params, body, headers, set }) => {
+      const session = await auth.api.getSession({ headers });
+      if (!session?.user?.id) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      const role = (session.user as any).role ?? "student";
+      if (role !== "admin") {
+        set.status = 403;
+        return { error: "admin_only" };
+      }
+
+      const existing = await db
+        .select({ id: activities.id })
+        .from(activities)
+        .where(eq(activities.id, params.id));
+      if (existing.length === 0) {
+        set.status = 404;
+        return { error: "not_found" };
+      }
+
+      const [updated] = await db
+        .update(activities)
+        .set({
+          title: body.title,
+          titleEn: body.titleEn,
+          type: body.type,
+          organizer: body.organizer,
+          date: body.date ? new Date(body.date) : undefined,
+          location: body.location,
+          description: body.description,
+          descriptionEn: body.descriptionEn,
+          submissionDeadline: body.submissionDeadline
+            ? new Date(body.submissionDeadline)
+            : body.submissionDeadline === null
+              ? null
+              : undefined,
+          isActive: body.isActive,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(activities.id, params.id))
+        .returning();
+      await writeAuditLog({
+        actorId: session.user.id,
+        action: "activity_update",
+        targetType: "activity",
+        targetId: params.id,
+        metadata: { title: updated.title },
+      });
+      return updated;
+    },
+    {
+      body: t.Object({
+        title: t.Optional(t.String()),
+        titleEn: t.Optional(t.String()),
+        type: t.Optional(t.String()),
+        organizer: t.Optional(t.String()),
+        date: t.Optional(t.String()),
+        location: t.Optional(t.String()),
+        description: t.Optional(t.Nullable(t.String())),
+        descriptionEn: t.Optional(t.Nullable(t.String())),
+        submissionDeadline: t.Optional(t.Nullable(t.String())),
+        isActive: t.Optional(t.Boolean()),
+      }),
+    },
+  )
+
+  .delete("/api/activities/:id", async ({ params, headers, set }) => {
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user?.id) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    const role = (session.user as any).role ?? "student";
+    if (role !== "admin") {
+      set.status = 403;
+      return { error: "admin_only" };
+    }
+
+    const existing = await db
+      .select({ id: activities.id })
+      .from(activities)
+      .where(eq(activities.id, params.id));
+    if (existing.length === 0) {
+      set.status = 404;
+      return { error: "not_found" };
+    }
+
+    const [deleted] = await db
+      .update(activities)
+      .set({ isActive: false, updatedAt: sql`now()` })
+      .where(eq(activities.id, params.id))
+      .returning();
+    await writeAuditLog({
+      actorId: session.user.id,
+      action: "activity_delete",
+      targetType: "activity",
+      targetId: params.id,
+      metadata: { title: deleted.title },
+    });
+    return deleted;
   })
 
   // ===== Upload (via server-side service_role) =====
@@ -118,15 +366,20 @@ export const app = new Elysia()
       return { error: "unauthorized" };
     }
     const role = (session.user as any).role ?? "student";
-    const statusFilter = (query as any).status;
+    const statusFilter = (query as any).status as string | undefined;
+    const validStatuses = ["pending", "approved", "rejected"];
+    const statusWhere = statusFilter && validStatuses.includes(statusFilter)
+      ? eq(requests.status, statusFilter as "pending" | "approved" | "rejected")
+      : undefined;
 
     if (role === "student") {
-      const where = eq(requests.studentId, session.user.id);
+      const where = and(eq(requests.studentId, session.user.id), statusWhere);
       const list = await db
         .select({
           id: requests.id,
           status: requests.status,
           note: requests.note,
+          rejectionReason: requests.rejectionReason,
           submittedAt: requests.submittedAt,
           reviewedAt: requests.reviewedAt,
           activity: {
@@ -149,6 +402,7 @@ export const app = new Elysia()
         id: requests.id,
         status: requests.status,
         note: requests.note,
+        rejectionReason: requests.rejectionReason,
         submittedAt: requests.submittedAt,
         reviewedAt: requests.reviewedAt,
         activity: {
@@ -169,6 +423,7 @@ export const app = new Elysia()
       .from(requests)
       .innerJoin(activities, eq(requests.activityId, activities.id))
       .innerJoin(users, eq(requests.studentId, users.id))
+      .where(statusWhere)
       .orderBy(desc(requests.submittedAt));
     return list;
   })
@@ -246,12 +501,25 @@ export const app = new Elysia()
       }
 
       const activity = await db
-        .select({ id: activities.id })
+        .select({
+          id: activities.id,
+          isActive: activities.isActive,
+          submissionDeadline: activities.submissionDeadline,
+        })
         .from(activities)
         .where(eq(activities.id, body.activityId));
       if (activity.length === 0) {
         set.status = 400;
         return { error: "invalid_activity" };
+      }
+      const act = activity[0];
+      if (act.isActive === false) {
+        set.status = 400;
+        return { error: "activity_closed" };
+      }
+      if (act.submissionDeadline && new Date(act.submissionDeadline).getTime() < Date.now()) {
+        set.status = 400;
+        return { error: "deadline_passed" };
       }
 
       const [created] = await db
@@ -382,6 +650,42 @@ export const app = new Elysia()
       set.status = 404;
       return { error: "not_found" };
     }
+
+    const detail = await db
+      .select({
+        studentId: requests.studentId,
+        studentName: users.name,
+        studentEmail: users.email,
+        activityTitle: activities.title,
+        activityTitleEn: activities.titleEn,
+      })
+      .from(requests)
+      .innerJoin(users, eq(requests.studentId, users.id))
+      .innerJoin(activities, eq(requests.activityId, activities.id))
+      .where(eq(requests.id, params.id));
+
+    if (detail.length > 0) {
+      const d = detail[0];
+      await notifyUser({
+        userId: d.studentId,
+        title: "คำร้องได้รับการอนุมัติ",
+        body: `คำร้องเข้าร่วม "${d.activityTitle}" ของคุณได้รับการอนุมัติแล้ว`,
+        requestId: params.id,
+      });
+      await writeAuditLog({
+        actorId: session.user.id,
+        action: "approve",
+        targetType: "request",
+        targetId: params.id,
+        metadata: { status: "approved" },
+      });
+      await sendStatusEmail({
+        to: d.studentEmail,
+        studentName: d.studentName,
+        activityTitle: d.activityTitle,
+        status: "approved",
+      });
+    }
     return updated;
   })
 
@@ -417,6 +721,7 @@ export const app = new Elysia()
         .set({
           status: "rejected",
           note: body.reason ?? null,
+          rejectionReason: body.reason ?? null,
           reviewedById: session.user.id,
           reviewedAt: sql`now()`,
           updatedAt: sql`now()`,
@@ -426,6 +731,43 @@ export const app = new Elysia()
       if (!updated) {
         set.status = 404;
         return { error: "not_found" };
+      }
+
+      const detail = await db
+        .select({
+          studentId: requests.studentId,
+          studentName: users.name,
+          studentEmail: users.email,
+          activityTitle: activities.title,
+          activityTitleEn: activities.titleEn,
+        })
+        .from(requests)
+        .innerJoin(users, eq(requests.studentId, users.id))
+        .innerJoin(activities, eq(requests.activityId, activities.id))
+        .where(eq(requests.id, params.id));
+
+      if (detail.length > 0) {
+        const d = detail[0];
+        await notifyUser({
+          userId: d.studentId,
+          title: "คำร้องถูกไม่อนุมัติ",
+          body: `คำร้องเข้าร่วม "${d.activityTitle}" ของคุณถูกไม่อนุมัติ${body.reason ? `\nเหตุผล: ${body.reason}` : ""}`,
+          requestId: params.id,
+        });
+        await writeAuditLog({
+          actorId: session.user.id,
+          action: "reject",
+          targetType: "request",
+          targetId: params.id,
+          metadata: { status: "rejected", reason: body.reason ?? null },
+        });
+        await sendStatusEmail({
+          to: d.studentEmail,
+          studentName: d.studentName,
+          activityTitle: d.activityTitle,
+          status: "rejected",
+          reason: body.reason,
+        });
       }
       return updated;
     },
@@ -440,6 +782,145 @@ export const app = new Elysia()
     const session = await auth.api.getSession({ headers });
     if (!session?.user) return { user: null };
     return { user: session.user };
+  })
+
+  // ===== Notifications =====
+  .get("/api/notifications", async ({ headers, set }) => {
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user?.id) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    return await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, session.user.id))
+      .orderBy(desc(notifications.createdAt))
+      .limit(50);
+  })
+
+  .post("/api/notifications/:id/read", async ({ params, headers, set }) => {
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user?.id) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    const [updated] = await db
+      .update(notifications)
+      .set({ readAt: sql`now()` })
+      .where(
+        and(
+          eq(notifications.id, params.id),
+          eq(notifications.userId, session.user.id),
+        ),
+      )
+      .returning();
+    if (!updated) {
+      set.status = 404;
+      return { error: "not_found" };
+    }
+    return updated;
+  })
+
+  .post("/api/notifications/read-all", async ({ headers, set }) => {
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user?.id) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    await db
+      .update(notifications)
+      .set({ readAt: sql`now()` })
+      .where(
+        and(
+          eq(notifications.userId, session.user.id),
+          isNull(notifications.readAt),
+        ),
+      );
+    return { ok: true };
+  })
+
+  // ===== Audit log (admin only) =====
+  .get("/api/audit", async ({ headers, set }) => {
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user?.id) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    const role = (session.user as any).role ?? "student";
+    if (role !== "admin") {
+      set.status = 403;
+      return { error: "admin_only" };
+    }
+    return await db
+      .select()
+      .from(auditLogs)
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(200);
+  })
+
+  // ===== Stats (admin only) =====
+  .get("/api/stats", async ({ headers, set }) => {
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user?.id) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    const role = (session.user as any).role ?? "student";
+    if (role !== "admin") {
+      set.status = 403;
+      return { error: "admin_only" };
+    }
+
+    const all = await db
+      .select({
+        id: requests.id,
+        status: requests.status,
+        activityId: requests.activityId,
+        activityTitle: activities.title,
+        activityTitleEn: activities.titleEn,
+        faculty: users.faculty,
+      })
+      .from(requests)
+      .innerJoin(activities, eq(requests.activityId, activities.id))
+      .innerJoin(users, eq(requests.studentId, users.id));
+
+    const countBy = (status?: string) =>
+      status ? all.filter((r) => r.status === status).length : all.length;
+
+    const byActivityMap = new Map<string, { title: string; titleEn: string; total: number; pending: number; approved: number; rejected: number }>();
+    const byFacultyMap = new Map<string, { faculty: string; total: number; pending: number; approved: number; rejected: number }>();
+
+    for (const r of all) {
+      const a = byActivityMap.get(r.activityId) ?? {
+        id: r.activityId,
+        title: r.activityTitle,
+        titleEn: r.activityTitleEn,
+        total: 0, pending: 0, approved: 0, rejected: 0,
+      };
+      a.total++;
+      if (r.status === "pending") a.pending++;
+      else if (r.status === "approved") a.approved++;
+      else a.rejected++;
+      byActivityMap.set(r.activityId, a);
+
+      const f = r.faculty ?? "ไม่ระบุ";
+      const b = byFacultyMap.get(f) ?? { faculty: f, total: 0, pending: 0, approved: 0, rejected: 0 };
+      b.total++;
+      if (r.status === "pending") b.pending++;
+      else if (r.status === "approved") b.approved++;
+      else b.rejected++;
+      byFacultyMap.set(f, b);
+    }
+
+    return {
+      total: countBy(),
+      pending: countBy("pending"),
+      approved: countBy("approved"),
+      rejected: countBy("rejected"),
+      byActivity: [...byActivityMap.values()],
+      byFaculty: [...byFacultyMap.values()],
+    };
   });
 
 export type App = typeof app;

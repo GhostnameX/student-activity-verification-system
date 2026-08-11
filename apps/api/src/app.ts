@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { auth } from "./auth";
+import { generateCertificatePDFForEmail } from "./certificate";
 import {
   requests,
   activities,
@@ -8,9 +9,10 @@ import {
   users,
   notifications,
   auditLogs,
+  certificateCounters,
 } from "@ua/db/schema";
 import { db } from "@ua/db/client";
-import { eq, and, desc, sql, count, isNull } from "drizzle-orm";
+import { eq, and, desc, sql, isNull } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 
@@ -28,12 +30,26 @@ const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 const ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf"]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
+const THAI_MONTHS = [
+  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
+];
+
+function formatBuddhistDate(d: Date): { day: number; month: string; year: number } {
+  return {
+    day: d.getDate(),
+    month: THAI_MONTHS[d.getMonth()],
+    year: d.getFullYear() + 543,
+  };
+}
+
 async function sendStatusEmail(opts: {
   to: string;
   studentName: string;
   activityTitle: string;
   status: "approved" | "rejected";
   reason?: string | null;
+  attachments?: Array<{ filename: string; content: string }>;
 }) {
   if (!RESEND_API_KEY) {
     console.log(`[email] skipped (no RESEND_API_KEY) -> ${opts.to} (${opts.status})`);
@@ -43,21 +59,25 @@ async function sendStatusEmail(opts: {
     ? "คำร้องของคุณได้รับการอนุมัติ"
     : "คำร้องของคุณถูกไม่อนุมัติ";
   const body = opts.status === "approved"
-    ? `สวัสดี คุณ${opts.studentName} คำร้องเข้าร่วม "${opts.activityTitle}" ของคุณได้รับการอนุมัติแล้ว`
+    ? `สวัสดี คุณ${opts.studentName} คำร้องเข้าร่วม "${opts.activityTitle}" ของคุณได้รับการอนุมัติแล้ว\nกรุณาตรวจสอบใบรับรองที่แนบมาด้วย`
     : `สวัสดี คุณ${opts.studentName} คำร้องเข้าร่วม "${opts.activityTitle}" ของคุณถูกไม่อนุมัติ${opts.reason ? `\nเหตุผล: ${opts.reason}` : ""}`;
   try {
+    const payload: Record<string, unknown> = {
+      from: EMAIL_FROM,
+      to: [opts.to],
+      subject: `${th} — ระบบคำร้องกิจกรรม`,
+      text: body,
+    };
+    if (opts.attachments && opts.attachments.length > 0) {
+      payload.attachments = opts.attachments;
+    }
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from: EMAIL_FROM,
-        to: [opts.to],
-        subject: `${th} — ระบบคำร้องกิจกรรม`,
-        text: body,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       console.log(`[email] send failed: ${res.status} ${await res.text()}`);
@@ -641,20 +661,54 @@ export const app = new Elysia()
       return { error: "already_reviewed" };
     }
 
-    const [updated] = await db
-      .update(requests)
-      .set({
-        status: "approved",
-        activityName: body.activityName ?? null,
-        reviewedById: session.user.id,
-        reviewedAt: sql`now()`,
-        updatedAt: sql`now()`,
-      })
-      .where(eq(requests.id, params.id))
-      .returning();
-    if (!updated) {
-      set.status = 404;
-      return { error: "not_found" };
+    const approved = await db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .update(requests)
+        .set({
+          status: "approved",
+          activityName: body.activityName ?? null,
+          reviewedById: session.user.id,
+          reviewedAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
+        .where(and(eq(requests.id, params.id), eq(requests.status, "pending")))
+        .returning({ id: requests.id, certificateNumber: requests.certificateNumber });
+      if (!claimed) return null;
+
+      let requestNumber = claimed.certificateNumber;
+      if (requestNumber == null) {
+        const year = new Date().getFullYear() + 543;
+        await tx
+          .insert(certificateCounters)
+          .values({ year, lastNumber: 0 })
+          .onConflictDoNothing();
+        const [counter] = await tx
+          .update(certificateCounters)
+          .set({ lastNumber: sql`${certificateCounters.lastNumber} + 1` })
+          .where(eq(certificateCounters.year, year))
+          .returning({ lastNumber: certificateCounters.lastNumber });
+        requestNumber = counter.lastNumber;
+        await tx
+          .update(requests)
+          .set({ certificateNumber: requestNumber, certificateYear: year })
+          .where(eq(requests.id, params.id));
+      }
+
+      const [row] = await tx
+        .select({
+          id: requests.id,
+          studentId: requests.studentId,
+          activityName: requests.activityName,
+          certificateNumber: requests.certificateNumber,
+          certificateYear: requests.certificateYear,
+        })
+        .from(requests)
+        .where(eq(requests.id, params.id));
+      return { ...row, requestNumber };
+    });
+    if (!approved) {
+      set.status = 400;
+      return { error: "already_reviewed" };
     }
 
     const detail = await db
@@ -662,6 +716,8 @@ export const app = new Elysia()
         studentId: requests.studentId,
         studentName: users.name,
         studentEmail: users.email,
+        studentFaculty: users.faculty,
+        studentCode: users.studentId,
         activityTitle: activities.title,
         activityTitleEn: activities.titleEn,
         activityName: requests.activityName,
@@ -685,16 +741,45 @@ export const app = new Elysia()
         action: "approve",
         targetType: "request",
         targetId: params.id,
-        metadata: { status: "approved", activityName: d.activityName ?? null },
+        metadata: {
+          status: "approved",
+          activityName: d.activityName ?? null,
+          certificateNumber: approved.requestNumber,
+          certificateYear: approved.certificateYear,
+        },
       });
+
+      let attachment: { filename: string; content: string } | undefined;
+      try {
+        const now = new Date();
+        const buddhist = formatBuddhistDate(now);
+        const reviewedDate = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear() + 543}`;
+        attachment = await generateCertificatePDFForEmail({
+          requestNumber: approved.requestNumber,
+          location: process.env.CERTIFICATE_LOCATION || "นครปฐม",
+          dateDay: buddhist.day,
+          dateMonth: buddhist.month,
+          dateYear: buddhist.year,
+          studentName: d.studentName,
+          studentId: d.studentCode,
+          faculty: d.studentFaculty,
+          approved: true,
+          reason: null,
+          reviewedDate,
+        });
+      } catch (e) {
+        console.log(`[certificate] generation failed: ${e}`);
+      }
+
       await sendStatusEmail({
         to: d.studentEmail,
         studentName: d.studentName,
         activityTitle: displayTitle,
         status: "approved",
+        attachments: attachment ? [attachment] : undefined,
       });
     }
-    return updated;
+    return approved;
   },
   {
     body: t.Object({

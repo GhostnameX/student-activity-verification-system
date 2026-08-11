@@ -137,6 +137,8 @@ export const requests = pgTable(
     note: text("note"),
     rejectionReason: text("rejection_reason"),
     activityName: text("activity_name"),
+    certificateNumber: integer("certificate_number"),
+    certificateYear: integer("certificate_year"),
     reviewedById: text("reviewed_by_id").references(() => users.id),
     reviewedAt: timestamp("reviewed_at"),
     submittedAt: timestamp("submitted_at")
@@ -150,7 +152,18 @@ export const requests = pgTable(
     index("requests_student_idx").on(t.studentId),
     index("requests_status_idx").on(t.status),
     index("requests_activity_idx").on(t.activityId),
+    uniqueIndex("requests_cert_number_uidx")
+      .on(t.certificateYear, t.certificateNumber)
+      .where(sql`${t.certificateNumber} is not null`),
   ],
+);
+
+export const certificateCounters = pgTable(
+  "certificate_counters",
+  {
+    year: integer("year").primaryKey(),
+    lastNumber: integer("last_number").notNull().default(0),
+  },
 );
 
 export const requestAttachments = pgTable(

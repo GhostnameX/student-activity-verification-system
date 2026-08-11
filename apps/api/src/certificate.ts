@@ -120,12 +120,12 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
   return Buffer.from(bytes);
 }
 
-export const CERTIFICATE_FILENAME = (n: number) => `ใบรับรองการตรวจสอบกิจกรรม_${n}_2569.pdf`;
+export const CERTIFICATE_FILENAME = (n: number, year: number) => `ใบรับรองการตรวจสอบกิจกรรม_${n}_${year}.pdf`;
 
 export async function generateCertificatePDFForEmail(data: CertificateData) {
   const buffer = await generateCertificatePDF(data);
   return {
-    filename: CERTIFICATE_FILENAME(data.requestNumber),
+    filename: CERTIFICATE_FILENAME(data.requestNumber, data.dateYear),
     content: buffer.toString("base64"),
   };
 }

@@ -13,6 +13,7 @@
 		LayoutDashboard,
 		Bell,
 		CheckCheck,
+		User,
 	} from 'lucide-svelte';
 	import {
 		getNotifications,
@@ -84,6 +85,7 @@
 			$user?.role === 'admin'
 				? { href: '/admin', label: translate($lang, 'dashboard'), icon: LayoutDashboard }
 				: null,
+			$user ? { href: '/profile', label: translate($lang, 'profile'), icon: User } : null,
 		].filter((x): x is { href: string; label: string; icon: typeof FileText } => x !== null),
 	);
 </script>

@@ -40,6 +40,7 @@ export const users = pgTable(
     role: roleEnum("role").default("student").notNull(),
     faculty: text("faculty"),
     studentId: text("student_id"),
+    phone: text("phone"),
   },
   (t) => [
     uniqueIndex("users_email_unique").on(t.email),

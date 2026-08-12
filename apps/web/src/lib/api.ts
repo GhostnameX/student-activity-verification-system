@@ -16,6 +16,7 @@ export interface SessionUser {
   role: string;
   faculty?: string | null;
   studentId?: string | null;
+  phone?: string | null;
 }
 
 export interface Activity {
@@ -120,6 +121,13 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
 export async function getMe(): Promise<{ user: SessionUser | null }> {
   return apiFetch("/api/me");
+}
+
+export async function updateMe(body: { phone: string }): Promise<{ phone: string | null }> {
+  return apiFetch("/api/me", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
 }
 
 export async function getActivities(includeInactive = false): Promise<Activity[]> {

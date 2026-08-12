@@ -718,6 +718,7 @@ export const app = new Elysia()
         studentEmail: users.email,
         studentFaculty: users.faculty,
         studentCode: users.studentId,
+        studentPhone: users.phone,
         activityTitle: activities.title,
         activityTitleEn: activities.titleEn,
         activityName: requests.activityName,
@@ -763,6 +764,7 @@ export const app = new Elysia()
           studentName: d.studentName,
           studentId: d.studentCode,
           faculty: d.studentFaculty,
+          phone: d.studentPhone,
           approved: true,
           reason: null,
           reviewedDate,
@@ -883,8 +885,51 @@ export const app = new Elysia()
   .get("/api/me", async ({ headers }) => {
     const session = await auth.api.getSession({ headers });
     if (!session?.user) return { user: null };
-    return { user: session.user };
+    const [me] = await db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+        faculty: users.faculty,
+        studentId: users.studentId,
+        phone: users.phone,
+      })
+      .from(users)
+      .where(eq(users.id, session.user.id));
+    if (!me) return { user: null };
+    return { user: me };
   })
+
+  .patch(
+    "/api/me",
+    async ({ headers, body, set }) => {
+      const session = await auth.api.getSession({ headers });
+      if (!session?.user?.id) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      const raw = (body.phone ?? "").trim();
+      if (raw !== "") {
+        const digits = raw.replace(/[-\s]/g, "");
+        if (!/^\d{9,10}$/.test(digits)) {
+          set.status = 400;
+          return { error: "invalid_phone" };
+        }
+      }
+      const phone = raw === "" ? null : raw;
+      await db
+        .update(users)
+        .set({ phone, updatedAt: sql`now()` })
+        .where(eq(users.id, session.user.id));
+      return { phone };
+    },
+    {
+      body: t.Object({
+        phone: t.Optional(t.String()),
+      }),
+    },
+  )
 
   // ===== Notifications =====
   .get("/api/notifications", async ({ headers, set }) => {

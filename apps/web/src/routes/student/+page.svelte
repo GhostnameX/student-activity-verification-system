@@ -21,6 +21,7 @@
 		Clock,
 		CircleCheck,
 		CircleX,
+		CircleAlert,
 	} from 'lucide-svelte';
 
 	let activities: Activity[] = $state([]);
@@ -121,6 +122,19 @@
 		{#if successMsg}
 			<div class="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
 				{successMsg}
+			</div>
+		{/if}
+		{#if $user && !$user.phone}
+			<div
+				class="mt-4 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+			>
+				<CircleAlert size={16} class="shrink-0 text-amber-600" />
+				<div class="flex flex-1 flex-wrap items-center justify-between gap-2">
+					<span>{translate($lang, 'phoneMissingWarning')}</span>
+					<a href="/profile" class="shrink-0 font-semibold text-amber-700 hover:underline">
+						{translate($lang, 'profile')}
+					</a>
+				</div>
 			</div>
 		{/if}
 

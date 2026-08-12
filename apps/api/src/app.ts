@@ -756,7 +756,7 @@ export const app = new Elysia()
         const reviewedDate = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear() + 543}`;
         attachment = await generateCertificatePDFForEmail({
           requestNumber: approved.requestNumber,
-          location: process.env.CERTIFICATE_LOCATION || "นครปฐม",
+          location: process.env.CERTIFICATE_LOCATION || "พิษณุโลก",
           dateDay: buddhist.day,
           dateMonth: buddhist.month,
           dateYear: buddhist.year,

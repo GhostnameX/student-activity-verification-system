@@ -236,3 +236,51 @@ export const auditLogs = pgTable(
     index("audit_logs_created_idx").on(t.createdAt),
   ],
 );
+
+export const studentStatusEnum = pgEnum("student_status", [
+  "active",
+  "graduated",
+  "withdrawn",
+]);
+
+export const importBatches = pgTable("import_batches", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  fileName: text("file_name").notNull(),
+  totalRows: integer("total_rows").notNull().default(0),
+  importedRows: integer("imported_rows").notNull().default(0),
+  importedBy: text("imported_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at")
+    .default(sql`now()`)
+    .notNull(),
+});
+
+export const students = pgTable(
+  "students",
+  {
+    studentId: text("student_id").primaryKey(),
+    firstName: text("first_name").notNull(),
+    lastName: text("last_name").notNull(),
+    major: text("major").notNull(),
+    groupName: text("group_name"),
+    level: text("level"),
+    admissionYear: integer("admission_year").notNull(),
+    status: studentStatusEnum("status").default("active").notNull(),
+    importBatchId: text("import_batch_id").references(() => importBatches.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .default(sql`now()`)
+      .notNull(),
+  },
+  (t) => [
+    index("students_major_idx").on(t.major),
+    index("students_status_idx").on(t.status),
+  ],
+);

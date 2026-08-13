@@ -43,6 +43,13 @@
       "when": 1786592164941,
       "tag": "0005_oval_moondragon",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786638341205,
+      "tag": "0006_clean_microchip",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,7 @@ import {
   notifications,
   auditLogs,
   certificateCounters,
+  students,
 } from "@ua/db/schema";
 import { db } from "@ua/db/client";
 import { eq, and, desc, sql, isNull } from "drizzle-orm";
@@ -1068,6 +1069,143 @@ export const app = new Elysia()
       byActivity: [...byActivityMap.values()],
       byFaculty: [...byFacultyMap.values()],
     };
-  });
+  })
+
+  // ===== Submission stats vs roster (staff + admin) =====
+  .get("/api/stats/submission", async ({ headers, set }) => {
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user?.id) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    const role = (session.user as any).role ?? "student";
+    if (role !== "admin" && role !== "staff") {
+      set.status = 403;
+      return { error: "staff_admin_only" };
+    }
+
+    const eligible = await db
+      .select({
+        studentId: students.studentId,
+        major: students.major,
+      })
+      .from(students)
+      .where(eq(students.status, "active"));
+
+    const submittedRows = await db
+      .selectDistinct({ studentId: users.studentId })
+      .from(requests)
+      .innerJoin(users, eq(requests.studentId, users.id))
+      .where(sql`${users.studentId} is not null`);
+    const submittedSet = new Set(
+      submittedRows.map((r) => r.studentId as string),
+    );
+
+    const byMajorMap = new Map<
+      string,
+      { major: string; total: number; submitted: number }
+    >();
+    for (const s of eligible) {
+      const m = byMajorMap.get(s.major) ?? {
+        major: s.major,
+        total: 0,
+        submitted: 0,
+      };
+      m.total++;
+      if (submittedSet.has(s.studentId)) m.submitted++;
+      byMajorMap.set(s.major, m);
+    }
+
+    const submitted = eligible.filter((s) =>
+      submittedSet.has(s.studentId),
+    ).length;
+    const total = eligible.length;
+    const notSubmitted = total - submitted;
+    const rate = total > 0 ? submitted / total : 0;
+
+    return {
+      total,
+      submitted,
+      notSubmitted,
+      rate,
+      byMajor: [...byMajorMap.values()].map((m) => ({
+        ...m,
+        notSubmitted: m.total - m.submitted,
+        rate: m.total > 0 ? m.submitted / m.total : 0,
+      })),
+    };
+  })
+
+  // ===== Not-submitted roster list (staff + admin) =====
+  .get(
+    "/api/roster/not-submitted",
+    async ({ headers, query, set }) => {
+      const session = await auth.api.getSession({ headers });
+      if (!session?.user?.id) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      const role = (session.user as any).role ?? "student";
+      if (role !== "admin" && role !== "staff") {
+        set.status = 403;
+        return { error: "staff_admin_only" };
+      }
+
+      const major = query.major?.trim() || undefined;
+      const group = query.group?.trim() || undefined;
+      const search = query.search?.trim() || undefined;
+      const page = Math.max(1, Number(query.page) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 50));
+
+      const submittedSub = db
+        .select({ studentId: users.studentId })
+        .from(requests)
+        .innerJoin(users, eq(requests.studentId, users.id))
+        .where(sql`${users.studentId} is not null`)
+        .as("submitted_students");
+
+      const conds: any[] = [
+        eq(students.status, "active"),
+        isNull(submittedSub.studentId),
+      ];
+      if (major) conds.push(eq(students.major, major));
+      if (group) conds.push(eq(students.groupName, group));
+      if (search) {
+        const like = `%${search}%`;
+        conds.push(sql`(${students.firstName} || ' ' || ${students.lastName} ILIKE ${like} OR ${students.studentId} ILIKE ${like})`);
+      }
+
+      const where = and(...conds);
+
+      const countRes = await db
+        .select({ n: sql<number>`count(*)` })
+        .from(students)
+        .leftJoin(submittedSub, eq(submittedSub.studentId, students.studentId))
+        .where(where);
+
+      const rows = await db
+        .select({
+          studentId: students.studentId,
+          firstName: students.firstName,
+          lastName: students.lastName,
+          major: students.major,
+          groupName: students.groupName,
+          level: students.level,
+        })
+        .from(students)
+        .leftJoin(submittedSub, eq(submittedSub.studentId, students.studentId))
+        .where(where)
+        .orderBy(students.major, students.groupName, students.studentId)
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
+
+      return {
+        total: Number(countRes[0]?.n ?? 0),
+        page,
+        pageSize,
+        items: rows,
+      };
+    },
+  );
 
 export type App = typeof app;

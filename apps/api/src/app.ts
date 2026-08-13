@@ -1088,6 +1088,7 @@ export const app = new Elysia()
       .select({
         studentId: students.studentId,
         major: students.major,
+        groupName: students.groupName,
       })
       .from(students)
       .where(eq(students.status, "active"));
@@ -1103,15 +1104,17 @@ export const app = new Elysia()
 
     const byMajorMap = new Map<
       string,
-      { major: string; total: number; submitted: number }
+      { major: string; total: number; submitted: number; groups: Set<string> }
     >();
     for (const s of eligible) {
       const m = byMajorMap.get(s.major) ?? {
         major: s.major,
         total: 0,
         submitted: 0,
+        groups: new Set<string>(),
       };
       m.total++;
+      if (s.groupName) m.groups.add(s.groupName);
       if (submittedSet.has(s.studentId)) m.submitted++;
       byMajorMap.set(s.major, m);
     }
@@ -1132,6 +1135,7 @@ export const app = new Elysia()
         ...m,
         notSubmitted: m.total - m.submitted,
         rate: m.total > 0 ? m.submitted / m.total : 0,
+        groups: [...m.groups].sort(),
       })),
     };
   })

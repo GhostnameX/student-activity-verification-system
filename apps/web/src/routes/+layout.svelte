@@ -82,6 +82,9 @@
 			$user?.role === 'staff' || $user?.role === 'admin'
 				? { href: '/staff', label: translate($lang, 'allRequests'), icon: Inbox }
 				: null,
+			$user?.role === 'staff' || $user?.role === 'admin'
+				? { href: '/stats', label: translate($lang, 'submissionStats'), icon: LayoutDashboard }
+				: null,
 			$user?.role === 'admin'
 				? { href: '/admin', label: translate($lang, 'dashboard'), icon: LayoutDashboard }
 				: null,

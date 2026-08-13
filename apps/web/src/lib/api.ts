@@ -228,6 +228,60 @@ export async function getStats(): Promise<StatsResponse> {
   return apiFetch("/api/stats");
 }
 
+export interface MajorSubmissionStats {
+  major: string;
+  total: number;
+  submitted: number;
+  notSubmitted: number;
+  rate: number;
+  groups: string[];
+}
+
+export interface SubmissionStats {
+  total: number;
+  submitted: number;
+  notSubmitted: number;
+  rate: number;
+  byMajor: MajorSubmissionStats[];
+}
+
+export async function getSubmissionStats(): Promise<SubmissionStats> {
+  return apiFetch("/api/stats/submission");
+}
+
+export interface RosterStudent {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  major: string;
+  groupName: string;
+  level: string;
+}
+
+export interface NotSubmittedList {
+  total: number;
+  page: number;
+  pageSize: number;
+  items: RosterStudent[];
+}
+
+export async function getNotSubmitted(params: {
+  major?: string;
+  group?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<NotSubmittedList> {
+  const q = new URLSearchParams();
+  if (params.major) q.set("major", params.major);
+  if (params.group) q.set("group", params.group);
+  if (params.search) q.set("search", params.search);
+  if (params.page) q.set("page", String(params.page));
+  if (params.pageSize) q.set("pageSize", String(params.pageSize));
+  const qs = q.toString();
+  return apiFetch(`/api/roster/not-submitted${qs ? `?${qs}` : ""}`);
+}
+
 export interface StatsResponse {
   total: number;
   pending: number;

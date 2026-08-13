@@ -42,6 +42,7 @@
 
 	const inputClass =
 		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100';
+	const phoneInputClass = inputClass.replace('px-3.5', 'pl-10 pr-3.5');
 </script>
 
 <div class="mx-auto max-w-lg py-4">
@@ -91,7 +92,7 @@
 							type="tel"
 							inputmode="tel"
 							placeholder={translate($lang, 'phonePlaceholder')}
-							class={inputClass}
+							class={phoneInputClass}
 						/>
 					</div>
 					<p class="mt-1.5 text-xs text-ink-400">{translate($lang, 'phoneOnCertificate')}</p>

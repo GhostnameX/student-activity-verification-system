@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { onMount } from 'svelte';
 	import { lang } from '$lib/store';
 	import { user } from '$lib/auth';
@@ -102,7 +102,7 @@
 	}
 
 	const inputClass =
-		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100';
+		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100';
 </script>
 
 <div class="grid grid-cols-1 gap-8 xl:grid-cols-5">
@@ -139,7 +139,7 @@
 		{/if}
 
 		<!-- Submit form -->
-		<div class="mt-4 rounded-3xl border border-ink-100 bg-white p-6 shadow-soft xl:sticky xl:top-24">
+		<div class="mt-4 rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft xl:sticky xl:top-24">
 		<div class="mb-5 flex items-center gap-2.5">
 			<span class="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
 				<FileText size={18} />
@@ -221,13 +221,13 @@
 			</span>
 		</div>
 		{#if requests.length === 0}
-			<div class="rounded-2xl border border-dashed border-ink-200 bg-white/60 px-6 py-10 text-center">
+			<div class="rounded-2xl border border-dashed border-ink-200 bg-surface/60 px-6 py-10 text-center">
 				<FileText size={28} class="mx-auto mb-2 text-ink-300" />
 				<p class="text-sm text-ink-500">{translate($lang, 'noRequests')}</p>
 			</div>
 		{:else}
 			{#each requests as r (r.id)}
-				<div class="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft transition hover:shadow-lift">
+				<div class="rounded-2xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
 					<div class="flex items-start justify-between gap-4">
 						<div class="min-w-0">
 							<div class="flex items-center gap-2">

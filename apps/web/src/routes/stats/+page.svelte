@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { onMount } from 'svelte';
 	import { lang } from '$lib/store';
 	import { user } from '$lib/auth';
@@ -142,7 +142,7 @@
 		</div>
 		<button
 			onclick={refresh}
-			class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
+			class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
 		>
 			<RefreshCw size={15} />
 			{translate($lang, 'refresh')}
@@ -162,28 +162,28 @@
 		</div>
 	{:else if stats}
 		<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-			<div class="rounded-3xl border border-ink-100 bg-white p-5 shadow-soft transition hover:shadow-lift">
+			<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
 				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-ink-500 to-ink-700 text-white shadow-soft">
 					<Users size={19} />
 				</div>
 				<p class="text-sm text-ink-500">{translate($lang, 'eligibleStudents')}</p>
 				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{stats.total}</p>
 			</div>
-			<div class="rounded-3xl border border-ink-100 bg-white p-5 shadow-soft transition hover:shadow-lift">
+			<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
 				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-green-700 text-white shadow-soft">
 					<CircleCheck size={19} />
 				</div>
 				<p class="text-sm text-ink-500">{translate($lang, 'submittedCount')}</p>
 				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{stats.submitted}</p>
 			</div>
-			<div class="rounded-3xl border border-ink-100 bg-white p-5 shadow-soft transition hover:shadow-lift">
+			<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
 				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-white shadow-soft">
 					<UserX size={19} />
 				</div>
 				<p class="text-sm text-ink-500">{translate($lang, 'notSubmittedCount')}</p>
 				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{stats.notSubmitted}</p>
 			</div>
-			<div class="rounded-3xl border border-ink-100 bg-white p-5 shadow-soft transition hover:shadow-lift">
+			<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
 				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
 					<TrendingUp size={19} />
 				</div>
@@ -192,7 +192,7 @@
 			</div>
 		</div>
 
-		<div class="overflow-x-auto rounded-3xl border border-ink-100 bg-white shadow-soft">
+		<div class="overflow-x-auto rounded-3xl border border-ink-100 bg-surface shadow-soft">
 			<div class="flex items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
 				<h2 class="flex items-center gap-2 text-lg font-bold text-ink-900">
 					<Users size={18} class="text-brand-600" />
@@ -200,7 +200,7 @@
 				</h2>
 				<button
 					onclick={() => openModal()}
-					class="flex items-center gap-1.5 rounded-xl bg-ink-900 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-ink-800"
+					class="flex items-center gap-1.5 rounded-xl bg-ink-900 px-4 py-2 text-sm font-semibold text-ink-50 shadow-soft transition hover:bg-ink-800"
 				>
 					<UserX size={15} />
 					{translate($lang, 'viewNotSubmitted')}
@@ -229,7 +229,7 @@
 								{#if m.notSubmitted > 0}
 									<button
 										onclick={() => openModal(m.major)}
-										class="inline-flex items-center gap-1 rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 transition hover:border-brand-300 hover:text-brand-700"
+										class="inline-flex items-center gap-1 rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-xs font-semibold text-ink-700 transition hover:border-brand-300 hover:text-brand-700"
 									>
 										<Search size={13} />
 										{translate($lang, 'viewNotSubmitted')}
@@ -248,14 +248,14 @@
 
 {#if modalOpen}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4 backdrop-blur-sm"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"
 		onclick={(e) => { if (e.target === e.currentTarget) modalOpen = false; }}
 		onkeydown={(e) => { if (e.key === 'Escape') modalOpen = false; }}
 	>
-		<div class="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-lift">
+		<div class="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-surface shadow-lift">
 			<div class="flex items-start justify-between gap-3 border-b border-ink-100 px-6 py-5">
 				<div>
 					<h3 class="flex items-center gap-2 text-lg font-bold text-ink-900">
@@ -284,13 +284,13 @@
 						type="text"
 						placeholder={translate($lang, 'searchPlaceholder')}
 						onkeydown={(e) => { if (e.key === 'Enter') applySearch(); }}
-						class="w-full rounded-xl border border-ink-200 bg-ink-50 py-2 pl-9 pr-3.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100"
+						class="w-full rounded-xl border border-ink-200 bg-ink-50 py-2 pl-9 pr-3.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
 					/>
 				</div>
 				<select
 					bind:value={filterMajor}
 					onchange={changeMajor}
-					class="rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100"
+					class="rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
 				>
 					<option value="">{translate($lang, 'allMajors')}</option>
 					{#each stats?.byMajor ?? [] as m (m.major)}
@@ -300,7 +300,7 @@
 				<select
 					bind:value={filterGroup}
 					onchange={changeGroup}
-					class="rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100"
+					class="rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
 				>
 					<option value="">{translate($lang, 'allGroups')}</option>
 					{#each selectedMajor?.groups ?? [] as g (g)}
@@ -365,7 +365,7 @@
 					<button
 						onclick={() => goPage(rosterPage - 1)}
 						disabled={rosterPage <= 1}
-						class="flex items-center gap-1 rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm font-medium text-ink-700 transition enabled:hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
+						class="flex items-center gap-1 rounded-xl border border-ink-200 bg-surface px-3 py-2 text-sm font-medium text-ink-700 transition enabled:hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
 					>
 						<ChevronLeft size={15} />
 						{translate($lang, 'prev')}
@@ -373,7 +373,7 @@
 					<button
 						onclick={() => goPage(rosterPage + 1)}
 						disabled={rosterPage >= totalPages}
-						class="flex items-center gap-1 rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm font-medium text-ink-700 transition enabled:hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
+						class="flex items-center gap-1 rounded-xl border border-ink-200 bg-surface px-3 py-2 text-sm font-medium text-ink-700 transition enabled:hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
 					>
 						{translate($lang, 'next')}
 						<ChevronRight size={15} />

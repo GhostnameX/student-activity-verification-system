@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { lang } from '$lib/store';
 	import { user } from '$lib/auth';
 	import { translate } from '$lib/i18n';
@@ -51,7 +51,7 @@
 			<ShieldCheck size={15} />
 			{translate($lang, 'welcome')}, {$user.name}
 		</div>
-		<div class="mb-6 text-7xl">🎓</div>
+		<div class="mb-6 text-7xl">๐“</div>
 		<h1 class="mb-4 text-5xl font-extrabold tracking-tight text-ink-900">
 			{translate($lang, 'appName')}
 		</h1>
@@ -87,7 +87,7 @@
 				</a>
 				<a
 					href="/auth/signup"
-					class="rounded-2xl border border-ink-200 bg-white px-9 py-4 text-base font-semibold text-ink-700 transition hover:-translate-y-0.5 hover:bg-ink-50"
+					class="rounded-2xl border border-ink-200 bg-surface px-9 py-4 text-base font-semibold text-ink-700 transition hover:-translate-y-0.5 hover:bg-ink-50"
 				>
 					{translate($lang, 'signUp')}
 				</a>
@@ -97,7 +97,7 @@
 		<div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
 			{#each features as f (f.title)}
 				<div
-					class="rounded-3xl border border-ink-100 bg-white p-6 shadow-soft transition hover:-translate-y-1 hover:shadow-lift"
+					class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft transition hover:-translate-y-1 hover:shadow-lift"
 				>
 					<div class="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
 						<f.icon size={22} />

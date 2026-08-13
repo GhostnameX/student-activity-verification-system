@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { onMount } from 'svelte';
 	import { lang } from '$lib/store';
 	import { user } from '$lib/auth';
@@ -89,11 +89,11 @@
 
 	function actionLabel(action: string) {
 		const map: Record<string, string> = {
-			approve: $lang === 'th' ? 'อนุมัติ' : 'Approve',
-			reject: $lang === 'th' ? 'ไม่อนุมัติ' : 'Reject',
-			activity_create: $lang === 'th' ? 'สร้างกิจกรรม' : 'Create activity',
-			activity_update: $lang === 'th' ? 'แก้ไขกิจกรรม' : 'Update activity',
-			activity_delete: $lang === 'th' ? 'ลบกิจกรรม' : 'Delete activity',
+			approve: $lang === 'th' ? 'เธญเธเธธเธกเธฑเธ•เธด' : 'Approve',
+			reject: $lang === 'th' ? 'เนเธกเนเธญเธเธธเธกเธฑเธ•เธด' : 'Reject',
+			activity_create: $lang === 'th' ? 'เธชเธฃเนเธฒเธเธเธดเธเธเธฃเธฃเธก' : 'Create activity',
+			activity_update: $lang === 'th' ? 'เนเธเนเนเธเธเธดเธเธเธฃเธฃเธก' : 'Update activity',
+			activity_delete: $lang === 'th' ? 'เธฅเธเธเธดเธเธเธฃเธฃเธก' : 'Delete activity',
 		};
 		return map[action] ?? action;
 	}
@@ -109,11 +109,11 @@
 			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'stats')}</p>
 		</div>
 		<div class="flex items-center gap-2">
-			<div class="flex items-center gap-1 rounded-2xl border border-ink-100 bg-white p-1 shadow-soft">
+			<div class="flex items-center gap-1 rounded-2xl border border-ink-100 bg-surface p-1 shadow-soft">
 				<button
 					onclick={() => (activeTab = 'stats')}
 					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-						activeTab === 'stats' ? 'bg-ink-900 text-white shadow-soft' : 'text-ink-600 hover:bg-ink-50'
+						activeTab === 'stats' ? 'bg-ink-900 text-ink-50 shadow-soft' : 'text-ink-600 hover:bg-ink-50'
 					}`}
 				>
 					{translate($lang, 'stats')}
@@ -121,7 +121,7 @@
 				<button
 					onclick={() => (activeTab = 'audit')}
 					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-						activeTab === 'audit' ? 'bg-ink-900 text-white shadow-soft' : 'text-ink-600 hover:bg-ink-50'
+						activeTab === 'audit' ? 'bg-ink-900 text-ink-50 shadow-soft' : 'text-ink-600 hover:bg-ink-50'
 					}`}
 				>
 					{translate($lang, 'auditLog')}
@@ -129,7 +129,7 @@
 			</div>
 			<button
 				onclick={refresh}
-				class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
+				class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
 			>
 				<RefreshCw size={15} />
 				{translate($lang, 'refresh')}
@@ -145,7 +145,7 @@
 	{:else if activeTab === 'stats'}
 		<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
 			{#each statCards as s (s.label)}
-				<div class="rounded-3xl border border-ink-100 bg-white p-5 shadow-soft transition hover:shadow-lift">
+				<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
 					<div
 						class={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${s.classes} text-white shadow-soft`}
 					>
@@ -158,7 +158,7 @@
 		</div>
 
 		<div class="grid gap-6 lg:grid-cols-2">
-			<div class="rounded-3xl border border-ink-100 bg-white p-6 shadow-soft">
+			<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
 				<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
 					<CalendarDays size={18} class="text-brand-600" />
 					{translate($lang, 'byActivity')}
@@ -193,7 +193,7 @@
 				{/if}
 			</div>
 
-			<div class="rounded-3xl border border-ink-100 bg-white p-6 shadow-soft">
+			<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
 				<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
 					<Users size={18} class="text-brand-600" />
 					{translate($lang, 'byFaculty')}
@@ -229,7 +229,7 @@
 			</div>
 		</div>
 
-		<div class="overflow-x-auto rounded-3xl border border-ink-100 bg-white shadow-soft">
+		<div class="overflow-x-auto rounded-3xl border border-ink-100 bg-surface shadow-soft">
 			<table class="w-full text-left text-sm">
 				<thead class="border-b border-ink-100 bg-ink-50/70 text-xs font-semibold uppercase tracking-wide text-ink-500">
 					<tr>
@@ -270,7 +270,7 @@
 			</table>
 		</div>
 	{:else}
-		<div class="rounded-3xl border border-ink-100 bg-white p-6 shadow-soft">
+		<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
 			<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
 				<ScrollText size={18} class="text-brand-600" />
 				{translate($lang, 'auditLog')}

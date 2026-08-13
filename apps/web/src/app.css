@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
 	--font-sans:
 		'Inter', 'IBM Plex Sans Thai', 'Noto Sans Thai', ui-sans-serif, system-ui, sans-serif;
@@ -28,8 +30,41 @@
 	--color-ink-900: #34374b;
 	--color-ink-950: #1c1e2c;
 
+	--color-surface: #ffffff;
+
 	--shadow-soft: 0 1px 2px rgb(28 30 44 / 0.04), 0 8px 24px -12px rgb(28 30 44 / 0.14);
 	--shadow-lift: 0 2px 4px rgb(28 30 44 / 0.05), 0 16px 40px -16px rgb(28 30 44 / 0.25);
+}
+
+.dark {
+	--color-brand-50: #0f1730;
+	--color-brand-100: #182448;
+	--color-brand-200: #223367;
+	--color-brand-300: #2c4388;
+	--color-brand-400: #3b5cb8;
+	--color-brand-500: #3564ff;
+	--color-brand-600: #5b82ff;
+	--color-brand-700: #86a3ff;
+	--color-brand-800: #b0c5ff;
+	--color-brand-900: #d7e1ff;
+	--color-brand-950: #edf2ff;
+
+	--color-ink-50: #14161f;
+	--color-ink-100: #1c1f2b;
+	--color-ink-200: #272b3b;
+	--color-ink-300: #383e54;
+	--color-ink-400: #5a6280;
+	--color-ink-500: #8b94b5;
+	--color-ink-600: #aeb5cf;
+	--color-ink-700: #c9cee1;
+	--color-ink-800: #e2e5f0;
+	--color-ink-900: #f1f2f8;
+	--color-ink-950: #fafbff;
+
+	--color-surface: #1c1f2b;
+
+	--shadow-soft: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -12px rgb(0 0 0 / 0.5);
+	--shadow-lift: 0 2px 4px rgb(0 0 0 / 0.35), 0 16px 40px -16px rgb(0 0 0 / 0.6);
 }
 
 html {

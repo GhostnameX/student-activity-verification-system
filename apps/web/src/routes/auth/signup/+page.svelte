@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { lang } from '$lib/store';
 	import { translate } from '$lib/i18n';
 	import { authClient } from '$lib/auth-client';
@@ -30,16 +30,16 @@
 	}
 
 	const inputClass =
-		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 pl-10 text-sm text-ink-900 placeholder-ink-400 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100';
+		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 pl-10 text-sm text-ink-900 placeholder-ink-400 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100';
 </script>
 
 <div class="mx-auto max-w-md py-10">
-	<div class="overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-lift">
+	<div class="overflow-hidden rounded-3xl border border-ink-100 bg-surface shadow-lift">
 		<div class="bg-gradient-to-br from-brand-600 to-brand-800 px-8 py-7 text-center">
 			<div
-				class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-3xl backdrop-blur"
+				class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface/15 text-3xl backdrop-blur"
 			>
-				🎓
+				๐“
 			</div>
 			<h1 class="text-2xl font-bold text-white">{translate($lang, 'signUp')}</h1>
 			<p class="mt-1 text-sm text-brand-100">{translate($lang, 'tagline')}</p>
@@ -106,7 +106,7 @@
 							type="password"
 							required
 							minlength="8"
-							placeholder="••••••••"
+							placeholder="โ€ขโ€ขโ€ขโ€ขโ€ขโ€ขโ€ขโ€ข"
 							class={inputClass}
 						/>
 					</div>

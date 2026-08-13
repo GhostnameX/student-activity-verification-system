@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { onMount } from 'svelte';
 	import { lang } from '$lib/store';
 	import { user } from '$lib/auth';
@@ -106,7 +106,7 @@
 		</div>
 		<button
 			onclick={refresh}
-			class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
+			class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
 		>
 			<RefreshCw size={15} />
 			{translate($lang, 'refresh')}
@@ -125,12 +125,12 @@
 			{translate($lang, 'submitting')}
 		</div>
 	{:else if requests.length === 0}
-		<div class="rounded-2xl border border-dashed border-ink-200 bg-white/60 px-6 py-12 text-center">
+		<div class="rounded-2xl border border-dashed border-ink-200 bg-surface/60 px-6 py-12 text-center">
 			<Inbox size={30} class="mx-auto mb-2 text-ink-300" />
 			<p class="text-sm text-ink-500">{translate($lang, 'noRequests')}</p>
 		</div>
 	{:else}
-		<div class="overflow-x-auto rounded-3xl border border-ink-100 bg-white shadow-soft">
+		<div class="overflow-x-auto rounded-3xl border border-ink-100 bg-surface shadow-soft">
 			<table class="w-full text-left text-sm">
 				<thead class="border-b border-ink-100 bg-ink-50/70 text-xs font-semibold uppercase tracking-wide text-ink-500">
 					<tr>
@@ -201,14 +201,14 @@
 
 	{#if detailLoading || detail}
 		<div
-			class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4 backdrop-blur-sm"
+			class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
 			role="dialog"
 			aria-modal="true"
 			tabindex="-1"
 			onclick={(e) => { if (e.target === e.currentTarget) detail = null; }}
 			onkeydown={(e) => { if (e.key === 'Escape') detail = null; }}
 		>
-			<div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-6 shadow-lift">
+			<div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-surface p-6 shadow-lift">
 				{#if detailLoading}
 					<div class="flex items-center gap-2 py-12 text-sm text-ink-500">
 						<Clock size={16} class="animate-spin" />
@@ -288,7 +288,7 @@
 												class="h-20 w-full rounded-lg object-cover"
 											/>
 										{:else}
-											<div class="flex h-20 w-full items-center justify-center rounded-lg bg-white">
+											<div class="flex h-20 w-full items-center justify-center rounded-lg bg-surface">
 												<FileIcon size={28} class="text-ink-300" />
 											</div>
 										{/if}
@@ -312,7 +312,7 @@
 								bind:value={activityName}
 								type="text"
 								placeholder={activityTitle(detail)}
-								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100"
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
 							/>
 						</div>
 						<div class="flex justify-end gap-2 border-t border-ink-100 pt-4">
@@ -343,13 +343,13 @@
 
 	{#if rejectId}
 		<div
-			class="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4 backdrop-blur-sm"
+			class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
 			role="dialog"
 			aria-modal="true"
 			tabindex="-1"
 			onkeydown={(e) => { if (e.key === 'Escape') rejectId = null; }}
 		>
-			<div class="w-full max-w-md rounded-3xl bg-white p-6 shadow-lift">
+			<div class="w-full max-w-md rounded-3xl bg-surface p-6 shadow-lift">
 				<h3 class="mb-4 text-lg font-bold text-ink-900">{translate($lang, 'reject')}</h3>
 				<label for="reject-reason" class="mb-1.5 block text-sm font-medium text-ink-700">
 					{translate($lang, 'reason')}
@@ -358,7 +358,7 @@
 					id="reject-reason"
 					bind:value={rejectReason}
 					rows={3}
-					class="mb-4 w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-red-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-red-100"
+					class="mb-4 w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-red-400 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-red-100"
 				></textarea>
 				<div class="flex justify-end gap-2">
 					<button

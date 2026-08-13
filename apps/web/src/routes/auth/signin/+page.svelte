@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { lang } from '$lib/store';
 	import { translate } from '$lib/i18n';
 	import { authClient } from '$lib/auth-client';
@@ -28,32 +28,32 @@
 	}
 
 	const inputClass =
-		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-3 pl-11 text-sm text-ink-900 placeholder-ink-400 transition focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100';
+		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-3 pl-11 text-sm text-ink-900 placeholder-ink-400 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100';
 </script>
 
 <div class="mx-auto grid min-h-[calc(100vh-8rem)] max-w-6xl grid-cols-1 items-center gap-10 py-8 lg:grid-cols-2 lg:gap-16">
 	<div class="hidden lg:block">
 		<div
-			class="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-brand-600 via-brand-700 to-ink-900 p-10 text-white shadow-lift"
+			class="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-brand-600 via-brand-700 to-brand-900 p-10 text-white shadow-lift"
 		>
-			<div class="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-2xl"></div>
+			<div class="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-surface/10 blur-2xl"></div>
 			<div class="pointer-events-none absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-brand-400/20 blur-3xl"></div>
 			<div class="relative">
-				<div class="mb-8 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 backdrop-blur">
+				<div class="mb-8 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface/15 backdrop-blur">
 					<GraduationCap size={34} />
 				</div>
 				<h1 class="mb-3 text-4xl font-extrabold leading-tight">{translate($lang, 'appName')}</h1>
 				<p class="mb-10 text-lg text-brand-100">{translate($lang, 'tagline')}</p>
 
 				<div class="space-y-4">
-					<div class="flex items-start gap-3 rounded-2xl bg-white/10 p-4 backdrop-blur">
+					<div class="flex items-start gap-3 rounded-2xl bg-surface/10 p-4 backdrop-blur">
 						<ShieldCheck size={20} class="mt-0.5 shrink-0 text-brand-200" />
 						<div>
 							<p class="font-semibold">{translate($lang, 'myRequests')}</p>
 							<p class="text-sm text-brand-100">{translate($lang, 'submittedAt')}</p>
 						</div>
 					</div>
-					<div class="flex items-start gap-3 rounded-2xl bg-white/10 p-4 backdrop-blur">
+					<div class="flex items-start gap-3 rounded-2xl bg-surface/10 p-4 backdrop-blur">
 						<FileText size={20} class="mt-0.5 shrink-0 text-brand-200" />
 						<div>
 							<p class="font-semibold">{translate($lang, 'allRequests')}</p>
@@ -66,10 +66,10 @@
 	</div>
 
 	<div class="mx-auto w-full max-w-md">
-		<div class="overflow-hidden rounded-3xl border border-ink-100 bg-white shadow-lift">
+		<div class="overflow-hidden rounded-3xl border border-ink-100 bg-surface shadow-lift">
 			<div class="bg-gradient-to-br from-brand-600 to-brand-800 px-8 py-7 text-center lg:hidden">
-				<div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-3xl backdrop-blur">
-					🎓
+				<div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface/15 text-3xl backdrop-blur">
+					๐“
 				</div>
 				<h1 class="text-2xl font-bold text-white">{translate($lang, 'login')}</h1>
 				<p class="mt-1 text-sm text-brand-100">{translate($lang, 'tagline')}</p>
@@ -119,7 +119,7 @@
 								bind:value={password}
 								type="password"
 								required
-								placeholder="••••••••"
+								placeholder="โ€ขโ€ขโ€ขโ€ขโ€ขโ€ขโ€ขโ€ข"
 								class={inputClass}
 							/>
 						</div>

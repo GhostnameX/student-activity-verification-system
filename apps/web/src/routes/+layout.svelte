@@ -111,13 +111,13 @@
 			{#if $user}
 				<nav class="flex items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-1">
 					{#each nav as item (item.href)}
-						<a
-							href={item.href}
-							class="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium text-ink-600 transition hover:bg-white hover:text-ink-900 hover:shadow-soft"
-						>
-							<item.icon size={16} />
-							<span class="hidden md:inline">{item.label}</span>
-						</a>
+					<a
+						href={item.href}
+						class="group flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium text-ink-600 transition hover:bg-white hover:text-accent-700 hover:shadow-soft"
+					>
+						<item.icon size={16} class="transition group-hover:text-accent-500" />
+						<span class="hidden md:inline">{item.label}</span>
+					</a>
 					{/each}
 				</nav>
 			{/if}
@@ -127,10 +127,10 @@
 					<div class="relative">
 						<button
 							onclick={openBell}
-							class="relative flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-white text-ink-700 transition hover:bg-ink-50"
+							class="group relative flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-white text-ink-700 transition hover:bg-accent-50 hover:text-accent-700"
 							aria-label={translate($lang, 'notifications')}
 						>
-							<Bell size={16} />
+							<Bell size={16} class="transition group-hover:text-accent-500" />
 							{#if unread > 0}
 								<span
 									class="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white"
@@ -192,10 +192,10 @@
 
 				<button
 					onclick={toggleLang}
-					class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+					class="group flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700 transition hover:bg-accent-50 hover:text-accent-700"
 					title={translate($lang, 'language')}
 				>
-					<Languages size={16} />
+					<Languages size={16} class="transition group-hover:text-accent-500" />
 					{$lang === 'th' ? 'English' : 'ไทย'}
 				</button>
 				{#if $user}
@@ -208,7 +208,7 @@
 						</div>
 						<a
 							href="/auth/signout"
-							class="flex items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-ink-800"
+							class="flex items-center gap-1.5 rounded-xl bg-brand-800 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-brand-900"
 						>
 							<LogOut size={15} />
 							<span class="hidden xl:inline">{translate($lang, 'logout')}</span>

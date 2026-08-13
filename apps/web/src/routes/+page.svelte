@@ -87,7 +87,7 @@
 				</a>
 				<a
 					href="/auth/signup"
-					class="rounded-2xl border border-ink-200 bg-white px-9 py-4 text-base font-semibold text-ink-700 transition hover:-translate-y-0.5 hover:bg-ink-50"
+					class="group rounded-2xl border border-ink-200 bg-white px-9 py-4 text-base font-semibold text-ink-700 transition hover:-translate-y-0.5 hover:bg-accent-50 hover:text-accent-700"
 				>
 					{translate($lang, 'signUp')}
 				</a>

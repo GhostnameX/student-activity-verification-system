@@ -403,6 +403,8 @@ export const app = new Elysia()
           activityName: requests.activityName,
           submittedAt: requests.submittedAt,
           reviewedAt: requests.reviewedAt,
+          certificateNumber: requests.certificateNumber,
+          certificateYear: requests.certificateYear,
           activity: {
             id: activities.id,
             title: activities.title,
@@ -427,6 +429,8 @@ export const app = new Elysia()
         activityName: requests.activityName,
         submittedAt: requests.submittedAt,
         reviewedAt: requests.reviewedAt,
+        certificateNumber: requests.certificateNumber,
+        certificateYear: requests.certificateYear,
         activity: {
           id: activities.id,
           title: activities.title,

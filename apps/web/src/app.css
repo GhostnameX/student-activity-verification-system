@@ -4,17 +4,29 @@
 	--font-sans:
 		'Inter', 'IBM Plex Sans Thai', 'Noto Sans Thai', ui-sans-serif, system-ui, sans-serif;
 
-	--color-brand-50: #eef4ff;
-	--color-brand-100: #d9e6ff;
-	--color-brand-200: #bcd3ff;
-	--color-brand-300: #8eb6ff;
-	--color-brand-400: #598cff;
-	--color-brand-500: #3564ff;
-	--color-brand-600: #1e40f7;
-	--color-brand-700: #172fe3;
-	--color-brand-800: #1929b8;
-	--color-brand-900: #1b2a90;
-	--color-brand-950: #151b57;
+	--color-brand-50: #eef2f8;
+	--color-brand-100: #d7e0ec;
+	--color-brand-200: #b3c3d9;
+	--color-brand-300: #859fbf;
+	--color-brand-400: #5a7aa3;
+	--color-brand-500: #3d5a85;
+	--color-brand-600: #2a4670;
+	--color-brand-700: #1e355f;
+	--color-brand-800: #192c4e;
+	--color-brand-900: #152441;
+	--color-brand-950: #0d162a;
+
+	--color-accent-50: #fbf7ee;
+	--color-accent-100: #f6ecd7;
+	--color-accent-200: #eddcae;
+	--color-accent-300: #e5ca88;
+	--color-accent-400: #ddb26a;
+	--color-accent-500: #cd9a4e;
+	--color-accent-600: #b38038;
+	--color-accent-700: #91652e;
+	--color-accent-800: #775328;
+	--color-accent-900: #644626;
+	--color-accent-950: #38250f;
 
 	--color-ink-50: #f6f7fb;
 	--color-ink-100: #eceef5;

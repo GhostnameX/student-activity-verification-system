@@ -22,6 +22,7 @@
 		CircleCheck,
 		CircleX,
 		CircleAlert,
+		Award,
 	} from 'lucide-svelte';
 
 	let activities: Activity[] = $state([]);
@@ -86,7 +87,7 @@
 	function statusClass(status: string) {
 		if (status === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
 		if (status === 'rejected') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
-		return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
+		return 'bg-accent-50 text-accent-700 ring-1 ring-accent-200';
 	}
 
 	function statusLabel(status: string) {
@@ -131,7 +132,7 @@
 				<CircleAlert size={16} class="shrink-0 text-amber-600" />
 				<div class="flex flex-1 flex-wrap items-center justify-between gap-2">
 					<span>{translate($lang, 'phoneMissingWarning')}</span>
-					<a href="/profile" class="shrink-0 font-semibold text-amber-700 hover:underline">
+					<a href="/profile" class="shrink-0 font-semibold text-accent-700 hover:underline">
 						{translate($lang, 'profile')}
 					</a>
 				</div>
@@ -243,13 +244,21 @@
 							{#if r.note}
 								<p class="mt-2 text-sm text-ink-600">{r.note}</p>
 							{/if}
-							{#if r.attachments && r.attachments.length > 0}
-								<p class="mt-2 flex items-center gap-1.5 text-xs font-medium text-ink-400">
-									<Paperclip size={13} />
-									{r.attachments.length} {translate($lang, 'attachments').toLowerCase()}
-								</p>
-							{/if}
-						</div>
+						{#if r.attachments && r.attachments.length > 0}
+							<p class="mt-2 flex items-center gap-1.5 text-xs font-medium text-ink-400">
+								<Paperclip size={13} />
+								{r.attachments.length} {translate($lang, 'attachments').toLowerCase()}
+							</p>
+						{/if}
+						{#if r.status === 'approved' && r.certificateNumber}
+							<p
+								class="mt-2 flex w-fit items-center gap-1.5 rounded-full bg-accent-100 px-3 py-1 text-xs font-semibold text-accent-700 ring-1 ring-accent-300"
+							>
+								<Award size={13} />
+								{translate($lang, 'certificateNo')} {r.certificateNumber}/{r.certificateYear}
+							</p>
+						{/if}
+					</div>
 						<span
 							class={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${statusClass(r.status)}`}
 						>

@@ -88,7 +88,7 @@
 	function statusClass(status: string) {
 		if (status === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
 		if (status === 'rejected') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
-		return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
+		return 'bg-accent-50 text-accent-700 ring-1 ring-accent-200';
 	}
 
 	let pendingCount = $derived(requests.filter((r) => r.status === 'pending').length);
@@ -106,9 +106,9 @@
 		</div>
 		<button
 			onclick={refresh}
-			class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
+			class="group flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-accent-50 hover:text-accent-700"
 		>
-			<RefreshCw size={15} />
+			<RefreshCw size={15} class="transition group-hover:text-accent-500" />
 			{translate($lang, 'refresh')}
 		</button>
 	</div>
@@ -363,7 +363,7 @@
 				<div class="flex justify-end gap-2">
 					<button
 						onclick={() => (rejectId = null)}
-						class="rounded-xl border border-ink-200 px-4 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+						class="rounded-xl border border-ink-200 px-4 py-2 text-sm font-medium text-ink-700 transition hover:bg-accent-50 hover:text-accent-700"
 					>
 						{translate($lang, 'cancel')}
 					</button>

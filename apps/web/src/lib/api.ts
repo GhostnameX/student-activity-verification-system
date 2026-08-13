@@ -58,6 +58,8 @@ export interface RequestItem {
   activityName?: string | null;
   submittedAt: string;
   reviewedAt?: string | null;
+  certificateNumber?: number | null;
+  certificateYear?: string | null;
   activity: {
     id: string;
     title: string;

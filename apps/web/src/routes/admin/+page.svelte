@@ -46,7 +46,7 @@
 	function statusClass(status: string) {
 		if (status === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
 		if (status === 'rejected') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
-		return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
+		return 'bg-accent-50 text-accent-700 ring-1 ring-accent-200';
 	}
 
 	const statCards = $derived([
@@ -54,13 +54,13 @@
 			label: 'totalRequests',
 			value: stats?.total ?? 0,
 			icon: FileText,
-			classes: 'from-ink-500 to-ink-700',
+			classes: 'from-brand-600 to-brand-800',
 		},
 		{
 			label: 'totalPending',
 			value: stats?.pending ?? 0,
 			icon: Clock,
-			classes: 'from-amber-400 to-amber-600',
+			classes: 'from-accent-400 to-accent-600',
 		},
 		{
 			label: 'totalApproved',
@@ -113,7 +113,7 @@
 				<button
 					onclick={() => (activeTab = 'stats')}
 					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-						activeTab === 'stats' ? 'bg-ink-900 text-white shadow-soft' : 'text-ink-600 hover:bg-ink-50'
+						activeTab === 'stats' ? 'bg-brand-800 text-white shadow-soft' : 'text-ink-600 hover:bg-ink-50'
 					}`}
 				>
 					{translate($lang, 'stats')}
@@ -121,7 +121,7 @@
 				<button
 					onclick={() => (activeTab = 'audit')}
 					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-						activeTab === 'audit' ? 'bg-ink-900 text-white shadow-soft' : 'text-ink-600 hover:bg-ink-50'
+						activeTab === 'audit' ? 'bg-brand-800 text-white shadow-soft' : 'text-ink-600 hover:bg-ink-50'
 					}`}
 				>
 					{translate($lang, 'auditLog')}
@@ -129,9 +129,9 @@
 			</div>
 			<button
 				onclick={refresh}
-				class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
+				class="group flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-accent-50 hover:text-accent-700"
 			>
-				<RefreshCw size={15} />
+				<RefreshCw size={15} class="transition group-hover:text-accent-500" />
 				{translate($lang, 'refresh')}
 			</button>
 		</div>
@@ -182,7 +182,7 @@
 									<tr class="border-b border-ink-50 last:border-0">
 										<td class="px-3 py-2.5 font-medium text-ink-900">{activityTitle(a)}</td>
 										<td class="px-3 py-2.5 text-right text-ink-700">{a.total}</td>
-										<td class="px-3 py-2.5 text-right text-amber-600">{a.pending}</td>
+										<td class="px-3 py-2.5 text-right text-accent-600">{a.pending}</td>
 										<td class="px-3 py-2.5 text-right text-green-600">{a.approved}</td>
 										<td class="px-3 py-2.5 text-right text-red-600">{a.rejected}</td>
 									</tr>
@@ -217,7 +217,7 @@
 									<tr class="border-b border-ink-50 last:border-0">
 										<td class="px-3 py-2.5 font-medium text-ink-900">{f.faculty}</td>
 										<td class="px-3 py-2.5 text-right text-ink-700">{f.total}</td>
-										<td class="px-3 py-2.5 text-right text-amber-600">{f.pending}</td>
+										<td class="px-3 py-2.5 text-right text-accent-600">{f.pending}</td>
 										<td class="px-3 py-2.5 text-right text-green-600">{f.approved}</td>
 										<td class="px-3 py-2.5 text-right text-red-600">{f.rejected}</td>
 									</tr>

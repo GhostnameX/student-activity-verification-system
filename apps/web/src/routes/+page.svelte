@@ -86,7 +86,7 @@
 					{translate($lang, 'login')}
 				</a>
 				<a
-					href="/auth/signup"
+					href="/auth/signin?mode=signup"
 					class="rounded-2xl border border-ink-200 bg-surface px-9 py-4 text-base font-semibold text-ink-700 transition hover:-translate-y-0.5 hover:bg-ink-50"
 				>
 					{translate($lang, 'signUp')}

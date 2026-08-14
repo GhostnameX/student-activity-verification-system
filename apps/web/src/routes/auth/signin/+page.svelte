@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
 	import { lang } from '$lib/store';
 	import { translate } from '$lib/i18n';
 	import { authClient } from '$lib/auth-client';
@@ -69,7 +69,7 @@
 		<div class="overflow-hidden rounded-3xl border border-ink-100 bg-surface shadow-lift">
 			<div class="bg-gradient-to-br from-brand-600 to-brand-800 px-8 py-7 text-center lg:hidden">
 				<div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface/15 text-3xl backdrop-blur">
-					๐“
+					🎓
 				</div>
 				<h1 class="text-2xl font-bold text-white">{translate($lang, 'login')}</h1>
 				<p class="mt-1 text-sm text-brand-100">{translate($lang, 'tagline')}</p>
@@ -119,7 +119,7 @@
 								bind:value={password}
 								type="password"
 								required
-								placeholder="โ€ขโ€ขโ€ขโ€ขโ€ขโ€ขโ€ขโ€ข"
+								placeholder="กรอกรหัสผ่าน"
 								class={inputClass}
 							/>
 						</div>

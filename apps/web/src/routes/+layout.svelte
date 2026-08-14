@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import '../app.css';
 	import { lang, dark } from '$lib/store';
@@ -205,7 +205,7 @@
 					title={translate($lang, 'language')}
 				>
 					<Languages size={16} />
-					{$lang === 'th' ? 'English' : 'เนเธ—เธข'}
+					{$lang === 'th' ? 'English' : 'ไทย'}
 				</button>
 				<button
 					onclick={toggleTheme}
@@ -253,7 +253,7 @@
 
 	<footer class="border-t border-ink-100 bg-surface py-6">
 		<div class="mx-auto max-w-[1600px] px-6 text-center text-sm text-ink-400 xl:px-10">
-			{translate($lang, 'appName')} &middot; ยฉ {new Date().getFullYear()}
+			{translate($lang, 'appName')} &middot; © {new Date().getFullYear()}
 		</div>
 	</footer>
 </div>

@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
 	import { lang } from '$lib/store';
 	import { user } from '$lib/auth';
 	import { translate } from '$lib/i18n';
@@ -51,7 +51,7 @@
 			<ShieldCheck size={15} />
 			{translate($lang, 'welcome')}, {$user.name}
 		</div>
-		<div class="mb-6 text-7xl">๐“</div>
+		<div class="mb-6 text-7xl">🎓</div>
 		<h1 class="mb-4 text-5xl font-extrabold tracking-tight text-ink-900">
 			{translate($lang, 'appName')}
 		</h1>

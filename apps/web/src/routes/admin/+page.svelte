@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import { lang } from '$lib/store';
 	import { user } from '$lib/auth';
@@ -89,11 +89,11 @@
 
 	function actionLabel(action: string) {
 		const map: Record<string, string> = {
-			approve: $lang === 'th' ? 'เธญเธเธธเธกเธฑเธ•เธด' : 'Approve',
-			reject: $lang === 'th' ? 'เนเธกเนเธญเธเธธเธกเธฑเธ•เธด' : 'Reject',
-			activity_create: $lang === 'th' ? 'เธชเธฃเนเธฒเธเธเธดเธเธเธฃเธฃเธก' : 'Create activity',
-			activity_update: $lang === 'th' ? 'เนเธเนเนเธเธเธดเธเธเธฃเธฃเธก' : 'Update activity',
-			activity_delete: $lang === 'th' ? 'เธฅเธเธเธดเธเธเธฃเธฃเธก' : 'Delete activity',
+			approve: $lang === 'th' ? 'อนุมัติ' : 'Approve',
+			reject: $lang === 'th' ? 'ไม่อนุมัติ' : 'Reject',
+			activity_create: $lang === 'th' ? 'สร้างกิจกรรม' : 'Create activity',
+			activity_update: $lang === 'th' ? 'แก้ไขกิจกรรม' : 'Update activity',
+			activity_delete: $lang === 'th' ? 'ลบกิจกรรม' : 'Delete activity',
 		};
 		return map[action] ?? action;
 	}

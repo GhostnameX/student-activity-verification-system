@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import { lang } from '$lib/store';
 	import { user } from '$lib/auth';
@@ -309,7 +309,7 @@
 				</select>
 				<button
 					onclick={applySearch}
-					class="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700"
+					class="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-ink-50 shadow-soft transition hover:bg-brand-700"
 				>
 					{translate($lang, 'search')}
 				</button>

@@ -1,3 +1,8 @@
+// NOTE: data/students_2567.json was intentionally removed from git after
+// the one-time import (569 real students already in the `students` table
+// as of the seed run — see import_batches). Real student PII shouldn't sit
+// in version control long-term. If re-importing, place a fresh JSON at
+// this path locally (not committed) before running this script.
 import { readFileSync } from "node:fs";
 import { db, pool } from "./client";
 import { students, importBatches } from "./schema";

@@ -22,6 +22,17 @@
 	let detail: RequestItem | null = $state(null);
 	let detailLoading: boolean = $state(false);
 	let activityName: string = $state('');
+	let removingId: string | null = $state(null);
+	let removingStatus: 'approved' | 'rejected' = $state('approved');
+
+	function animateRemove(id: string, status: 'approved' | 'rejected') {
+		removingId = id;
+		removingStatus = status;
+		setTimeout(async () => {
+			removingId = null;
+			await refresh();
+		}, 600);
+	}
 
 	onMount(async () => {
 		if (!$user || ($user.role !== 'staff' && $user.role !== 'admin')) {
@@ -45,7 +56,7 @@
 			await approveRequest(id, activityName || undefined);
 			activityName = '';
 			if (detail?.id === id) detail = null;
-			await refresh();
+			animateRemove(id, 'approved');
 		} catch (e) {
 			actionMsg = e instanceof Error ? e.message : String(e);
 		}
@@ -58,7 +69,7 @@
 			rejectReason = '';
 			activityName = '';
 			if (detail?.id === id) detail = null;
-			await refresh();
+			animateRemove(id, 'rejected');
 		} catch (e) {
 			actionMsg = e instanceof Error ? e.message : String(e);
 		}
@@ -145,7 +156,7 @@
 				<tbody>
 					{#each requests as r (r.id)}
 						<tr
-							class="cursor-pointer border-b border-ink-50 transition last:border-0 hover:bg-ink-50/50"
+							class="cursor-pointer border-b border-ink-50 transition last:border-0 hover:bg-ink-50/50 {removingId === r.id ? (removingStatus === 'approved' ? 'row-out-approve' : 'row-out-reject') : ''}"
 							onclick={() => openDetail(r.id)}
 						>
 							<td class="px-5 py-4 font-medium text-ink-900">
@@ -378,3 +389,39 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	.row-out-approve {
+		animation: row-out-approve 0.6s ease forwards;
+	}
+
+	.row-out-reject {
+		animation: row-out-reject 0.6s ease forwards;
+	}
+
+	@keyframes row-out-approve {
+		0% {
+			background-color: rgb(34 197 94 / 0.18);
+		}
+		60% {
+			background-color: rgb(34 197 94 / 0.05);
+		}
+		100% {
+			opacity: 0;
+			transform: scale(0.98);
+		}
+	}
+
+	@keyframes row-out-reject {
+		0% {
+			background-color: rgb(239 68 68 / 0.18);
+		}
+		60% {
+			background-color: rgb(239 68 68 / 0.05);
+		}
+		100% {
+			opacity: 0;
+			transform: scale(0.98);
+		}
+	}
+</style>

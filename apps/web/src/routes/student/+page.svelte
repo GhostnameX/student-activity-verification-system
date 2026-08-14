@@ -12,6 +12,7 @@
 		type RequestItem,
 	} from '$lib/api';
 	import { uploadImageToSupabase } from '$lib/supabase';
+	import SuccessCheck from '$lib/components/SuccessCheck.svelte';
 	import {
 		Send,
 		FileText,
@@ -31,7 +32,16 @@
 	let files: File[] = $state([]);
 	let loading: boolean = $state(false);
 	let errorMsg: string = $state('');
-	let successMsg: string = $state('');
+	let showSuccess: boolean = $state(false);
+	let successTimer: ReturnType<typeof setTimeout> | null = $state(null);
+
+	function closeSuccess() {
+		showSuccess = false;
+		if (successTimer) {
+			clearTimeout(successTimer);
+			successTimer = null;
+		}
+	}
 
 	onMount(async () => {
 		if (!$user || $user.role !== 'student') {
@@ -49,7 +59,6 @@
 	async function submit() {
 		loading = true;
 		errorMsg = '';
-		successMsg = '';
 		try {
 			const attachments = [];
 			for (const file of files) {
@@ -71,11 +80,13 @@
 				note: note || undefined,
 				attachments,
 			});
-			successMsg = translate($lang, 'requestSubmitted');
 			note = '';
 			files = [];
 			selectedActivity = '';
 			await refresh();
+			closeSuccess();
+			showSuccess = true;
+			successTimer = setTimeout(closeSuccess, 3500);
 		} catch (e) {
 			errorMsg = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -119,10 +130,12 @@
 				{errorMsg}
 			</div>
 		{/if}
-		{#if successMsg}
-			<div class="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-				{successMsg}
-			</div>
+		{#if showSuccess}
+			<SuccessCheck
+				title={translate($lang, 'requestSubmitted')}
+				description={translate($lang, 'requestWillReview')}
+				onclose={closeSuccess}
+			/>
 		{/if}
 		{#if $user && !$user.phone}
 			<div

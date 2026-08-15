@@ -7,6 +7,6 @@
 	onMount(async () => {
 		await authClient.signOut();
 		user.set(null);
-		goto('/');
+		goto('/auth/signin');
 	});
 </script>

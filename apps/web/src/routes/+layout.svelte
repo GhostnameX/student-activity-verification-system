@@ -133,6 +133,16 @@
 
 			<div class="flex items-center gap-1.5 sm:gap-2.5">
 				{#if $user}
+					<a
+						href="/auth/signout"
+						class="flex h-11 w-11 items-center justify-center rounded-xl bg-ink-900 text-ink-50 transition hover:bg-ink-800 lg:hidden"
+						aria-label={translate($lang, 'logout')}
+						title={translate($lang, 'logout')}
+					>
+						<LogOut size={16} />
+					</a>
+				{/if}
+				{#if $user}
 					<div class="relative">
 						<button
 							onclick={openBell}
@@ -205,7 +215,7 @@
 					title={translate($lang, 'language')}
 				>
 					<Languages size={16} />
-					<span class="max-sm:hidden">{$lang === 'th' ? 'English' : 'ไทย'}</span>
+					<span class="max-lg:hidden">{$lang === 'th' ? 'English' : 'ไทย'}</span>
 				</button>
 				<button
 					onclick={toggleTheme}

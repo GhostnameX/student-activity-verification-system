@@ -105,24 +105,24 @@
 
 <div class="flex min-h-screen flex-col bg-ink-50">
 	<header class="sticky top-0 z-40 border-b border-ink-100 bg-surface/90 backdrop-blur">
-		<div class="mx-auto flex h-16 max-w-[1600px] items-center justify-between gap-4 px-6 xl:px-10">
+		<div class="mx-auto flex h-16 max-w-[1600px] items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 xl:px-10">
 			<a href="/" class="group flex shrink-0 items-center gap-2.5">
 				<span
 					class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft transition-transform group-hover:scale-105"
 				>
 					<GraduationCap size={22} />
 				</span>
-				<span class="text-lg font-bold tracking-tight text-ink-900">
+				<span class="max-sm:hidden text-lg font-bold tracking-tight text-ink-900">
 					{translate($lang, 'appName')}
 				</span>
 			</a>
 
 			{#if $user}
-				<nav class="flex items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-1">
+				<nav class="flex items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-0.5 sm:p-1">
 					{#each nav as item (item.href)}
 						<a
 							href={item.href}
-							class="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium text-ink-600 transition hover:bg-surface hover:text-ink-900 hover:shadow-soft"
+							class="flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium text-ink-600 transition hover:bg-surface hover:text-ink-900 hover:shadow-soft sm:px-4 md:px-3 lg:px-4"
 						>
 							<item.icon size={16} />
 							<span class="hidden md:inline">{item.label}</span>
@@ -131,7 +131,7 @@
 				</nav>
 			{/if}
 
-			<div class="flex items-center gap-2.5">
+			<div class="flex items-center gap-1.5 sm:gap-2.5">
 				{#if $user}
 					<div class="relative">
 						<button
@@ -201,15 +201,15 @@
 
 				<button
 					onclick={toggleLang}
-					class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+					class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-2.5 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50 sm:px-3.5"
 					title={translate($lang, 'language')}
 				>
 					<Languages size={16} />
-					{$lang === 'th' ? 'English' : 'ไทย'}
+					<span class="max-sm:hidden">{$lang === 'th' ? 'English' : 'ไทย'}</span>
 				</button>
 				<button
 					onclick={toggleTheme}
-					class="flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50"
+					class="flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 max-sm:hidden"
 					aria-label="Toggle dark mode"
 					title="Dark mode"
 				>
@@ -229,7 +229,7 @@
 						</div>
 						<a
 							href="/auth/signout"
-							class="flex items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 py-2 text-sm font-medium text-ink-50 transition hover:bg-ink-800"
+							class="flex items-center gap-1.5 rounded-xl bg-ink-900 px-2.5 py-2 text-sm font-medium text-ink-50 transition hover:bg-ink-800 sm:px-3.5"
 						>
 							<LogOut size={15} />
 							<span class="hidden xl:inline">{translate($lang, 'logout')}</span>
@@ -238,7 +238,7 @@
 				{:else}
 					<a
 						href="/auth/signin"
-						class="rounded-xl bg-brand-600 px-5 py-2 text-sm font-medium text-white shadow-soft transition hover:bg-brand-700"
+						class="rounded-xl bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-soft transition hover:bg-brand-700 sm:px-5"
 					>
 						{translate($lang, 'login')}
 					</a>

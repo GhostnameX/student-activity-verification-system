@@ -13,7 +13,7 @@ import {
   students,
 } from "@ua/db/schema";
 import { db } from "@ua/db/client";
-import { eq, and, desc, sql, isNull } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, count, countDistinct } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 
@@ -1084,60 +1084,61 @@ export const app = new Elysia()
       return { error: "staff_admin_only" };
     }
 
-    const eligible = await db
+    const submittedSub = db
+      .select({ studentId: users.studentId })
+      .from(requests)
+      .innerJoin(users, eq(requests.studentId, users.id))
+      .where(sql`${users.studentId} is not null`)
+      .as("submitted_students");
+
+    const perMajor = await db
       .select({
-        studentId: students.studentId,
+        major: students.major,
+        total: count(students.studentId).mapWith(Number),
+        submitted: countDistinct(submittedSub.studentId).mapWith(Number),
+      })
+      .from(students)
+      .leftJoin(submittedSub, eq(submittedSub.studentId, students.studentId))
+      .where(eq(students.status, "active"))
+      .groupBy(students.major)
+      .orderBy(students.major);
+
+    const groupRows = await db
+      .selectDistinct({
         major: students.major,
         groupName: students.groupName,
       })
       .from(students)
-      .where(eq(students.status, "active"));
+      .where(
+        and(
+          eq(students.status, "active"),
+          sql`${students.groupName} is not null`,
+        ),
+      )
+      .orderBy(students.major, students.groupName);
 
-    const submittedRows = await db
-      .selectDistinct({ studentId: users.studentId })
-      .from(requests)
-      .innerJoin(users, eq(requests.studentId, users.id))
-      .where(sql`${users.studentId} is not null`);
-    const submittedSet = new Set(
-      submittedRows.map((r) => r.studentId as string),
-    );
-
-    const byMajorMap = new Map<
-      string,
-      { major: string; total: number; submitted: number; groups: Set<string> }
-    >();
-    for (const s of eligible) {
-      const m = byMajorMap.get(s.major) ?? {
-        major: s.major,
-        total: 0,
-        submitted: 0,
-        groups: new Set<string>(),
-      };
-      m.total++;
-      if (s.groupName) m.groups.add(s.groupName);
-      if (submittedSet.has(s.studentId)) m.submitted++;
-      byMajorMap.set(s.major, m);
+    const groupsByMajor = new Map<string, string[]>();
+    for (const g of groupRows) {
+      const arr = groupsByMajor.get(g.major) ?? [];
+      arr.push(g.groupName as string);
+      groupsByMajor.set(g.major, arr);
     }
 
-    const submitted = eligible.filter((s) =>
-      submittedSet.has(s.studentId),
-    ).length;
-    const total = eligible.length;
+    const byMajor = perMajor.map((m) => ({
+      major: m.major,
+      total: m.total,
+      submitted: m.submitted,
+      notSubmitted: m.total - m.submitted,
+      rate: m.total > 0 ? m.submitted / m.total : 0,
+      groups: groupsByMajor.get(m.major) ?? [],
+    }));
+
+    const total = byMajor.reduce((sum, m) => sum + m.total, 0);
+    const submitted = byMajor.reduce((sum, m) => sum + m.submitted, 0);
     const notSubmitted = total - submitted;
     const rate = total > 0 ? submitted / total : 0;
 
-    return {
-      total,
-      submitted,
-      notSubmitted,
-      rate,
-      byMajor: [...byMajorMap.values()].map((m) => ({
-        ...m,
-        notSubmitted: m.total - m.submitted,
-        rate: m.total > 0 ? m.submitted / m.total : 0,
-        groups: [...m.groups].sort(),
-      })),
-    };
+    return { total, submitted, notSubmitted, rate, byMajor };
   })
 
   // ===== Not-submitted roster list (staff + admin) =====

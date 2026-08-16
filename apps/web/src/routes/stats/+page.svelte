@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { lang } from '$lib/store';
 	import { user } from '$lib/auth';
 	import { translate } from '$lib/i18n';
@@ -38,7 +38,9 @@
 	let roster: RosterStudent[] = $state([]);
 	let rosterTotal: number = $state(0);
 	let rosterPage: number = $state(1);
-	const pageSize = 50;
+	const pageSize = 20;
+	let rosterReqId = 0;
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 	onMount(async () => {
 		if (!$user || ($user.role !== 'staff' && $user.role !== 'admin')) {
@@ -47,6 +49,8 @@
 		}
 		await refresh();
 	});
+
+	onDestroy(() => clearTimeout(searchTimer));
 
 	async function refresh() {
 		loading = true;
@@ -74,6 +78,7 @@
 	}
 
 	async function loadRoster() {
+		const reqId = ++rosterReqId;
 		modalLoading = true;
 		try {
 			const res = await getNotSubmitted({
@@ -83,18 +88,29 @@
 				page: rosterPage,
 				pageSize,
 			});
+			if (reqId !== rosterReqId) return;
 			roster = res.items;
 			rosterTotal = res.total;
 		} catch (e) {
+			if (reqId !== rosterReqId) return;
 			roster = [];
 			rosterTotal = 0;
 			errorMsg = e instanceof Error ? e.message : String(e);
 		} finally {
-			modalLoading = false;
+			if (reqId === rosterReqId) modalLoading = false;
 		}
 	}
 
+	function onSearchInput() {
+		clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => {
+			rosterPage = 1;
+			loadRoster();
+		}, 350);
+	}
+
 	function applySearch() {
+		clearTimeout(searchTimer);
 		rosterPage = 1;
 		loadRoster();
 	}
@@ -283,6 +299,7 @@
 						bind:value={search}
 						type="text"
 						placeholder={translate($lang, 'searchPlaceholder')}
+						oninput={onSearchInput}
 						onkeydown={(e) => { if (e.key === 'Enter') applySearch(); }}
 						class="w-full rounded-xl border border-ink-200 bg-ink-50 py-2 pl-9 pr-3.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
 					/>

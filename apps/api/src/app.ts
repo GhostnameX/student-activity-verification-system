@@ -644,9 +644,9 @@ export const app = new Elysia()
       return { error: "unauthorized" };
     }
     const role = (session.user as any).role ?? "student";
-    if (role !== "staff" && role !== "admin") {
+    if (role !== "admin") {
       set.status = 403;
-      return { error: "staff_only" };
+      return { error: "admin_only" };
     }
 
     const existing = await db
@@ -667,7 +667,6 @@ export const app = new Elysia()
         .update(requests)
         .set({
           status: "approved",
-          activityName: body.activityName ?? null,
           reviewedById: session.user.id,
           reviewedAt: sql`now()`,
           updatedAt: sql`now()`,
@@ -784,11 +783,7 @@ export const app = new Elysia()
     }
     return approved;
   },
-  {
-    body: t.Object({
-      activityName: t.Optional(t.String()),
-    }),
-  })
+  {})
 
   .post(
     "/api/requests/:id/reject",
@@ -799,9 +794,9 @@ export const app = new Elysia()
         return { error: "unauthorized" };
       }
       const role = (session.user as any).role ?? "student";
-      if (role !== "staff" && role !== "admin") {
+      if (role !== "admin") {
         set.status = 403;
-        return { error: "staff_only" };
+        return { error: "admin_only" };
       }
 
       const existing = await db
@@ -823,7 +818,6 @@ export const app = new Elysia()
           status: "rejected",
           note: body.reason ?? null,
           rejectionReason: body.reason ?? null,
-          activityName: body.activityName ?? null,
           reviewedById: session.user.id,
           reviewedAt: sql`now()`,
           updatedAt: sql`now()`,
@@ -878,7 +872,6 @@ export const app = new Elysia()
     {
       body: t.Object({
         reason: t.Optional(t.String()),
-        activityName: t.Optional(t.String()),
       }),
     },
   )

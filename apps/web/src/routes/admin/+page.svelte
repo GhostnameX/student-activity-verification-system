@@ -4,7 +4,20 @@
 	import { user } from '$lib/auth';
 	import { translate } from '$lib/i18n';
 	import { goto } from '$app/navigation';
-	import { getRequests, getStats, getAuditLogs, type RequestItem, type StatsResponse, type AuditLogItem } from '$lib/api';
+	import {
+		getRequests,
+		getStats,
+		getAuditLogs,
+		getActivities,
+		createActivity,
+		updateActivity,
+		deleteActivity,
+		type RequestItem,
+		type StatsResponse,
+		type AuditLogItem,
+		type Activity,
+		type ActivityInput,
+	} from '$lib/api';
 	import {
 		RefreshCw,
 		FileText,
@@ -15,13 +28,42 @@
 		ScrollText,
 		Users,
 		CalendarDays,
+		Plus,
+		Pencil,
+		Trash2,
+		CalendarPlus,
 	} from 'lucide-svelte';
 
 	let requests: RequestItem[] = $state([]);
 	let stats = $state<StatsResponse | null>(null);
 	let auditLogs: AuditLogItem[] = $state([]);
+	let activities: Activity[] = $state([]);
 	let loading: boolean = $state(true);
-	let activeTab: 'stats' | 'audit' = $state('stats');
+	let activeTab: 'stats' | 'audit' | 'activities' = $state('stats');
+	let activityModal: 'add' | 'edit' | null = $state(null);
+	let editingId: string | null = $state(null);
+	let deleteTarget: Activity | null = $state(null);
+	let savingActivity: boolean = $state(false);
+	let activityMsg: string = $state('');
+	let activityForm = $state<ActivityInput & { dateStr: string; deadlineStr: string }>(emptyActivityForm());
+
+	function emptyActivityForm() {
+		const today = new Date().toISOString().slice(0, 10);
+		return {
+			title: '',
+			titleEn: '',
+			type: '',
+			organizer: '',
+			date: '',
+			dateStr: today,
+			location: '',
+			description: '',
+			descriptionEn: '',
+			submissionDeadline: '',
+			deadlineStr: '',
+			isActive: true,
+		};
+	}
 
 	onMount(async () => {
 		if (!$user || $user.role !== 'admin') {
@@ -34,13 +76,98 @@
 	async function refresh() {
 		loading = true;
 		try {
-			const [req, st, audit] = await Promise.all([getRequests(), getStats(), getAuditLogs()]);
+			const [req, st, audit, acts] = await Promise.all([
+				getRequests(),
+				getStats(),
+				getAuditLogs(),
+				getActivities(true),
+			]);
 			requests = req;
 			stats = st;
 			auditLogs = audit;
+			activities = acts;
 		} finally {
 			loading = false;
 		}
+	}
+
+	function openAddActivity() {
+		activityForm = emptyActivityForm();
+		editingId = null;
+		activityMsg = '';
+		activityModal = 'add';
+	}
+
+	function openEditActivity(a: Activity) {
+		activityForm = {
+			title: a.title,
+			titleEn: a.titleEn,
+			type: a.type,
+			organizer: a.organizer,
+			date: a.date,
+			dateStr: new Date(a.date).toISOString().slice(0, 10),
+			location: a.location,
+			description: a.description ?? '',
+			descriptionEn: a.descriptionEn ?? '',
+			submissionDeadline: a.submissionDeadline ?? '',
+			deadlineStr: a.submissionDeadline ? new Date(a.submissionDeadline).toISOString().slice(0, 16) : '',
+			isActive: a.isActive ?? true,
+		};
+		editingId = a.id;
+		activityMsg = '';
+		activityModal = 'edit';
+	}
+
+	function closeActivityModal() {
+		activityModal = null;
+		editingId = null;
+		activityMsg = '';
+	}
+
+	async function saveActivity() {
+		savingActivity = true;
+		activityMsg = '';
+		try {
+			const payload: ActivityInput = {
+				title: activityForm.title.trim(),
+				titleEn: activityForm.titleEn.trim(),
+				type: activityForm.type.trim(),
+				organizer: activityForm.organizer.trim(),
+				date: activityForm.dateStr ? new Date(activityForm.dateStr + 'T00:00:00').toISOString() : activityForm.date,
+				location: activityForm.location.trim(),
+				description: activityForm.description || null,
+				descriptionEn: activityForm.descriptionEn || null,
+				submissionDeadline: activityForm.deadlineStr ? new Date(activityForm.deadlineStr).toISOString() : null,
+				isActive: activityForm.isActive,
+			};
+			if (activityModal === 'edit' && editingId) {
+				await updateActivity(editingId, payload);
+			} else {
+				await createActivity(payload);
+			}
+			closeActivityModal();
+			await refresh();
+		} catch (e) {
+			activityMsg = e instanceof Error ? e.message : String(e);
+		} finally {
+			savingActivity = false;
+		}
+	}
+
+	async function removeActivity() {
+		if (!deleteTarget) return;
+		try {
+			await deleteActivity(deleteTarget.id);
+			deleteTarget = null;
+			await refresh();
+		} catch (e) {
+			activityMsg = e instanceof Error ? e.message : String(e);
+			deleteTarget = null;
+		}
+	}
+
+	function activityDateStr(d: string) {
+		return new Date(d).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US');
 	}
 
 	function statusClass(status: string) {
@@ -125,6 +252,14 @@
 					}`}
 				>
 					{translate($lang, 'auditLog')}
+				</button>
+				<button
+					onclick={() => (activeTab = 'activities')}
+					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+						activeTab === 'activities' ? 'bg-ink-900 text-ink-50 shadow-soft' : 'text-ink-600 hover:bg-ink-50'
+					}`}
+				>
+					{translate($lang, 'activities')}
 				</button>
 			</div>
 			<button
@@ -269,7 +404,7 @@
 				</tbody>
 			</table>
 		</div>
-	{:else}
+	{:else if activeTab === 'audit'}
 		<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
 			<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
 				<ScrollText size={18} class="text-brand-600" />
@@ -308,6 +443,270 @@
 					</table>
 				</div>
 			{/if}
+		</div>
+	{:else}
+		<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
+			<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+				<h2 class="flex items-center gap-2 text-lg font-bold text-ink-900">
+					<CalendarDays size={18} class="text-brand-600" />
+					{translate($lang, 'activities')}
+				</h2>
+				<button
+					onclick={openAddActivity}
+					class="flex items-center gap-1.5 rounded-xl bg-ink-900 px-4 py-2 text-sm font-semibold text-ink-50 shadow-soft transition hover:bg-ink-700"
+				>
+					<Plus size={16} />
+					{translate($lang, 'addActivity')}
+				</button>
+			</div>
+			{#if activities.length === 0}
+				<p class="text-sm text-ink-500">{translate($lang, 'noActivities')}</p>
+			{:else}
+				<div class="overflow-x-auto">
+					<table class="w-full text-left text-sm">
+						<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
+							<tr>
+								<th class="px-3 py-2">{translate($lang, 'activity')}</th>
+								<th class="px-3 py-2">{translate($lang, 'type')}</th>
+								<th class="hidden px-3 py-2 md:table-cell">{translate($lang, 'organizer')}</th>
+								<th class="hidden px-3 py-2 lg:table-cell">{translate($lang, 'date')}</th>
+								<th class="hidden px-3 py-2 md:table-cell">{translate($lang, 'location')}</th>
+								<th class="px-3 py-2">{translate($lang, 'status')}</th>
+								<th class="px-3 py-2 text-right">{translate($lang, 'actions')}</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each activities as a (a.id)}
+								<tr class="border-b border-ink-50 last:border-0">
+									<td class="px-3 py-2.5 font-medium text-ink-900">{activityTitle(a)}</td>
+									<td class="px-3 py-2.5 text-ink-600">{a.type}</td>
+									<td class="hidden px-3 py-2.5 text-ink-600 md:table-cell">{a.organizer}</td>
+									<td class="hidden whitespace-nowrap px-3 py-2.5 text-ink-600 lg:table-cell">
+										{activityDateStr(a.date)}
+									</td>
+									<td class="hidden px-3 py-2.5 text-ink-600 md:table-cell">{a.location}</td>
+									<td class="px-3 py-2.5">
+										<span
+											class={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+												a.isActive ? 'bg-green-50 text-green-700 ring-1 ring-green-200' : 'bg-ink-100 text-ink-600 ring-1 ring-ink-200'
+											}`}
+										>
+											{translate($lang, a.isActive ? 'active' : 'inactive')}
+										</span>
+									</td>
+									<td class="px-3 py-2.5">
+										<div class="flex justify-end gap-1.5">
+											<button
+												onclick={() => openEditActivity(a)}
+												title={translate($lang, 'editActivity')}
+												class="rounded-lg bg-ink-100 p-2 text-ink-600 transition hover:bg-brand-100 hover:text-brand-700"
+											>
+												<Pencil size={15} />
+											</button>
+											<button
+												onclick={() => (deleteTarget = a)}
+												title={translate($lang, 'deleteActivity')}
+												class="rounded-lg bg-red-50 p-2 text-red-600 transition hover:bg-red-100"
+											>
+												<Trash2 size={15} />
+											</button>
+										</div>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	{#if activityModal}
+		<div
+			class="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/60 p-4 backdrop-blur-sm"
+			role="dialog"
+			aria-modal="true"
+			tabindex="-1"
+			onclick={(e) => { if (e.target === e.currentTarget) closeActivityModal(); }}
+			onkeydown={(e) => { if (e.key === 'Escape') closeActivityModal(); }}
+		>
+			<div class="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-ink-100 bg-surface p-6 shadow-lift">
+				<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
+					<CalendarPlus size={19} class="text-brand-600" />
+					{translate($lang, activityModal === 'add' ? 'addActivity' : 'editActivity')}
+				</h2>
+				<div class="space-y-4">
+					<div class="grid gap-4 sm:grid-cols-2">
+						<div>
+							<label for="act-title" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'activity')}
+							</label>
+							<input
+								id="act-title"
+								bind:value={activityForm.title}
+								type="text"
+								required
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							/>
+						</div>
+						<div>
+							<label for="act-title-en" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'titleEn')}
+							</label>
+							<input
+								id="act-title-en"
+								bind:value={activityForm.titleEn}
+								type="text"
+								required
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							/>
+						</div>
+					</div>
+					<div class="grid gap-4 sm:grid-cols-2">
+						<div>
+							<label for="act-type" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'type')}
+							</label>
+							<input
+								id="act-type"
+								bind:value={activityForm.type}
+								type="text"
+								required
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							/>
+						</div>
+						<div>
+							<label for="act-organizer" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'organizer')}
+							</label>
+							<input
+								id="act-organizer"
+								bind:value={activityForm.organizer}
+								type="text"
+								required
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							/>
+						</div>
+					</div>
+					<div class="grid gap-4 sm:grid-cols-2">
+						<div>
+							<label for="act-date" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'date')}
+							</label>
+							<input
+								id="act-date"
+								bind:value={activityForm.dateStr}
+								type="date"
+								required
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							/>
+						</div>
+						<div>
+							<label for="act-deadline" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'submissionDeadline')}
+							</label>
+							<input
+								id="act-deadline"
+								bind:value={activityForm.deadlineStr}
+								type="datetime-local"
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							/>
+						</div>
+					</div>
+					<div>
+						<label for="act-location" class="mb-1 block text-sm font-medium text-ink-700">
+							{translate($lang, 'location')}
+						</label>
+						<input
+							id="act-location"
+							bind:value={activityForm.location}
+							type="text"
+							required
+							class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+						/>
+					</div>
+					<div class="grid gap-4 sm:grid-cols-2">
+						<div>
+							<label for="act-desc" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'description')}
+							</label>
+							<textarea
+								id="act-desc"
+								bind:value={activityForm.description}
+								rows="3"
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							></textarea>
+						</div>
+						<div>
+							<label for="act-desc-en" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'descriptionEn')}
+							</label>
+							<textarea
+								id="act-desc-en"
+								bind:value={activityForm.descriptionEn}
+								rows="3"
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							></textarea>
+						</div>
+					</div>
+					<label class="flex items-center gap-2 text-sm font-medium text-ink-700">
+						<input type="checkbox" bind:checked={activityForm.isActive} class="h-4 w-4 accent-brand-600" />
+						{translate($lang, 'active')}
+					</label>
+					{#if activityMsg}
+						<p class="text-sm text-red-600">{activityMsg}</p>
+					{/if}
+					<div class="flex justify-end gap-2 border-t border-ink-100 pt-4">
+						<button
+							onclick={closeActivityModal}
+							class="rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+						>
+							{translate($lang, 'cancel')}
+						</button>
+						<button
+							onclick={saveActivity}
+							disabled={savingActivity}
+							class="flex items-center gap-1.5 rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+						>
+							{savingActivity ? translate($lang, 'submitting') : translate($lang, 'save')}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if deleteTarget}
+		<div
+			class="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/60 p-4 backdrop-blur-sm"
+			role="dialog"
+			aria-modal="true"
+			tabindex="-1"
+			onclick={(e) => { if (e.target === e.currentTarget) deleteTarget = null; }}
+			onkeydown={(e) => { if (e.key === 'Escape') deleteTarget = null; }}
+		>
+			<div class="w-full max-w-sm rounded-3xl border border-ink-100 bg-surface p-6 shadow-lift">
+				<h2 class="mb-3 flex items-center gap-2 text-lg font-bold text-ink-900">
+					<Trash2 size={19} class="text-red-600" />
+					{translate($lang, 'deleteActivity')}
+				</h2>
+				<p class="text-sm text-ink-600">{translate($lang, 'confirmDeleteActivity')}</p>
+				<div class="mt-5 flex justify-end gap-2">
+					<button
+						onclick={() => (deleteTarget = null)}
+						class="rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+					>
+						{translate($lang, 'cancel')}
+					</button>
+					<button
+						onclick={removeActivity}
+						class="flex items-center gap-1.5 rounded-xl bg-red-600 px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-red-700"
+					>
+						<Trash2 size={15} />
+						{translate($lang, 'delete')}
+					</button>
+				</div>
+			</div>
 		</div>
 	{/if}
 </div>

@@ -21,7 +21,6 @@
 	let rejectReason: string = $state('');
 	let detail: RequestItem | null = $state(null);
 	let detailLoading: boolean = $state(false);
-	let activityName: string = $state('');
 	let removingId: string | null = $state(null);
 	let removingStatus: 'approved' | 'rejected' = $state('approved');
 
@@ -53,8 +52,7 @@
 
 	async function approve(id: string) {
 		try {
-			await approveRequest(id, activityName || undefined);
-			activityName = '';
+			await approveRequest(id);
 			if (detail?.id === id) detail = null;
 			animateRemove(id, 'approved');
 		} catch (e) {
@@ -64,10 +62,9 @@
 
 	async function doReject(id: string) {
 		try {
-			await rejectRequest(id, rejectReason || undefined, activityName || undefined);
+			await rejectRequest(id, rejectReason || undefined);
 			rejectId = null;
 			rejectReason = '';
-			activityName = '';
 			if (detail?.id === id) detail = null;
 			animateRemove(id, 'rejected');
 		} catch (e) {
@@ -78,7 +75,6 @@
 	async function openDetail(id: string) {
 		detailLoading = true;
 		detail = null;
-		activityName = '';
 		try {
 			detail = await getRequest(id);
 		} catch (e) {
@@ -181,22 +177,26 @@
 							</td>
 							<td class="px-5 py-4">
 								{#if r.status === 'pending'}
-									<div class="flex justify-end gap-2">
-										<button
-											onclick={(e) => { e.stopPropagation(); approve(r.id); }}
-											class="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-soft transition hover:bg-green-700"
-										>
-											<Check size={14} />
-											{translate($lang, 'approve')}
-										</button>
-										<button
-											onclick={(e) => { e.stopPropagation(); rejectId = r.id; }}
-											class="flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-soft transition hover:bg-red-700"
-										>
-											<X size={14} />
-											{translate($lang, 'reject')}
-										</button>
-									</div>
+									{#if $user?.role === 'admin'}
+										<div class="flex justify-end gap-2">
+											<button
+												onclick={(e) => { e.stopPropagation(); approve(r.id); }}
+												class="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-soft transition hover:bg-green-700"
+											>
+												<Check size={14} />
+												{translate($lang, 'approve')}
+											</button>
+											<button
+												onclick={(e) => { e.stopPropagation(); rejectId = r.id; }}
+												class="flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-soft transition hover:bg-red-700"
+											>
+												<X size={14} />
+												{translate($lang, 'reject')}
+											</button>
+										</div>
+									{:else}
+										<span class="text-xs text-ink-400">{translate($lang, 'readOnly')}</span>
+									{/if}
 								{:else}
 									{#if r.status === 'rejected' && r.note}
 										<span class="text-xs text-red-600">{r.note}</span>
@@ -314,34 +314,28 @@
 					</div>
 
 					{#if detail.status === 'pending'}
-						<div class="mb-4 border-t border-ink-100 pt-4">
-							<label for="activity-name" class="mb-1.5 block text-sm font-medium text-ink-700">
-								{translate($lang, 'activityByStaff')}
-							</label>
-							<input
-								id="activity-name"
-								bind:value={activityName}
-								type="text"
-								placeholder={activityTitle(detail)}
-								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
-							/>
-						</div>
-						<div class="flex justify-end gap-2 border-t border-ink-100 pt-4">
-							<button
-								onclick={() => approve(detail!.id)}
-								class="flex items-center gap-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-green-700"
-							>
-								<Check size={15} />
-								{translate($lang, 'approve')}
-							</button>
-							<button
-								onclick={() => (rejectId = detail!.id)}
-								class="flex items-center gap-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-red-700"
-							>
-								<X size={15} />
-								{translate($lang, 'reject')}
-							</button>
-						</div>
+						{#if $user?.role !== 'admin'}
+							<div class="border-t border-ink-100 pt-4 text-sm text-ink-500">
+								{translate($lang, 'readOnly')}
+							</div>
+						{:else}
+							<div class="flex justify-end gap-2 border-t border-ink-100 pt-4">
+								<button
+									onclick={() => approve(detail!.id)}
+									class="flex items-center gap-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-green-700"
+								>
+									<Check size={15} />
+									{translate($lang, 'approve')}
+								</button>
+								<button
+									onclick={() => (rejectId = detail!.id)}
+									class="flex items-center gap-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-red-700"
+								>
+									<X size={15} />
+									{translate($lang, 'reject')}
+								</button>
+							</div>
+						{/if}
 					{:else if detail.status === 'rejected' && detail.note}
 						<div class="border-t border-ink-100 pt-4 text-sm text-red-600">
 							{translate($lang, 'reason')}: {detail.note}

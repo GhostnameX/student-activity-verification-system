@@ -194,17 +194,17 @@ export async function uploadFile(file: File): Promise<Attachment> {
   return data as Attachment;
 }
 
-export async function approveRequest(id: string, activityName?: string): Promise<void> {
+export async function approveRequest(id: string): Promise<void> {
   await apiFetch(`/api/requests/${id}/approve`, {
     method: "POST",
-    body: JSON.stringify(activityName ? { activityName } : {}),
+    body: JSON.stringify({}),
   });
 }
 
-export async function rejectRequest(id: string, reason?: string, activityName?: string): Promise<void> {
+export async function rejectRequest(id: string, reason?: string): Promise<void> {
   await apiFetch(`/api/requests/${id}/reject`, {
     method: "POST",
-    body: JSON.stringify({ reason, ...(activityName ? { activityName } : {}) }),
+    body: JSON.stringify({ reason }),
   });
 }
 

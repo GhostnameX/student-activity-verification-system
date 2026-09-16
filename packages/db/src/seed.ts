@@ -1,5 +1,5 @@
 import { db, pool } from "./client";
-import { users, activities, accounts } from "./schema";
+import { users, accounts } from "./schema";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "@better-auth/utils/password";
 
@@ -68,42 +68,6 @@ async function seed() {
     role: "admin",
     password: adminPassword,
   });
-
-  const existingActivities = await db.select().from(activities);
-  if (existingActivities.length === 0) {
-    await db.insert(activities).values([
-      {
-        title: "ปฐมนิเทศนักศึกษาใหม่",
-        titleEn: "New Student Orientation",
-        type: "กิจกรรมบังคับ",
-        organizer: "กองกิจการนักศึกษา",
-        date: new Date(2026, 5, 15),
-        location: "อาคารเฉลิมพระเกียรติ",
-        description: "กิจกรรมปฐมนิเทศสำหรับนักศึกษาใหม่ทุกคณะ",
-        descriptionEn: "Orientation activity for all new students",
-      },
-      {
-        title: "ค่ายอาสาพัฒนาชุมชน",
-        titleEn: "Community Development Camp",
-        type: "กิจกรรมอาสา",
-        organizer: "ชมรมอาสาพัฒนา",
-        date: new Date(2026, 7, 10),
-        location: "จังหวัดสระบุรี",
-        description: "ค่ายอาสาพัฒนาชุมชน 3 วัน 2 คืน",
-        descriptionEn: "3-day community development camp",
-      },
-      {
-        title: "การแข่งขันกีฬาสีภายในมหาวิทยาลัย",
-        titleEn: "University Sports Day",
-        type: "กิจกรรมกีฬา",
-        organizer: "สโมสรนักศึกษา",
-        date: new Date(2026, 9, 20),
-        location: "สนามกีฬากลาง",
-        description: "การแข่งขันกีฬาสีภายในมหาวิทยาลัย",
-        descriptionEn: "Inter-faculty sports competition",
-      },
-    ]);
-  }
 
   console.log("Seed complete!");
   console.log("Test accounts:");

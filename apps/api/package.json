@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "bun --hot src/index.ts",
     "start": "bun src/index.ts",
-    "build": "bun build src/index.ts --target bun --outdir dist"
+    "build": "bun build src/index.ts --target bun --outdir dist",
+    "build:check": "bun run build && bun scripts/check-dev-bypass.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.2.0",

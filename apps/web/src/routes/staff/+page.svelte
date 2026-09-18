@@ -9,10 +9,21 @@
 		getRequest,
 		approveRequest,
 		rejectRequest,
+		requestRevisionRequest,
 		attachmentUrl,
 		type RequestItem,
+		type Attachment,
 	} from '$lib/api';
-	import { Check, X, RefreshCw, Inbox, Clock, Paperclip, FileText as FileIcon } from 'lucide-svelte';
+	import {
+		Check,
+		X,
+		RefreshCw,
+		Inbox,
+		Clock,
+		Paperclip,
+		FileText as FileIcon,
+		RotateCcw,
+	} from 'lucide-svelte';
 
 	let requests: RequestItem[] = $state([]);
 	let loading: boolean = $state(true);
@@ -95,10 +106,82 @@
 	function statusClass(status: string) {
 		if (status === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
 		if (status === 'rejected') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
+		if (status === 'revision_required') return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200';
 		return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
 	}
 
+	function statusLabel(status: string) {
+		if (status === 'revision_required') return translate($lang, 'revisionRequired');
+		return translate($lang, status as 'pending');
+	}
+
 	let pendingCount = $derived(requests.filter((r) => r.status === 'pending').length);
+
+	// Revision request state
+	let revisionFor: RequestItem | null = $state(null);
+	let revisionRequest: RequestItem | null = $state(null);
+	let revisionLoading = $state(false);
+	let revisionSelected = $state<Record<number, boolean>>({});
+	let revisionMsg = $state('');
+
+	async function openRevision(id: string) {
+		revisionFor = null;
+		revisionMsg = '';
+		revisionSelected = {};
+		revisionLoading = true;
+		try {
+			const r = await getRequest(id);
+			revisionRequest = r;
+			revisionFor = r;
+		} catch (e) {
+			revisionMsg = e instanceof Error ? e.message : String(e);
+		} finally {
+			revisionLoading = false;
+		}
+	}
+
+	function flaggableSlots(r: RequestItem): Attachment[] {
+		return (r.attachments ?? []).filter(
+			(a) => a.slot === 1 || a.slot === 2,
+		);
+	}
+
+	async function doRequestRevision() {
+		if (!revisionFor) return;
+		const id = revisionFor.id;
+		const slots = Object.keys(revisionSelected)
+			.filter((k) => revisionSelected[Number(k)])
+			.map(Number)
+			.sort();
+		if (slots.length === 0) {
+			revisionMsg = translate($lang, 'selectAtLeastOne');
+			return;
+		}
+		actionMsg = '';
+		try {
+			await requestRevisionRequest(id, slots);
+			revisionFor = null;
+			revisionRequest = null;
+			if (detail?.id === id) detail = null;
+			await refresh();
+		} catch (e) {
+			revisionMsg = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	function revisionStateLabel(state: string) {
+		if (state === 'needs_revision') return translate($lang, 'revisionStateNeedsRevision');
+		if (state === 'resubmitted') return translate($lang, 'revisionStateResubmitted');
+		if (state === 'approved') return translate($lang, 'approved');
+		return translate($lang, 'revisionStateUnchanged');
+	}
+
+	function revisionStateClass(state: string) {
+		if (state === 'needs_revision') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
+		if (state === 'resubmitted') return 'bg-blue-50 text-blue-700 ring-1 ring-blue-200';
+		if (state === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
+		return 'bg-ink-100 text-ink-600 ring-1 ring-ink-200';
+	}
 </script>
 
 <div class="space-y-6">
@@ -172,13 +255,20 @@
 								<span
 									class={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusClass(r.status)}`}
 								>
-									{translate($lang, r.status as 'pending')}
+									{statusLabel(r.status)}
 								</span>
 							</td>
 							<td class="px-5 py-4">
 								{#if r.status === 'pending'}
 									{#if $user?.role === 'admin'}
 										<div class="flex justify-end gap-2">
+											<button
+												onclick={(e) => { e.stopPropagation(); openRevision(r.id); }}
+												class="flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-soft transition hover:bg-indigo-700"
+											>
+												<RotateCcw size={14} />
+												{translate($lang, 'requestRevision')}
+											</button>
 											<button
 												onclick={(e) => { e.stopPropagation(); approve(r.id); }}
 												class="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-soft transition hover:bg-green-700"
@@ -198,8 +288,8 @@
 										<span class="text-xs text-ink-400">{translate($lang, 'readOnly')}</span>
 									{/if}
 								{:else}
-									{#if r.status === 'rejected' && r.note}
-										<span class="text-xs text-red-600">{r.note}</span>
+									{#if r.status === 'rejected' && (r.rejectionReason || r.note)}
+										<span class="text-xs text-red-600">{r.rejectionReason ?? r.note}</span>
 									{/if}
 								{/if}
 							</td>
@@ -234,7 +324,7 @@
 							<span
 								class={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusClass(detail.status)}`}
 							>
-								{translate($lang, detail.status as 'pending')}
+								{statusLabel(detail.status)}
 							</span>
 						</div>
 						<button
@@ -321,6 +411,13 @@
 						{:else}
 							<div class="flex justify-end gap-2 border-t border-ink-100 pt-4">
 								<button
+									onclick={(e) => { e.stopPropagation(); openRevision(detail!.id); }}
+									class="flex items-center gap-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-indigo-700"
+								>
+									<RotateCcw size={15} />
+									{translate($lang, 'requestRevision')}
+								</button>
+								<button
 									onclick={() => approve(detail!.id)}
 									class="flex items-center gap-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-green-700"
 								>
@@ -336,9 +433,9 @@
 								</button>
 							</div>
 						{/if}
-					{:else if detail.status === 'rejected' && detail.note}
+					{:else if detail.status === 'rejected' && (detail.rejectionReason || detail.note)}
 						<div class="border-t border-ink-100 pt-4 text-sm text-red-600">
-							{translate($lang, 'reason')}: {detail.note}
+							{translate($lang, 'reason')}: {detail.rejectionReason ?? detail.note}
 						</div>
 					{/if}
 				{/if}
@@ -379,6 +476,108 @@
 						{translate($lang, 'confirm')}
 					</button>
 				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if revisionLoading || revisionFor}
+		<div
+			class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+			role="dialog"
+			aria-modal="true"
+			tabindex="-1"
+			onkeydown={(e) => { if (e.key === 'Escape') { revisionFor = null; revisionRequest = null; } }}
+		>
+			<div class="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-surface p-6 shadow-lift">
+				{#if revisionLoading}
+					<div class="flex items-center gap-2 py-12 text-sm text-ink-500">
+						<Clock size={16} class="animate-spin" />
+						{translate($lang, 'submitting')}
+					</div>
+				{:else if revisionFor}
+					<div class="mb-4 flex items-start justify-between gap-3">
+						<div>
+							<h3 class="text-lg font-bold text-ink-900">{translate($lang, 'requestRevision')}</h3>
+							<p class="mt-1 text-sm text-ink-500">{translate($lang, 'requestRevisionHint')}</p>
+						</div>
+						<button
+							onclick={() => { revisionFor = null; revisionRequest = null; }}
+							class="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700"
+							aria-label={translate($lang, 'cancel')}
+						>
+							<X size={18} />
+						</button>
+					</div>
+
+					{#if revisionMsg}
+						<p class="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+							{revisionMsg}
+						</p>
+					{/if}
+
+					{#if flaggableSlots(revisionFor).length === 0}
+						<p class="rounded-xl bg-ink-50 px-3.5 py-2.5 text-sm text-ink-500">
+							{translate($lang, 'noFiles')}
+						</p>
+					{:else}
+						<div class="space-y-3">
+							{#each revisionFor.attachments ?? [] as a (a.id)}
+								{@const slotLabel = a.slot === 1 ? translate($lang, 'slot1Evidence') : a.slot === 2 ? translate($lang, 'slot2Evidence') : `${translate($lang, 'attachments')} ${a.slot ?? ''}`}
+								<label class="flex items-start gap-3 rounded-2xl border border-ink-100 bg-ink-50/50 p-4 transition hover:border-indigo-200">
+									<input
+										type="checkbox"
+										checked={revisionSelected[a.slot ?? -1] ?? false}
+										onchange={(e) => {
+											const s = a.slot;
+											if (s == null) return;
+											revisionSelected = { ...revisionSelected, [s]: e.currentTarget.checked };
+										}}
+										disabled={a.slot !== 1 && a.slot !== 2}
+										class="mt-1 h-4 w-4 rounded border-ink-300 text-indigo-600 focus:ring-indigo-500"
+									/>
+									<span class="min-w-0 flex-1">
+										<span class="flex items-center justify-between gap-2">
+											<span class="flex items-center gap-2 text-sm font-semibold text-ink-800">
+												<span class="flex h-6 w-6 items-center justify-center rounded-lg bg-brand-50 text-xs font-bold text-brand-600">
+													{a.slot ?? '-'}
+												</span>
+												{slotLabel}
+											</span>
+											{#if a.revisions && a.revisions.length > 0}
+												<span
+													class={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${revisionStateClass(a.revisions[0].revisionState)}`}
+												>
+													{revisionStateLabel(a.revisions[0].revisionState)}
+												</span>
+											{/if}
+										</span>
+										{#if a.revisions && a.revisions.length > 0}
+											<span class="mt-1 block truncate text-xs text-ink-500">
+												{a.revisions[0].fileName}
+											</span>
+										{/if}
+									</span>
+								</label>
+							{/each}
+						</div>
+					{/if}
+
+					<div class="mt-5 flex justify-end gap-2 border-t border-ink-100 pt-4">
+						<button
+							onclick={() => { revisionFor = null; revisionRequest = null; }}
+							class="rounded-xl border border-ink-200 px-4 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+						>
+							{translate($lang, 'cancel')}
+						</button>
+						<button
+							onclick={doRequestRevision}
+							class="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-indigo-700"
+						>
+							<RotateCcw size={15} />
+							{translate($lang, 'confirm')}
+						</button>
+					</div>
+				{/if}
 			</div>
 		</div>
 	{/if}

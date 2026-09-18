@@ -16,9 +16,16 @@ export const requestStatusEnum = pgEnum("request_status", [
   "pending",
   "approved",
   "rejected",
+  "revision_required",
 ]);
 export const notificationTypeEnum = pgEnum("notification_type", [
   "request_status_change",
+]);
+export const attachmentRevisionStateEnum = pgEnum("attachment_revision_state", [
+  "unchanged",
+  "needs_revision",
+  "resubmitted",
+  "approved",
 ]);
 
 export const users = pgTable(
@@ -48,7 +55,10 @@ export const users = pgTable(
   ],
 );
 
-export const sessions = pgTable("sessions", {
+// Better Auth session table (old auth system). Renamed so the new custom
+// `sessions` table can take the name. Dropped by migration 0010 once the new
+// auth is verified in production.
+export const betterAuthSessions = pgTable("better_auth_sessions", {
   id: text("id").primaryKey(),
   token: text("token").notNull(),
   userId: text("user_id")
@@ -64,6 +74,48 @@ export const sessions = pgTable("sessions", {
     .default(sql`now()`)
     .notNull(),
 });
+
+// Custom auth sessions (Google for students + password for staff/admin).
+// user_id is intentionally NOT a foreign key: it can reference either
+// students.student_id or staff.id (polymorphic token store, short-lived).
+// This is a deliberate decision — unlike notifications/audit_logs which are
+// long-lived display tables and therefore use dual-column FKs + CHECK.
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id").notNull(),
+    authMethod: text("auth_method").notNull(), // 'google' | 'password'
+    role: text("role").notNull(), // 'student' | 'staff' | 'admin'
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+  },
+  (t) => [index("sessions_user_idx").on(t.userId)],
+);
+
+export const staff = pgTable(
+  "staff",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    email: text("email").notNull(),
+    passwordHash: text("password_hash").notNull(),
+    role: roleEnum("role").notNull(), // 'admin' | 'staff' (student not used)
+    fullName: text("full_name").notNull(),
+    createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .default(sql`now()`)
+      .notNull(),
+  },
+  (t) => [uniqueIndex("staff_email_unique").on(t.email)],
+);
 
 export const accounts = pgTable("accounts", {
   id: text("id").primaryKey(),
@@ -130,7 +182,7 @@ export const requests = pgTable(
       .$defaultFn(() => crypto.randomUUID()),
     studentId: text("student_id")
       .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+      .references(() => students.studentId, { onDelete: "cascade" }),
     activityId: text("activity_id")
       .notNull()
       .references(() => activities.id),
@@ -140,7 +192,7 @@ export const requests = pgTable(
     activityName: text("activity_name"),
     certificateNumber: integer("certificate_number"),
     certificateYear: integer("certificate_year"),
-    reviewedById: text("reviewed_by_id").references(() => users.id),
+    reviewedById: text("reviewed_by_id").references(() => staff.id),
     reviewedAt: timestamp("reviewed_at"),
     submittedAt: timestamp("submitted_at")
       .default(sql`now()`)
@@ -176,15 +228,45 @@ export const requestAttachments = pgTable(
     requestId: text("request_id")
       .notNull()
       .references(() => requests.id, { onDelete: "cascade" }),
+    slot: integer("slot"),
+    currentRevisionId: text("current_revision_id"),
+    fileName: text("file_name"),
+    fileType: text("file_type"),
+    fileSize: integer("file_size"),
+    storagePath: text("storage_path"),
+    uploadedAt: timestamp("uploaded_at").default(sql`now()`),
+  },
+  (t) => [index("attachments_request_idx").on(t.requestId)],
+);
+
+export const requestAttachmentRevisions = pgTable(
+  "request_attachment_revisions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    attachmentId: text("attachment_id")
+      .notNull()
+      .references(() => requestAttachments.id, { onDelete: "cascade" }),
+    revisionNumber: integer("revision_number").notNull(),
     fileName: text("file_name").notNull(),
     fileType: text("file_type").notNull(),
     fileSize: integer("file_size").notNull(),
     storagePath: text("storage_path").notNull(),
+    revisionState: attachmentRevisionStateEnum("revision_state")
+      .default("unchanged")
+      .notNull(),
     uploadedAt: timestamp("uploaded_at")
       .default(sql`now()`)
       .notNull(),
   },
-  (t) => [index("attachments_request_idx").on(t.requestId)],
+  (t) => [
+    uniqueIndex("attrev_attachment_revision_unique").on(
+      t.attachmentId,
+      t.revisionNumber,
+    ),
+    index("attrev_attachment_idx").on(t.attachmentId),
+  ],
 );
 
 export const notifications = pgTable(
@@ -193,9 +275,12 @@ export const notifications = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    studentId: text("student_id").references(() => students.studentId, {
+      onDelete: "cascade",
+    }),
+    staffId: text("staff_id").references(() => staff.id, {
+      onDelete: "cascade",
+    }),
     type: notificationTypeEnum("type").default("request_status_change").notNull(),
     title: text("title").notNull(),
     body: text("body").notNull(),
@@ -208,8 +293,9 @@ export const notifications = pgTable(
       .notNull(),
   },
   (t) => [
-    index("notifications_user_idx").on(t.userId),
-    index("notifications_user_read_idx").on(t.userId, t.readAt),
+    index("notifications_student_idx").on(t.studentId),
+    index("notifications_staff_idx").on(t.staffId),
+    index("notifications_recipient_read_idx").on(t.studentId, t.readAt),
   ],
 );
 
@@ -219,7 +305,11 @@ export const auditLogs = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
-    actorId: text("actor_id").references(() => users.id, {
+    actorStudentId: text("actor_student_id").references(
+      () => students.studentId,
+      { onDelete: "set null" },
+    ),
+    actorStaffId: text("actor_staff_id").references(() => staff.id, {
       onDelete: "set null",
     }),
     action: text("action").notNull(),
@@ -231,7 +321,8 @@ export const auditLogs = pgTable(
       .notNull(),
   },
   (t) => [
-    index("audit_logs_actor_idx").on(t.actorId),
+    index("audit_logs_actor_student_idx").on(t.actorStudentId),
+    index("audit_logs_actor_staff_idx").on(t.actorStaffId),
     index("audit_logs_target_idx").on(t.targetType, t.targetId),
     index("audit_logs_created_idx").on(t.createdAt),
   ],
@@ -250,7 +341,7 @@ export const importBatches = pgTable("import_batches", {
   fileName: text("file_name").notNull(),
   totalRows: integer("total_rows").notNull().default(0),
   importedRows: integer("imported_rows").notNull().default(0),
-  importedBy: text("imported_by").references(() => users.id, {
+  importedBy: text("imported_by").references(() => staff.id, {
     onDelete: "set null",
   }),
   createdAt: timestamp("created_at")
@@ -269,6 +360,8 @@ export const students = pgTable(
     level: text("level"),
     admissionYear: integer("admission_year").notNull(),
     status: studentStatusEnum("status").default("active").notNull(),
+    email: text("email"),
+    phone: text("phone"),
     importBatchId: text("import_batch_id").references(() => importBatches.id, {
       onDelete: "set null",
     }),
@@ -282,5 +375,10 @@ export const students = pgTable(
   (t) => [
     index("students_major_idx").on(t.major),
     index("students_status_idx").on(t.status),
+    // Lookup key for Google callback (not the FK target). Partial so it can
+    // stay nullable while the email sync job backfills all 569 students.
+    uniqueIndex("students_email_uidx")
+      .on(t.email)
+      .where(sql`${t.email} is not null`),
   ],
 );

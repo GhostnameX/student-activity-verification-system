@@ -6,16 +6,17 @@ import {
   requests,
   activities,
   requestAttachments,
-  users,
+  requestAttachmentRevisions,
   notifications,
   auditLogs,
   certificateCounters,
   students,
 } from "@ua/db/schema";
 import { db } from "@ua/db/client";
-import { eq, and, desc, sql, isNull, count, countDistinct } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, count, countDistinct, inArray } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
+import { getSession } from "./auth/session";
 
 const PUBLIC_API_URL = process.env.PUBLIC_API_URL || "http://localhost:3000";
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
@@ -92,14 +93,14 @@ async function sendStatusEmail(opts: {
 }
 
 async function writeAuditLog(opts: {
-  actorId: string;
+  actorStaffId: string;
   action: string;
   targetType: string;
   targetId: string;
   metadata?: Record<string, unknown>;
 }) {
   await db.insert(auditLogs).values({
-    actorId: opts.actorId,
+    actorStaffId: opts.actorStaffId,
     action: opts.action,
     targetType: opts.targetType,
     targetId: opts.targetId,
@@ -108,18 +109,22 @@ async function writeAuditLog(opts: {
 }
 
 async function notifyUser(opts: {
-  userId: string;
+  studentId: string;
   title: string;
   body: string;
   requestId?: string;
 }) {
   await db.insert(notifications).values({
-    userId: opts.userId,
+    studentId: opts.studentId,
     type: "request_status_change",
     title: opts.title,
     body: opts.body,
     requestId: opts.requestId ?? null,
   }).catch((e) => console.log(`[notify] insert failed: ${e}`));
+}
+
+function studentName(s: { firstName: string; lastName: string }): string {
+  return `${s.firstName} ${s.lastName}`;
 }
 
 export const app = new Elysia()
@@ -131,12 +136,23 @@ export const app = new Elysia()
       allowedHeaders: ["Content-Type", "Authorization"],
     }),
   )
-  .mount(auth.handler)
+  .use(auth)
   .get("/health", () => ({ status: "ok", ts: Date.now() }))
 
   // ===== Activities =====
-  .get("/api/activities", async ({ query, set }) => {
-    const includeInactive = (query as any).includeInactive === "true";
+  .get("/api/activities", async ({ query, headers, set }) => {
+    let includeInactive = (query as any).includeInactive === "true";
+    if (includeInactive) {
+      const user = await getSession(headers);
+      if (!user) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      if (user.role !== "admin") {
+        set.status = 403;
+        return { error: "admin_only" };
+      }
+    }
     const where = includeInactive
       ? undefined
       : eq(activities.isActive, true);
@@ -151,12 +167,12 @@ export const app = new Elysia()
   .post(
     "/api/activities",
     async ({ body, headers, set }) => {
-      const session = await auth.api.getSession({ headers });
-      if (!session?.user?.id) {
+      const user = await getSession(headers);
+      if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
       }
-      const role = (session.user as any).role ?? "student";
+      const role = user.role;
       if (role !== "admin") {
         set.status = 403;
         return { error: "admin_only" };
@@ -180,7 +196,7 @@ export const app = new Elysia()
         })
         .returning();
       await writeAuditLog({
-        actorId: session.user.id,
+        actorStaffId: user.id,
         action: "activity_create",
         targetType: "activity",
         targetId: created.id,
@@ -207,12 +223,12 @@ export const app = new Elysia()
   .patch(
     "/api/activities/:id",
     async ({ params, body, headers, set }) => {
-      const session = await auth.api.getSession({ headers });
-      if (!session?.user?.id) {
+      const user = await getSession(headers);
+      if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
       }
-      const role = (session.user as any).role ?? "student";
+      const role = user.role;
       if (role !== "admin") {
         set.status = 403;
         return { error: "admin_only" };
@@ -249,7 +265,7 @@ export const app = new Elysia()
         .where(eq(activities.id, params.id))
         .returning();
       await writeAuditLog({
-        actorId: session.user.id,
+        actorStaffId: user.id,
         action: "activity_update",
         targetType: "activity",
         targetId: params.id,
@@ -274,12 +290,12 @@ export const app = new Elysia()
   )
 
   .delete("/api/activities/:id", async ({ params, headers, set }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user?.id) {
+    const user = await getSession(headers);
+    if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
-    const role = (session.user as any).role ?? "student";
+    const role = user.role;
     if (role !== "admin") {
       set.status = 403;
       return { error: "admin_only" };
@@ -300,7 +316,7 @@ export const app = new Elysia()
       .where(eq(activities.id, params.id))
       .returning();
     await writeAuditLog({
-      actorId: session.user.id,
+      actorStaffId: user.id,
       action: "activity_delete",
       targetType: "activity",
       targetId: params.id,
@@ -313,10 +329,14 @@ export const app = new Elysia()
   .post(
     "/api/upload",
     async ({ body, headers, set }) => {
-      const session = await auth.api.getSession({ headers });
-      if (!session?.user?.id) {
+      const user = await getSession(headers);
+      if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
+      }
+      if (user.role !== "student") {
+        set.status = 403;
+        return { error: "only_students" };
       }
       if (!supabaseAdmin) {
         set.status = 500;
@@ -381,20 +401,20 @@ export const app = new Elysia()
 
   // ===== Requests =====
   .get("/api/requests", async ({ headers, query, set }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user?.id) {
+    const user = await getSession(headers);
+    if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
-    const role = (session.user as any).role ?? "student";
+    const role = user.role;
     const statusFilter = (query as any).status as string | undefined;
-    const validStatuses = ["pending", "approved", "rejected"];
+    const validStatuses = ["pending", "approved", "rejected", "revision_required"];
     const statusWhere = statusFilter && validStatuses.includes(statusFilter)
       ? eq(requests.status, statusFilter as "pending" | "approved" | "rejected")
       : undefined;
 
     if (role === "student") {
-      const where = and(eq(requests.studentId, session.user.id), statusWhere);
+      const where = and(eq(requests.studentId, user.id), statusWhere);
       const list = await db
         .select({
           id: requests.id,
@@ -419,6 +439,11 @@ export const app = new Elysia()
       return list;
     }
 
+    if (role === "staff") {
+      set.status = 403;
+      return { error: "staff_cannot_access" };
+    }
+
     const list = await db
       .select({
         id: requests.id,
@@ -436,28 +461,28 @@ export const app = new Elysia()
           date: activities.date,
         },
         student: {
-          id: users.id,
-          name: users.name,
-          email: users.email,
-          faculty: users.faculty,
-          studentId: users.studentId,
+          id: students.studentId,
+          name: sql`${students.firstName} || ' ' || ${students.lastName}`,
+          email: students.email,
+          faculty: students.major,
+          studentId: students.studentId,
         },
       })
       .from(requests)
       .innerJoin(activities, eq(requests.activityId, activities.id))
-      .innerJoin(users, eq(requests.studentId, users.id))
+      .innerJoin(students, eq(requests.studentId, students.studentId))
       .where(statusWhere)
       .orderBy(desc(requests.submittedAt));
     return list;
   })
 
   .get("/api/requests/:id", async ({ params, headers, set }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user?.id) {
+    const user = await getSession(headers);
+    if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
-    const role = (session.user as any).role ?? "student";
+    const role = user.role;
 
     const result = await db
       .select({
@@ -479,16 +504,16 @@ export const app = new Elysia()
           descriptionEn: activities.descriptionEn,
         },
         student: {
-          id: users.id,
-          name: users.name,
-          email: users.email,
-          faculty: users.faculty,
-          studentId: users.studentId,
+          id: students.studentId,
+          name: sql`${students.firstName} || ' ' || ${students.lastName}`,
+          email: students.email,
+          faculty: students.major,
+          studentId: students.studentId,
         },
       })
       .from(requests)
       .innerJoin(activities, eq(requests.activityId, activities.id))
-      .innerJoin(users, eq(requests.studentId, users.id))
+      .innerJoin(students, eq(requests.studentId, students.studentId))
       .where(eq(requests.id, params.id));
 
     if (result.length === 0) {
@@ -497,28 +522,48 @@ export const app = new Elysia()
     }
 
     const req = result[0];
-    if (role === "student" && req.student.id !== session.user.id) {
+    if (role === "student" && req.student.id !== user.id) {
       set.status = 403;
       return { error: "forbidden" };
+    }
+
+    if (role === "staff") {
+      set.status = 403;
+      return { error: "staff_cannot_access" };
     }
 
     const attachments = await db
       .select()
       .from(requestAttachments)
-      .where(eq(requestAttachments.requestId, params.id));
+      .where(eq(requestAttachments.requestId, params.id))
+      .orderBy(requestAttachments.slot);
 
-    return { ...req, attachments };
+    const attachmentIds = attachments.map((a) => a.id);
+    const revisions = attachmentIds.length > 0
+      ? await db
+          .select()
+          .from(requestAttachmentRevisions)
+          .where(inArray(requestAttachmentRevisions.attachmentId, attachmentIds))
+          .orderBy(desc(requestAttachmentRevisions.revisionNumber))
+      : [];
+
+    const attachmentsWithRevisions = attachments.map((a) => ({
+      ...a,
+      revisions: revisions.filter((r) => r.attachmentId === a.id),
+    }));
+
+    return { ...req, attachments: attachmentsWithRevisions };
   })
 
   .post(
     "/api/requests",
     async ({ body, headers, set }) => {
-      const session = await auth.api.getSession({ headers });
-      if (!session?.user?.id) {
+      const user = await getSession(headers);
+      if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
       }
-      const role = (session.user as any).role ?? "student";
+      const role = user.role;
       if (role !== "student") {
         set.status = 403;
         return { error: "only_students" };
@@ -546,27 +591,64 @@ export const app = new Elysia()
         return { error: "deadline_passed" };
       }
 
-      const [created] = await db
-        .insert(requests)
-        .values({
-          studentId: session.user.id,
-          activityId: body.activityId,
-          status: "pending",
-          note: body.note ?? null,
-        })
-        .returning();
+      const attachments = body.attachments ?? [];
+      const seenSlots = new Set<number>();
+      for (const a of attachments) {
+        if (a.slot !== 1 && a.slot !== 2) {
+          set.status = 400;
+          return { error: "slot_must_be_1_or_2" };
+        }
+        if (seenSlots.has(a.slot)) {
+          set.status = 400;
+          return { error: "duplicate_slot", slot: a.slot };
+        }
+        seenSlots.add(a.slot);
+      }
+      if (attachments.length > 0 && !seenSlots.has(1)) {
+        set.status = 400;
+        return { error: "slot1_required" };
+      }
 
-      if (body.attachments && body.attachments.length > 0) {
-        await db.insert(requestAttachments).values(
-          body.attachments.map((a) => ({
-            requestId: created.id,
+      const created = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(requests)
+          .values({
+            studentId: user.id,
+            activityId: body.activityId,
+            status: "pending",
+            note: body.note ?? null,
+          })
+          .returning();
+
+        for (const a of attachments) {
+          const attId = crypto.randomUUID();
+          await tx.insert(requestAttachments).values({
+            id: attId,
+            requestId: row.id,
+            slot: a.slot,
             fileName: a.fileName,
             fileType: a.fileType,
             fileSize: a.fileSize,
             storagePath: a.storagePath,
-          })),
-        );
-      }
+          });
+          const [rev] = await tx
+            .insert(requestAttachmentRevisions)
+            .values({
+              attachmentId: attId,
+              revisionNumber: 1,
+              fileName: a.fileName,
+              fileType: a.fileType,
+              fileSize: a.fileSize,
+              storagePath: a.storagePath,
+            })
+            .returning({ id: requestAttachmentRevisions.id });
+          await tx
+            .update(requestAttachments)
+            .set({ currentRevisionId: rev.id })
+            .where(eq(requestAttachments.id, attId));
+        }
+        return row;
+      });
 
       return { id: created.id, status: created.status };
     },
@@ -577,6 +659,7 @@ export const app = new Elysia()
         attachments: t.Optional(
           t.Array(
             t.Object({
+              slot: t.Integer(),
               fileName: t.String(),
               fileType: t.String(),
               fileSize: t.Number(),
@@ -591,8 +674,8 @@ export const app = new Elysia()
   .patch(
     "/api/requests/:id",
     async ({ params, body, headers, set }) => {
-      const session = await auth.api.getSession({ headers });
-      if (!session?.user?.id) {
+      const user = await getSession(headers);
+      if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
       }
@@ -606,7 +689,7 @@ export const app = new Elysia()
         return { error: "not_found" };
       }
       const req = existing[0];
-      if (req.studentId !== session.user.id) {
+      if (req.studentId !== user.id) {
         set.status = 403;
         return { error: "forbidden" };
       }
@@ -638,12 +721,12 @@ export const app = new Elysia()
   .post(
     "/api/requests/:id/approve",
     async ({ params, body, headers, set }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user?.id) {
+    const user = await getSession(headers);
+    if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
-    const role = (session.user as any).role ?? "student";
+    const role = user.role;
     if (role !== "admin") {
       set.status = 403;
       return { error: "admin_only" };
@@ -667,7 +750,7 @@ export const app = new Elysia()
         .update(requests)
         .set({
           status: "approved",
-          reviewedById: session.user.id,
+          reviewedById: user.id,
           reviewedAt: sql`now()`,
           updatedAt: sql`now()`,
         })
@@ -704,6 +787,21 @@ export const app = new Elysia()
         })
         .from(requests)
         .where(eq(requests.id, params.id));
+
+      const atts = await tx
+        .select({ currentRevisionId: requestAttachments.currentRevisionId })
+        .from(requestAttachments)
+        .where(eq(requestAttachments.requestId, params.id));
+      const approvedRevIds = atts
+        .map((a) => a.currentRevisionId)
+        .filter((id): id is string => !!id);
+      if (approvedRevIds.length > 0) {
+        await tx
+          .update(requestAttachmentRevisions)
+          .set({ revisionState: "approved" })
+          .where(inArray(requestAttachmentRevisions.id, approvedRevIds));
+      }
+
       return { ...row, requestNumber };
     });
     if (!approved) {
@@ -714,17 +812,17 @@ export const app = new Elysia()
     const detail = await db
       .select({
         studentId: requests.studentId,
-        studentName: users.name,
-        studentEmail: users.email,
-        studentFaculty: users.faculty,
-        studentCode: users.studentId,
-        studentPhone: users.phone,
+        studentName: sql<string>`${students.firstName} || ' ' || ${students.lastName}`,
+        studentEmail: students.email,
+        studentFaculty: students.major,
+        studentCode: students.studentId,
+        studentPhone: students.phone,
         activityTitle: activities.title,
         activityTitleEn: activities.titleEn,
         activityName: requests.activityName,
       })
       .from(requests)
-      .innerJoin(users, eq(requests.studentId, users.id))
+      .innerJoin(students, eq(requests.studentId, students.studentId))
       .innerJoin(activities, eq(requests.activityId, activities.id))
       .where(eq(requests.id, params.id));
 
@@ -732,13 +830,13 @@ export const app = new Elysia()
       const d = detail[0];
       const displayTitle = d.activityName ?? d.activityTitle;
       await notifyUser({
-        userId: d.studentId,
+        studentId: d.studentId,
         title: "คำร้องได้รับการอนุมัติ",
         body: `คำร้องเข้าร่วม "${displayTitle}" ของคุณได้รับการอนุมัติแล้ว`,
         requestId: params.id,
       });
       await writeAuditLog({
-        actorId: session.user.id,
+        actorStaffId: user.id,
         action: "approve",
         targetType: "request",
         targetId: params.id,
@@ -773,13 +871,15 @@ export const app = new Elysia()
         console.log(`[certificate] generation failed: ${e}`);
       }
 
-      await sendStatusEmail({
-        to: d.studentEmail,
-        studentName: d.studentName,
-        activityTitle: displayTitle,
-        status: "approved",
-        attachments: attachment ? [attachment] : undefined,
-      });
+      if (d.studentEmail) {
+        await sendStatusEmail({
+          to: d.studentEmail,
+          studentName: d.studentName,
+          activityTitle: displayTitle,
+          status: "approved",
+          attachments: attachment ? [attachment] : undefined,
+        });
+      }
     }
     return approved;
   },
@@ -788,12 +888,12 @@ export const app = new Elysia()
   .post(
     "/api/requests/:id/reject",
     async ({ params, body, headers, set }) => {
-      const session = await auth.api.getSession({ headers });
-      if (!session?.user?.id) {
+      const user = await getSession(headers);
+      if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
       }
-      const role = (session.user as any).role ?? "student";
+      const role = user.role;
       if (role !== "admin") {
         set.status = 403;
         return { error: "admin_only" };
@@ -818,7 +918,7 @@ export const app = new Elysia()
           status: "rejected",
           note: body.reason ?? null,
           rejectionReason: body.reason ?? null,
-          reviewedById: session.user.id,
+          reviewedById: user.id,
           reviewedAt: sql`now()`,
           updatedAt: sql`now()`,
         })
@@ -832,14 +932,14 @@ export const app = new Elysia()
       const detail = await db
         .select({
           studentId: requests.studentId,
-          studentName: users.name,
-          studentEmail: users.email,
+          studentName: sql<string>`${students.firstName} || ' ' || ${students.lastName}`,
+          studentEmail: students.email,
           activityTitle: activities.title,
           activityTitleEn: activities.titleEn,
           activityName: requests.activityName,
         })
         .from(requests)
-        .innerJoin(users, eq(requests.studentId, users.id))
+        .innerJoin(students, eq(requests.studentId, students.studentId))
         .innerJoin(activities, eq(requests.activityId, activities.id))
         .where(eq(requests.id, params.id));
 
@@ -847,25 +947,27 @@ export const app = new Elysia()
         const d = detail[0];
         const displayTitle = d.activityName ?? d.activityTitle;
         await notifyUser({
-          userId: d.studentId,
+          studentId: d.studentId,
           title: "คำร้องถูกไม่อนุมัติ",
           body: `คำร้องเข้าร่วม "${displayTitle}" ของคุณถูกไม่อนุมัติ${body.reason ? `\nเหตุผล: ${body.reason}` : ""}`,
           requestId: params.id,
         });
         await writeAuditLog({
-          actorId: session.user.id,
+          actorStaffId: user.id,
           action: "reject",
           targetType: "request",
           targetId: params.id,
           metadata: { status: "rejected", reason: body.reason ?? null, activityName: d.activityName ?? null },
         });
-        await sendStatusEmail({
-          to: d.studentEmail,
-          studentName: d.studentName,
-          activityTitle: displayTitle,
-          status: "rejected",
-          reason: body.reason,
-        });
+        if (d.studentEmail) {
+          await sendStatusEmail({
+            to: d.studentEmail,
+            studentName: d.studentName,
+            activityTitle: displayTitle,
+            status: "rejected",
+            reason: body.reason,
+          });
+        }
       }
       return updated;
     },
@@ -876,30 +978,299 @@ export const app = new Elysia()
     },
   )
 
+  .post(
+    "/api/requests/:id/request-revision",
+    async ({ params, body, headers, set }) => {
+      const user = await getSession(headers);
+      if (!user) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      if (user.role !== "admin") {
+        set.status = 403;
+        return { error: "admin_only" };
+      }
+
+      const existing = await db
+        .select({ status: requests.status })
+        .from(requests)
+        .where(eq(requests.id, params.id));
+      if (existing.length === 0) {
+        set.status = 404;
+        return { error: "not_found" };
+      }
+      if (existing[0].status !== "pending") {
+        set.status = 400;
+        return { error: "not_pending" };
+      }
+
+      const flagSlots = body.slots;
+      if (!flagSlots || flagSlots.length === 0) {
+        set.status = 400;
+        return { error: "no_slots_flagged" };
+      }
+      for (const s of flagSlots) {
+        if (s !== 1 && s !== 2) {
+          set.status = 400;
+          return { error: "invalid_slot", slot: s };
+        }
+      }
+
+      const atts = await db
+        .select({
+          id: requestAttachments.id,
+          slot: requestAttachments.slot,
+          currentRevisionId: requestAttachments.currentRevisionId,
+        })
+        .from(requestAttachments)
+        .where(eq(requestAttachments.requestId, params.id));
+
+      const flagged = new Set(flagSlots);
+      const toFlag = atts.filter(
+        (a) => a.slot !== null && flagged.has(a.slot) && a.currentRevisionId,
+      );
+      if (toFlag.length === 0) {
+        set.status = 400;
+        return { error: "no_revision_to_flag" };
+      }
+
+      const done = await db.transaction(async (tx) => {
+        const [claimed] = await tx
+          .update(requests)
+          .set({
+            status: "revision_required",
+            reviewedById: user.id,
+            reviewedAt: sql`now()`,
+            updatedAt: sql`now()`,
+          })
+          .where(and(eq(requests.id, params.id), eq(requests.status, "pending")))
+          .returning({ id: requests.id });
+        if (!claimed) return false;
+
+        const revIds = toFlag.map((a) => a.currentRevisionId as string);
+        await tx
+          .update(requestAttachmentRevisions)
+          .set({ revisionState: "needs_revision" })
+          .where(inArray(requestAttachmentRevisions.id, revIds));
+
+        return true;
+      });
+      if (!done) {
+        set.status = 400;
+        return { error: "not_pending" };
+      }
+
+      await writeAuditLog({
+        actorStaffId: user.id,
+        action: "request_revision",
+        targetType: "request",
+        targetId: params.id,
+        metadata: {
+          status: "revision_required",
+          slots: flagSlots,
+        },
+      });
+
+      return { status: "revision_required", slots: flagSlots };
+    },
+    {
+      body: t.Object({
+        slots: t.Array(t.Integer()),
+      }),
+    },
+  )
+
+  .post(
+    "/api/requests/:id/resubmit",
+    async ({ params, body, headers, set }) => {
+      const user = await getSession(headers);
+      if (!user) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      if (user.role !== "student") {
+        set.status = 403;
+        return { error: "only_students" };
+      }
+
+      const existing = await db
+        .select()
+        .from(requests)
+        .where(eq(requests.id, params.id));
+      if (existing.length === 0) {
+        set.status = 404;
+        return { error: "not_found" };
+      }
+      const reqRow = existing[0];
+      if (reqRow.studentId !== user.id) {
+        set.status = 403;
+        return { error: "forbidden" };
+      }
+      if (reqRow.status !== "revision_required") {
+        set.status = 400;
+        return { error: "not_revision_required" };
+      }
+
+      const replacements = body.attachments ?? [];
+      const seen = new Set<number>();
+      for (const a of replacements) {
+        if (a.slot !== 1 && a.slot !== 2) {
+          set.status = 400;
+          return { error: "invalid_slot", slot: a.slot };
+        }
+        if (seen.has(a.slot)) {
+          set.status = 400;
+          return { error: "duplicate_slot", slot: a.slot };
+        }
+        seen.add(a.slot);
+      }
+
+      let resubmitted = false;
+      try {
+        resubmitted = await db.transaction(async (tx) => {
+          const atts = await tx
+            .select()
+            .from(requestAttachments)
+            .where(eq(requestAttachments.requestId, params.id));
+
+          for (const a of replacements) {
+            const att = atts.find((x) => x.slot === a.slot);
+            if (!att) {
+              const attId = crypto.randomUUID();
+              const [rev] = await tx
+                .insert(requestAttachmentRevisions)
+                .values({
+                  attachmentId: attId,
+                  revisionNumber: 1,
+                  fileName: a.fileName,
+                  fileType: a.fileType,
+                  fileSize: a.fileSize,
+                  storagePath: a.storagePath,
+                  revisionState: "resubmitted",
+                })
+                .returning({ id: requestAttachmentRevisions.id });
+              await tx.insert(requestAttachments).values({
+                id: attId,
+                requestId: params.id,
+                slot: a.slot,
+                currentRevisionId: rev.id,
+                fileName: a.fileName,
+                fileType: a.fileType,
+                fileSize: a.fileSize,
+                storagePath: a.storagePath,
+              });
+            } else {
+              const [maxRev] = await tx
+                .select({
+                  max: sql<number>`MAX(${requestAttachmentRevisions.revisionNumber})`,
+                })
+                .from(requestAttachmentRevisions)
+                .where(eq(requestAttachmentRevisions.attachmentId, att.id));
+              const nextNum = (maxRev?.max ?? 0) + 1;
+              const [rev] = await tx
+                .insert(requestAttachmentRevisions)
+                .values({
+                  attachmentId: att.id,
+                  revisionNumber: nextNum,
+                  fileName: a.fileName,
+                  fileType: a.fileType,
+                  fileSize: a.fileSize,
+                  storagePath: a.storagePath,
+                  revisionState: "resubmitted",
+                })
+                .returning({ id: requestAttachmentRevisions.id });
+              await tx
+                .update(requestAttachments)
+                .set({
+                  currentRevisionId: rev.id,
+                  fileName: a.fileName,
+                  fileType: a.fileType,
+                  fileSize: a.fileSize,
+                  storagePath: a.storagePath,
+                })
+                .where(eq(requestAttachments.id, att.id));
+            }
+          }
+
+          const after = await tx
+            .select({ currentRevisionId: requestAttachments.currentRevisionId })
+            .from(requestAttachments)
+            .where(eq(requestAttachments.requestId, params.id));
+          const revIds = after
+            .map((a) => a.currentRevisionId)
+            .filter((id): id is string => !!id);
+          if (revIds.length > 0) {
+            const flagged = await tx
+              .select({ id: requestAttachmentRevisions.id })
+              .from(requestAttachmentRevisions)
+              .where(
+                and(
+                  inArray(requestAttachmentRevisions.id, revIds),
+                  eq(requestAttachmentRevisions.revisionState, "needs_revision"),
+                ),
+              );
+            if (flagged.length > 0) {
+              throw new Error("flagged_slots_not_replaced");
+            }
+          }
+
+          const [claimed] = await tx
+            .update(requests)
+            .set({
+              status: "pending",
+              reviewedById: null,
+              reviewedAt: null,
+              updatedAt: sql`now()`,
+            })
+            .where(
+              and(eq(requests.id, params.id), eq(requests.status, "revision_required")),
+            )
+            .returning({ id: requests.id });
+          return !!claimed;
+        });
+      } catch (e) {
+        if ((e as Error).message === "flagged_slots_not_replaced") {
+          resubmitted = false;
+        } else {
+          throw e;
+        }
+      }
+
+      if (!resubmitted) {
+        set.status = 400;
+        return { error: "flagged_slots_not_replaced" };
+      }
+
+      return { status: "pending" };
+    },
+    {
+      body: t.Object({
+        attachments: t.Optional(
+          t.Array(
+            t.Object({
+              slot: t.Integer(),
+              fileName: t.String(),
+              fileType: t.String(),
+              fileSize: t.Number(),
+              storagePath: t.String(),
+            }),
+          ),
+        ),
+      }),
+    },
+  )
+
   .get("/api/me", async ({ headers }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user) return { user: null };
-    const [me] = await db
-      .select({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        role: users.role,
-        faculty: users.faculty,
-        studentId: users.studentId,
-        phone: users.phone,
-      })
-      .from(users)
-      .where(eq(users.id, session.user.id));
-    if (!me) return { user: null };
-    return { user: me };
+    const user = await getSession(headers);
+    if (!user) return { user: null };
+    return { user };
   })
 
   .patch(
     "/api/me",
     async ({ headers, body, set }) => {
-      const session = await auth.api.getSession({ headers });
-      if (!session?.user?.id) {
+      const user = await getSession(headers);
+      if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
       }
@@ -912,10 +1283,12 @@ export const app = new Elysia()
         }
       }
       const phone = raw === "" ? null : raw;
-      await db
-        .update(users)
-        .set({ phone, updatedAt: sql`now()` })
-        .where(eq(users.id, session.user.id));
+      if (user.role === "student") {
+        await db
+          .update(students)
+          .set({ phone, updatedAt: sql`now()` })
+          .where(eq(students.studentId, user.id));
+      }
       return { phone };
     },
     {
@@ -927,22 +1300,23 @@ export const app = new Elysia()
 
   // ===== Notifications =====
   .get("/api/notifications", async ({ headers, set }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user?.id) {
+    const user = await getSession(headers);
+    if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
+    const userIdCol = user.role === "student" ? notifications.studentId : notifications.staffId;
     return await db
       .select()
       .from(notifications)
-      .where(eq(notifications.userId, session.user.id))
+      .where(eq(userIdCol, user.id))
       .orderBy(desc(notifications.createdAt))
       .limit(50);
   })
 
   .post("/api/notifications/:id/read", async ({ params, headers, set }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user?.id) {
+    const user = await getSession(headers);
+    if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
@@ -952,7 +1326,7 @@ export const app = new Elysia()
       .where(
         and(
           eq(notifications.id, params.id),
-          eq(notifications.userId, session.user.id),
+          eq(user.role === "student" ? notifications.studentId : notifications.staffId, user.id),
         ),
       )
       .returning();
@@ -964,8 +1338,8 @@ export const app = new Elysia()
   })
 
   .post("/api/notifications/read-all", async ({ headers, set }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user?.id) {
+    const user = await getSession(headers);
+    if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
@@ -974,7 +1348,7 @@ export const app = new Elysia()
       .set({ readAt: sql`now()` })
       .where(
         and(
-          eq(notifications.userId, session.user.id),
+          eq(user.role === "student" ? notifications.studentId : notifications.staffId, user.id),
           isNull(notifications.readAt),
         ),
       );
@@ -983,12 +1357,12 @@ export const app = new Elysia()
 
   // ===== Audit log (admin only) =====
   .get("/api/audit", async ({ headers, set }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user?.id) {
+    const user = await getSession(headers);
+    if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
-    const role = (session.user as any).role ?? "student";
+    const role = user.role;
     if (role !== "admin") {
       set.status = 403;
       return { error: "admin_only" };
@@ -1002,12 +1376,12 @@ export const app = new Elysia()
 
   // ===== Stats (admin only) =====
   .get("/api/stats", async ({ headers, set }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user?.id) {
+    const user = await getSession(headers);
+    if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
-    const role = (session.user as any).role ?? "student";
+    const role = user.role;
     if (role !== "admin") {
       set.status = 403;
       return { error: "admin_only" };
@@ -1020,11 +1394,11 @@ export const app = new Elysia()
         activityId: requests.activityId,
         activityTitle: activities.title,
         activityTitleEn: activities.titleEn,
-        faculty: users.faculty,
+        faculty: students.major,
       })
       .from(requests)
       .innerJoin(activities, eq(requests.activityId, activities.id))
-      .innerJoin(users, eq(requests.studentId, users.id));
+      .innerJoin(students, eq(requests.studentId, students.studentId));
 
     const countBy = (status?: string) =>
       status ? all.filter((r) => r.status === status).length : all.length;
@@ -1066,22 +1440,20 @@ export const app = new Elysia()
 
   // ===== Submission stats vs roster (staff + admin) =====
   .get("/api/stats/submission", async ({ headers, set }) => {
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user?.id) {
+    const user = await getSession(headers);
+    if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
-    const role = (session.user as any).role ?? "student";
+    const role = user.role;
     if (role !== "admin" && role !== "staff") {
       set.status = 403;
       return { error: "staff_admin_only" };
     }
 
     const submittedSub = db
-      .select({ studentId: users.studentId })
+      .selectDistinct({ studentId: requests.studentId })
       .from(requests)
-      .innerJoin(users, eq(requests.studentId, users.id))
-      .where(sql`${users.studentId} is not null`)
       .as("submitted_students");
 
     const perMajor = await db
@@ -1138,12 +1510,12 @@ export const app = new Elysia()
   .get(
     "/api/roster/not-submitted",
     async ({ headers, query, set }) => {
-      const session = await auth.api.getSession({ headers });
-      if (!session?.user?.id) {
+      const user = await getSession(headers);
+      if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
       }
-      const role = (session.user as any).role ?? "student";
+      const role = user.role;
       if (role !== "admin" && role !== "staff") {
         set.status = 403;
         return { error: "staff_admin_only" };
@@ -1156,10 +1528,8 @@ export const app = new Elysia()
       const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 50));
 
       const submittedSub = db
-        .select({ studentId: users.studentId })
+        .selectDistinct({ studentId: requests.studentId })
         .from(requests)
-        .innerJoin(users, eq(requests.studentId, users.id))
-        .where(sql`${users.studentId} is not null`)
         .as("submitted_students");
 
       const conds: any[] = [

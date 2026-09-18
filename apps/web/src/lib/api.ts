@@ -48,7 +48,21 @@ export type ActivityInput = {
   isActive?: boolean;
 };
 
-export type RequestStatus = "pending" | "approved" | "rejected";
+export type RequestStatus = "pending" | "approved" | "rejected" | "revision_required";
+
+export type AttachmentRevisionState = "unchanged" | "needs_revision" | "resubmitted" | "approved";
+
+export interface AttachmentRevision {
+  id: string;
+  attachmentId: string;
+  revisionNumber: number;
+  revisionState: AttachmentRevisionState;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  storagePath: string;
+  uploadedAt: string;
+}
 
 export interface RequestItem {
   id: string;
@@ -97,10 +111,13 @@ export interface AuditLogItem {
 
 export interface Attachment {
   id: string;
+  slot?: number | null;
+  currentRevisionId?: string | null;
   fileName: string;
   fileType: string;
   fileSize: number;
   storagePath: string;
+  revisions?: AttachmentRevision[];
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -163,15 +180,18 @@ export async function getRequest(id: string): Promise<RequestItem> {
   return apiFetch(`/api/requests/${id}`);
 }
 
+export interface AttachmentInput {
+  slot: number;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  storagePath: string;
+}
+
 export async function createRequest(body: {
   activityId: string;
   note?: string;
-  attachments?: {
-    fileName: string;
-    fileType: string;
-    fileSize: number;
-    storagePath: string;
-  }[];
+  attachments?: AttachmentInput[];
 }): Promise<{ id: string; status: string }> {
   return apiFetch("/api/requests", {
     method: "POST",
@@ -205,6 +225,23 @@ export async function rejectRequest(id: string, reason?: string): Promise<void> 
   await apiFetch(`/api/requests/${id}/reject`, {
     method: "POST",
     body: JSON.stringify({ reason }),
+  });
+}
+
+export async function requestRevisionRequest(id: string, slots: number[]): Promise<void> {
+  await apiFetch(`/api/requests/${id}/request-revision`, {
+    method: "POST",
+    body: JSON.stringify({ slots }),
+  });
+}
+
+export async function resubmitRequest(
+  id: string,
+  attachments: AttachmentInput[],
+): Promise<void> {
+  await apiFetch(`/api/requests/${id}/resubmit`, {
+    method: "POST",
+    body: JSON.stringify({ attachments }),
   });
 }
 

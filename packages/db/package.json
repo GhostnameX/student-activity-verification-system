@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./auth-helpers": "./src/auth-helpers.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",
@@ -16,10 +17,13 @@
     "push": "drizzle-kit push",
     "studio": "drizzle-kit studio",
     "seed": "bun src/seed.ts",
+    "cleanup:sessions": "bun src/scripts/cleanup-sessions.ts",
+    "verify:admin": "bun src/scripts/verify-admin.ts",
     "build": "echo \"db: no build step\""
   },
   "dependencies": {
     "@better-auth/utils": "^0.4.2",
+    "@node-rs/argon2": "^1.8.2",
     "drizzle-orm": "^0.38.3",
     "pg": "^8.13.1"
   },

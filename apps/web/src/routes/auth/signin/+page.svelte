@@ -1,52 +1,32 @@
 <script lang="ts">
 	import { lang } from '$lib/store';
 	import { translate } from '$lib/i18n';
-	import { authClient } from '$lib/auth-client';
+	import { signInWithPassword, getGoogleSignInUrl } from '$lib/auth-client';
 	import { loadSession } from '$lib/auth';
 	import { goto } from '$app/navigation';
-	import { LogIn, Mail, Lock, GraduationCap, ShieldCheck, FileText, UserPlus, User } from 'lucide-svelte';
+	import { onMount } from 'svelte';
+	import { LogIn, Mail, Lock, GraduationCap, ShieldCheck, FileText } from 'lucide-svelte';
 
-	const DUR = 700;
-	const reduced =
-		typeof window !== 'undefined' &&
-		window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	let email: string = $state('');
+	let password: string = $state('');
+	let loading: boolean = $state(false);
+	let errorMsg: string = $state('');
 
-	let mode: 'signin' | 'signup' = $state('signin');
-	let blade = $state(-100);
-	let animating: boolean = $state(false);
-
-	if (typeof window !== 'undefined') {
-		const m = new URLSearchParams(window.location.search).get('mode');
-		if (m === 'signup') {
-			mode = 'signup';
-			blade = 100;
+	onMount(() => {
+		const q = new URLSearchParams(window.location.search);
+		const err = q.get('error');
+		if (err) {
+			if (err === 'not_in_roster') errorMsg = translate($lang, 'notInRoster');
+			else errorMsg = translate($lang, 'googleAuthFailed');
 		}
-	}
+	});
 
-	function toggleMode() {
-		if (animating) return;
-		animating = true;
-		const target = mode === 'signin' ? 'signup' : 'signin';
-		blade = -blade;
-		if (reduced) {
-			mode = target;
-			animating = false;
-			return;
-		}
-		setTimeout(() => {
-			mode = target;
-		}, DUR / 2);
-		setTimeout(() => {
-			animating = false;
-		}, DUR + 50);
-	}
-
-	async function signIn() {
+	async function signInStaff() {
 		loading = true;
 		errorMsg = '';
-		const { error } = await authClient.signIn.email({ email, password });
+		const { user: u, error } = await signInWithPassword(email, password);
 		loading = false;
-		if (error) {
+		if (error || !u) {
 			errorMsg = translate($lang, 'invalidCredentials');
 			return;
 		}
@@ -54,38 +34,20 @@
 		goto('/');
 	}
 
-	async function signUp() {
-		signupLoading = true;
-		signupError = '';
-		const { error } = await authClient.signUp.email({
-			name,
-			email: signupEmail,
-			password: signupPassword,
-		});
-		signupLoading = false;
-		if (error) {
-			signupError = translate($lang, 'error') + ': ' + error.message;
-			return;
+	async function signInGoogle() {
+		loading = true;
+		errorMsg = '';
+		try {
+			const url = await getGoogleSignInUrl(window.location.pathname);
+			window.location.href = url;
+		} catch {
+			loading = false;
+			errorMsg = translate($lang, 'googleAuthFailed');
 		}
-		await loadSession();
-		goto('/');
 	}
-
-	let email: string = $state('');
-	let password: string = $state('');
-	let loading: boolean = $state(false);
-	let errorMsg: string = $state('');
-
-	let name: string = $state('');
-	let signupEmail: string = $state('');
-	let signupPassword: string = $state('');
-	let signupLoading: boolean = $state(false);
-	let signupError: string = $state('');
 
 	const inputClass =
 		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-3 pl-11 text-sm text-ink-900 placeholder-ink-400 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100';
-	const toggleLink =
-		'cursor-pointer font-medium text-brand-600 transition hover:text-brand-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50';
 </script>
 
 <div class="mx-auto grid min-h-[calc(100vh-8rem)] max-w-6xl grid-cols-1 items-center gap-10 py-8 lg:grid-cols-2 lg:gap-16">
@@ -123,197 +85,93 @@
 	</div>
 
 	<div class="mx-auto w-full max-w-md">
-		<div
-			class="relative overflow-hidden rounded-3xl border border-ink-100 bg-surface shadow-lift"
-		>
+		<div class="relative overflow-hidden rounded-3xl border border-ink-100 bg-surface shadow-lift">
 			<div
-				class="pointer-events-none absolute inset-0 z-20 flex items-center justify-center overflow-hidden"
-				style="transform: translateX({blade}%); transition: transform {reduced ? 0 : DUR}ms cubic-bezier(0.65, 0, 0.35, 1)"
-			>
-				<div class="absolute inset-0 bg-gradient-to-br from-brand-600 via-brand-700 to-brand-900">
-					<div class="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-surface/10 blur-2xl"></div>
-					<div class="pointer-events-none absolute -bottom-24 -left-16 h-64 w-64 rounded-full bg-brand-400/20 blur-3xl"></div>
-				</div>
-				<div class="relative mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-surface/15 backdrop-blur">
-					<GraduationCap size={30} class="text-white" />
-				</div>
-			</div>
+				class="pointer-events-none absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-brand-500 via-brand-700 to-brand-900"
+			></div>
+			<div class="p-8 lg:p-10">
+				<h1 class="mb-1 text-2xl font-bold text-ink-900 lg:text-3xl">
+					{translate($lang, 'login')}
+				</h1>
+				<p class="mb-6 text-sm text-ink-500">{translate($lang, 'tagline')}</p>
 
-			<div class="grid">
-				<div
-					class="col-start-1 row-start-1 p-8 lg:p-10 transition-opacity duration-150"
-					class:opacity-100={mode === 'signin'}
-					class:opacity-0={mode !== 'signin'}
-					class:pointer-events-none={mode !== 'signin'}
-					aria-hidden={mode !== 'signin'}
+				{#if errorMsg}
+					<div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+						{errorMsg}
+					</div>
+				{/if}
+
+				<button
+					type="button"
+					onclick={signInGoogle}
+					disabled={loading}
+					class="flex w-full items-center justify-center gap-3 rounded-xl border border-ink-200 bg-surface py-3 font-semibold text-ink-800 shadow-soft transition hover:bg-ink-50 disabled:opacity-50"
 				>
-					<h1 class="mb-1 text-2xl font-bold text-ink-900 lg:text-3xl">
-						{translate($lang, 'login')}
-					</h1>
-					<p class="mb-6 text-sm text-ink-500">{translate($lang, 'tagline')}</p>
+					<svg width="18" height="18" viewBox="0 0 24 24">
+						<path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/>
+						<path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+						<path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A11 11 0 0 0 1 12c0 1.77.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+						<path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+					</svg>
+					{translate($lang, 'googleSignIn')}
+				</button>
 
-					{#if errorMsg}
-						<div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-							{errorMsg}
-						</div>
-					{/if}
-
-					<form onsubmit={signIn} class="space-y-5">
-						<div>
-							<label for="email" class="mb-1.5 block text-sm font-medium text-ink-700">
-								{translate($lang, 'email')}
-							</label>
-							<div class="relative">
-								<Mail
-									size={17}
-									class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
-								/>
-								<input
-									id="email"
-									bind:value={email}
-									type="email"
-									required
-									autocomplete="email"
-									placeholder="student@uni.ac.th"
-									class={inputClass}
-								/>
-							</div>
-						</div>
-						<div>
-							<label for="password" class="mb-1.5 block text-sm font-medium text-ink-700">
-								{translate($lang, 'password')}
-							</label>
-							<div class="relative">
-								<Lock
-									size={17}
-									class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
-								/>
-								<input
-									id="password"
-									bind:value={password}
-									type="password"
-									required
-									autocomplete="current-password"
-									placeholder="••••••••"
-									class={inputClass}
-								/>
-							</div>
-						</div>
-						<button
-							type="submit"
-							disabled={loading}
-							class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3 font-semibold text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-50"
-						>
-							<LogIn size={17} />
-							{loading ? translate($lang, 'submitting') : translate($lang, 'signIn')}
-						</button>
-					</form>
-
-					<p class="mt-6 text-center text-sm text-ink-500">
-						{translate($lang, 'noAccount')}
-						<button type="button" onclick={toggleMode} disabled={animating} class={toggleLink}>
-							{translate($lang, 'signUp')}
-						</button>
-					</p>
+				<div class="my-6 flex items-center gap-3 text-xs text-ink-400">
+					<div class="h-px flex-1 bg-ink-100"></div>
+					{translate($lang, 'student')}
+					<div class="h-px flex-1 bg-ink-100"></div>
 				</div>
 
-				<div
-					class="col-start-1 row-start-1 p-8 lg:p-10 transition-opacity duration-150"
-					class:opacity-100={mode === 'signup'}
-					class:opacity-0={mode !== 'signup'}
-					class:pointer-events-none={mode !== 'signup'}
-					aria-hidden={mode !== 'signup'}
-				>
-					<h1 class="mb-1 text-2xl font-bold text-ink-900 lg:text-3xl">
-						{translate($lang, 'signUp')}
-					</h1>
-					<p class="mb-6 text-sm text-ink-500">{translate($lang, 'tagline')}</p>
-
-					{#if signupError}
-						<div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-							{signupError}
+				<form onsubmit={signInStaff} class="space-y-5">
+					<div>
+						<label for="email" class="mb-1.5 block text-sm font-medium text-ink-700">
+							{translate($lang, 'email')}
+						</label>
+						<div class="relative">
+							<Mail
+								size={17}
+								class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
+							/>
+							<input
+								id="email"
+								bind:value={email}
+								type="email"
+								required
+								autocomplete="email"
+								placeholder="staff@uni.ac.th"
+								class={inputClass}
+							/>
 						</div>
-					{/if}
-
-					<form onsubmit={signUp} class="space-y-4">
-						<div>
-							<label for="name" class="mb-1.5 block text-sm font-medium text-ink-700">
-								{translate($lang, 'name')}
-							</label>
-							<div class="relative">
-								<User
-									size={17}
-									class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
-								/>
-								<input
-									id="name"
-									bind:value={name}
-									type="text"
-									required
-									autocomplete="name"
-									placeholder={translate($lang, 'nameLabel')}
-									class={inputClass}
-								/>
-							</div>
+					</div>
+					<div>
+						<label for="password" class="mb-1.5 block text-sm font-medium text-ink-700">
+							{translate($lang, 'password')}
+						</label>
+						<div class="relative">
+							<Lock
+								size={17}
+								class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
+							/>
+							<input
+								id="password"
+								bind:value={password}
+								type="password"
+								required
+								autocomplete="current-password"
+								placeholder="••••••••"
+								class={inputClass}
+							/>
 						</div>
-						<div>
-							<label for="signup-email" class="mb-1.5 block text-sm font-medium text-ink-700">
-								{translate($lang, 'email')}
-							</label>
-							<div class="relative">
-								<Mail
-									size={17}
-									class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
-								/>
-								<input
-									id="signup-email"
-									bind:value={signupEmail}
-									type="email"
-									required
-									autocomplete="email"
-									placeholder="student@uni.ac.th"
-									class={inputClass}
-								/>
-							</div>
-						</div>
-						<div>
-							<label for="signup-password" class="mb-1.5 block text-sm font-medium text-ink-700">
-								{translate($lang, 'password')}
-							</label>
-							<div class="relative">
-								<Lock
-									size={17}
-									class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
-								/>
-								<input
-									id="signup-password"
-									bind:value={signupPassword}
-									type="password"
-									required
-									minlength="8"
-									autocomplete="new-password"
-									placeholder="••••••••"
-									class={inputClass}
-								/>
-							</div>
-						</div>
-						<button
-							type="submit"
-							disabled={signupLoading}
-							class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3 font-semibold text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-50"
-						>
-							<UserPlus size={17} />
-							{signupLoading ? translate($lang, 'submitting') : translate($lang, 'signUp')}
-						</button>
-					</form>
-
-					<p class="mt-6 text-center text-sm text-ink-500">
-						{translate($lang, 'hasAccount')}
-						<button type="button" onclick={toggleMode} disabled={animating} class={toggleLink}>
-							{translate($lang, 'signIn')}
-						</button>
-					</p>
-				</div>
+					</div>
+					<button
+						type="submit"
+						disabled={loading}
+						class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3 font-semibold text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-50"
+					>
+						<LogIn size={17} />
+						{loading ? translate($lang, 'submitting') : translate($lang, 'staffLogin')}
+					</button>
+				</form>
 			</div>
 		</div>
 	</div>

@@ -50,6 +50,41 @@
       "when": 1786638341205,
       "tag": "0006_clean_microchip",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789533733500,
+      "tag": "0007_auth_staff_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789533733501,
+      "tag": "0008_requests_student_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789533733502,
+      "tag": "0009_split_polymorphic_fks",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789533733503,
+      "tag": "0010_drop_better_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789533733504,
+      "tag": "0011_add_students_phone",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { LogIn, Mail, Lock, GraduationCap, ShieldCheck, FileText } from 'lucide-svelte';
 
-	let email: string = $state('');
+	let staffCode: string = $state('');
 	let password: string = $state('');
 	let loading: boolean = $state(false);
 	let errorMsg: string = $state('');
@@ -24,10 +24,10 @@
 	async function signInStaff() {
 		loading = true;
 		errorMsg = '';
-		const { user: u, error } = await signInWithPassword(email, password);
+		const { user: u, error } = await signInWithPassword(staffCode, password);
 		loading = false;
 		if (error || !u) {
-			errorMsg = translate($lang, 'invalidCredentials');
+			errorMsg = error === 'account_disabled' ? translate($lang, 'accountDisabledError') : translate($lang, 'invalidCredentials');
 			return;
 		}
 		await loadSession();
@@ -124,8 +124,8 @@
 
 				<form onsubmit={signInStaff} class="space-y-5">
 					<div>
-						<label for="email" class="mb-1.5 block text-sm font-medium text-ink-700">
-							{translate($lang, 'email')}
+						<label for="staffCode" class="mb-1.5 block text-sm font-medium text-ink-700">
+							{translate($lang, 'staffCode')}
 						</label>
 						<div class="relative">
 							<Mail
@@ -133,12 +133,12 @@
 								class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
 							/>
 							<input
-								id="email"
-								bind:value={email}
-								type="email"
+								id="staffCode"
+								bind:value={staffCode}
+								type="text"
 								required
-								autocomplete="email"
-								placeholder="staff@uni.ac.th"
+								autocomplete="username"
+								placeholder="staff-code"
 								class={inputClass}
 							/>
 						</div>

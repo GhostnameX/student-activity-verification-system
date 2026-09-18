@@ -1,0 +1,25 @@
+title = "gitleaks config — agent security baseline"
+
+# ใช้ default rules ของ gitleaks (ครอบคลุม AWS, GitHub, Stripe, JWT, private keys ฯลฯ)
+[extend]
+useDefault = true
+
+# Allowlist — false positives ที่พบบ่อย
+[allowlist]
+description = "Allowlisted files and patterns"
+
+paths = [
+  '''\.env\.example$''',
+  '''README\.md$''',
+  '''AGENT-SECURITY-GUIDE\.md$''',
+  '''agent-security-prompt.*\.md$''',
+  '''security-self-test\.md$''',
+  '''\.github/''',
+]
+
+# ถ้ามี placeholder pattern เฉพาะโปรเจกต์ที่ gitleaks เข้าใจผิดว่าเป็น secret จริง
+# ใส่ regex เพิ่มตรงนี้ได้ เช่น:
+# regexes = [
+#   '''your-api-key-here''',
+#   '''sk-FAKE-EXAMPLE-DO-NOT-USE''',
+# ]

@@ -11,12 +11,14 @@ import {
   auditLogs,
   certificateCounters,
   students,
+  staff,
 } from "@ua/db/schema";
 import { db } from "@ua/db/client";
 import { eq, and, desc, sql, isNull, count, countDistinct, inArray } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { getSession } from "./auth/session";
+import { hash } from "@ua/db/auth-helpers";
 
 const PUBLIC_API_URL = process.env.PUBLIC_API_URL || "http://localhost:3000";
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
@@ -1373,6 +1375,258 @@ export const app = new Elysia()
       .orderBy(desc(auditLogs.createdAt))
       .limit(200);
   })
+
+  // ===== Staff management (admin only) =====
+  .get("/api/admin/staff", async ({ headers, set }) => {
+    const user = await getSession(headers);
+    if (!user) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    if (user.role !== "admin") {
+      set.status = 403;
+      return { error: "admin_only" };
+    }
+    const rows = await db
+      .select({
+        id: staff.id,
+        email: staff.email,
+        staffCode: staff.staffCode,
+        fullName: staff.fullName,
+        role: staff.role,
+        isActive: staff.isActive,
+        kind: staff.kind,
+        createdAt: staff.createdAt,
+        updatedAt: staff.updatedAt,
+      })
+      .from(staff)
+      .orderBy(desc(staff.createdAt));
+    return rows;
+  })
+
+  .post(
+    "/api/admin/staff",
+    async ({ body, headers, set }) => {
+      const user = await getSession(headers);
+      if (!user) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      if (user.role !== "admin") {
+        set.status = 403;
+        return { error: "admin_only" };
+      }
+
+      const staffCode = body.staffCode.trim().toLowerCase();
+      if (!staffCode) {
+        set.status = 400;
+        return { error: "invalid_staff_code" };
+      }
+      if (!body.password || body.password.length < 8) {
+        set.status = 400;
+        return { error: "password_too_short" };
+      }
+      const role = body.role === "admin" ? "admin" : "staff";
+      const kind = body.kind === "emergency" ? "emergency" : "main";
+
+      const dup = await db
+        .select({ id: staff.id })
+        .from(staff)
+        .where(eq(staff.staffCode, staffCode));
+      if (dup.length > 0) {
+        set.status = 400;
+        return { error: "staff_code_taken" };
+      }
+
+      const passwordHash = await hash(body.password, {
+        memoryCost: 19456,
+        timeCost: 2,
+        outputLen: 32,
+        parallelism: 1,
+      });
+
+      const [created] = await db
+        .insert(staff)
+        .values({
+          id: randomUUID(),
+          email: (body.email ?? "").trim().toLowerCase(),
+          staffCode,
+          passwordHash,
+          role,
+          fullName: body.fullName.trim(),
+          kind,
+          isActive: body.isActive ?? true,
+        })
+        .returning({
+          id: staff.id,
+          email: staff.email,
+          staffCode: staff.staffCode,
+          fullName: staff.fullName,
+          role: staff.role,
+          isActive: staff.isActive,
+          kind: staff.kind,
+        });
+
+      await writeAuditLog({
+        actorStaffId: user.id,
+        action: "staff_create",
+        targetType: "staff",
+        targetId: created.id,
+        metadata: { staffCode: created.staffCode, fullName: created.fullName, role: created.role, kind: created.kind },
+      });
+      return created;
+    },
+    {
+      body: t.Object({
+        email: t.Optional(t.String()),
+        staffCode: t.String(),
+        fullName: t.String(),
+        password: t.String(),
+        role: t.Optional(t.Union([t.Literal("staff"), t.Literal("admin")])),
+        kind: t.Optional(t.Union([t.Literal("main"), t.Literal("emergency")])),
+        isActive: t.Optional(t.Boolean()),
+      }),
+    },
+  )
+
+  .patch(
+    "/api/admin/staff/:id",
+    async ({ params, body, headers, set }) => {
+      const user = await getSession(headers);
+      if (!user) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      if (user.role !== "admin") {
+        set.status = 403;
+        return { error: "admin_only" };
+      }
+
+      const existing = await db
+        .select()
+        .from(staff)
+        .where(eq(staff.id, params.id));
+      if (existing.length === 0) {
+        set.status = 404;
+        return { error: "not_found" };
+      }
+      const target = existing[0];
+
+      const patch: Record<string, unknown> = { updatedAt: sql`now()` };
+
+      if (body.staffCode !== undefined) {
+        const code = body.staffCode.trim().toLowerCase();
+        if (!code) {
+          set.status = 400;
+          return { error: "invalid_staff_code" };
+        }
+        if (code !== target.staffCode) {
+          const dup = await db
+            .select({ id: staff.id })
+            .from(staff)
+            .where(eq(staff.staffCode, code));
+          if (dup.length > 0) {
+            set.status = 400;
+            return { error: "staff_code_taken" };
+          }
+          patch.staffCode = code;
+          await writeAuditLog({
+            actorStaffId: user.id,
+            action: "staff_change_code",
+            targetType: "staff",
+            targetId: target.id,
+            metadata: { staffCode: code },
+          });
+        }
+      }
+
+      if (body.fullName !== undefined && body.fullName.trim() !== "") {
+        patch.fullName = body.fullName.trim();
+      }
+      if (body.role !== undefined && (body.role === "admin" || body.role === "staff")) {
+        if (body.role !== target.role) {
+          patch.role = body.role;
+          await writeAuditLog({
+            actorStaffId: user.id,
+            action: "staff_change_role",
+            targetType: "staff",
+            targetId: target.id,
+            metadata: { role: body.role },
+          });
+        }
+      }
+      if (body.kind !== undefined && (body.kind === "main" || body.kind === "emergency")) {
+        if (body.kind !== target.kind) {
+          patch.kind = body.kind;
+          await writeAuditLog({
+            actorStaffId: user.id,
+            action: "staff_change_kind",
+            targetType: "staff",
+            targetId: target.id,
+            metadata: { kind: body.kind },
+          });
+        }
+      }
+      if (body.isActive !== undefined && body.isActive !== target.isActive) {
+        if (!body.isActive && user.id === target.id) {
+          set.status = 400;
+          return { error: "cannot_disable_self" };
+        }
+        patch.isActive = body.isActive;
+        await writeAuditLog({
+          actorStaffId: user.id,
+          action: body.isActive ? "staff_enable" : "staff_disable",
+          targetType: "staff",
+          targetId: target.id,
+          metadata: { isActive: body.isActive },
+        });
+      }
+      if (body.password !== undefined) {
+        if (body.password.length < 8) {
+          set.status = 400;
+          return { error: "password_too_short" };
+        }
+        patch.passwordHash = await hash(body.password, {
+          memoryCost: 19456,
+          timeCost: 2,
+          outputLen: 32,
+          parallelism: 1,
+        });
+        await writeAuditLog({
+          actorStaffId: user.id,
+          action: "staff_reset_password",
+          targetType: "staff",
+          targetId: target.id,
+        });
+      }
+
+      const [updated] = await db
+        .update(staff)
+        .set(patch)
+        .where(eq(staff.id, params.id))
+        .returning({
+          id: staff.id,
+          email: staff.email,
+          staffCode: staff.staffCode,
+          fullName: staff.fullName,
+          role: staff.role,
+          isActive: staff.isActive,
+          kind: staff.kind,
+        });
+      return updated;
+    },
+    {
+      body: t.Object({
+        email: t.Optional(t.String()),
+        staffCode: t.Optional(t.String()),
+        fullName: t.Optional(t.String()),
+        password: t.Optional(t.String()),
+        role: t.Optional(t.Union([t.Literal("staff"), t.Literal("admin")])),
+        kind: t.Optional(t.Union([t.Literal("main"), t.Literal("emergency")])),
+        isActive: t.Optional(t.Boolean()),
+      }),
+    },
+  )
 
   // ===== Stats (admin only) =====
   .get("/api/stats", async ({ headers, set }) => {

@@ -94,8 +94,8 @@ async function main() {
   const activeB = await addStudent(`${prefix}B`, `gate-b-${prefix}@smoke.local`, "active");
   const inactiveC = await addStudent(`${prefix}C`, `gate-c-${prefix}@smoke.local`, "graduated");
 
-  const adminStaff = await ensureStaff({ email: `gate-admin-${prefix}@smoke.local`, fullName: "Gate Admin", role: "admin", password: PASSWORD });
-  const plainStaff = await ensureStaff({ email: `gate-staff-${prefix}@smoke.local`, fullName: "Gate Staff", role: "staff", password: PASSWORD });
+  const adminStaff = await ensureStaff({ email: `gate-admin-${prefix}@smoke.local`, fullName: "Gate Admin", role: "admin", password: PASSWORD, staffCode: `gate-admin-${prefix}` });
+  const plainStaff = await ensureStaff({ email: `gate-staff-${prefix}@smoke.local`, fullName: "Gate Staff", role: "staff", password: PASSWORD, staffCode: `gate-staff-${prefix}` });
   created.staff.push(adminStaff.user.id, plainStaff.user.id);
 
   console.log("Setup done. Test users:", { activeA: activeA.studentId, activeB: activeB.studentId, inactiveC: inactiveC.studentId });
@@ -136,13 +136,13 @@ async function main() {
   record("3b-active-login-b", cookieB !== "", `cookieB=${cookieB !== ""}`);
 
   // --- 3c. staff admin login ---
-  const loginAdmin = await api("/api/auth/password/signin", { method: "POST", body: { email: adminStaff.user.email, password: PASSWORD } });
+  const loginAdmin = await api("/api/auth/password/signin", { method: "POST", body: { staffCode: adminStaff.user.staffCode, password: PASSWORD } });
   const cookieAdmin = loginAdmin.cookie;
   let cookieStaff = "";
   const loginStaffRes = await app.handle(new Request(`${BASE}/api/auth/password/signin`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: plainStaff.user.email, password: PASSWORD }),
+    body: JSON.stringify({ staffCode: plainStaff.user.staffCode, password: PASSWORD }),
   }));
   cookieStaff = extractSessionCookie(loginStaffRes);
   created.sessions.push(cookieAdmin, cookieStaff);
@@ -403,6 +403,66 @@ async function main() {
   const finalS2 = finalS1Atts.find(a => a.slot === 2)!;
   const s1AllRevs = await db.select().from(requestAttachmentRevisions).where(eq(requestAttachmentRevisions.attachmentId, finalS1.id)).orderBy(requestAttachmentRevisions.revisionNumber);
   record("8-no-delete-old-file", s1AllRevs.length === 2 && s1AllRevs[0].storagePath !== s1AllRevs[1].storagePath, `revs=${s1AllRevs.length} paths=${JSON.stringify(s1AllRevs.map(r => r.storagePath))}`);
+
+  // ==========================================================
+  // Verify 9: staff management (admin only)
+  // ==========================================================
+  const listStaff = await api("/api/admin/staff", { cookie: `ua_session=${cookieAdmin}` });
+  const staffRowExists = Array.isArray(listStaff.json) && listStaff.json.some((s: any) => s.id === plainStaff.user.id);
+  record("9-staff-list-admin", listStaff.status === 200 && staffRowExists, `status=${listStaff.status} hasOwn=${staffRowExists}`);
+
+  const staffListDeny = await api("/api/admin/staff", { cookie: `ua_session=${cookieStaff}` });
+  record("9-staff-list-nonadmin-403", staffListDeny.status === 403 && staffListDeny.json?.error === "admin_only", `status=${staffListDeny.status}`);
+
+  const newCode = `gate-created-${prefix}`;
+  const createStaffRes = await api("/api/admin/staff", {
+    method: "POST", cookie: `ua_session=${cookieAdmin}`,
+    body: { staffCode: newCode, fullName: "Gate Created Staff", role: "staff", kind: "emergency", password: "Created123!" },
+  });
+  created.staff.push(createStaffRes.json?.id);
+  record("9-staff-create", createStaffRes.status === 200 && createStaffRes.json?.staffCode === newCode && createStaffRes.json?.kind === "emergency", `status=${createStaffRes.status} code=${createStaffRes.json?.staffCode}`);
+
+  // dup staffCode rejected
+  const dupStaffRes = await api("/api/admin/staff", {
+    method: "POST", cookie: `ua_session=${cookieAdmin}`,
+    body: { staffCode: newCode, fullName: "Dup", role: "staff", password: "Created123!" },
+  });
+  record("9-staff-create-dup-400", dupStaffRes.status === 400 && dupStaffRes.json?.error === "staff_code_taken", `status=${dupStaffRes.status} err=${dupStaffRes.json?.error}`);
+
+  // short password rejected
+  const shortPassRes = await api("/api/admin/staff", {
+    method: "POST", cookie: `ua_session=${cookieAdmin}`,
+    body: { staffCode: `gate-short-${prefix}`, fullName: "Short", role: "staff", password: "123" },
+  });
+  record("9-staff-create-short-pass-400", shortPassRes.status === 400 && shortPassRes.json?.error === "password_too_short", `status=${shortPassRes.status} err=${shortPassRes.json?.error}`);
+
+  // created staff can sign in with staffCode
+  if (createStaffRes.json?.id) {
+    const newStaffLogin = await api("/api/auth/password/signin", { method: "POST", body: { staffCode: newCode, password: "Created123!" } });
+    const nsCookie = newStaffLogin.cookie;
+    if (nsCookie) created.sessions.push(nsCookie);
+    record("9-staff-new-login", newStaffLogin.status === 200 && nsCookie !== "" && newStaffLogin.json?.user?.role === "staff", `status=${newStaffLogin.status} role=${newStaffLogin.json?.user?.role}`);
+  }
+
+  // admin cannot disable self
+  const adminSelfPatch = await api(`/api/admin/staff/${adminStaff.user.id}`, { method: "PATCH", cookie: `ua_session=${cookieAdmin}`, body: { isActive: false } });
+  record("9-staff-disable-self-400", adminSelfPatch.status === 400 && adminSelfPatch.json?.error === "cannot_disable_self", `status=${adminSelfPatch.status} err=${adminSelfPatch.json?.error}`);
+
+  // disable target staff → staffCode login blocked 403 account_disabled
+  const disableTarget = await api(`/api/admin/staff/${plainStaff.user.id}`, { method: "PATCH", cookie: `ua_session=${cookieAdmin}`, body: { isActive: false } });
+  const disabledLogin = await api("/api/auth/password/signin", { method: "POST", body: { staffCode: plainStaff.user.staffCode, password: PASSWORD } });
+  record("9-staff-disable-block", disableTarget.status === 200 && disabledLogin.status === 403 && disabledLogin.json?.error === "account_disabled", `patch=${disableTarget.status} login=${disabledLogin.status} err=${disabledLogin.json?.error}`);
+
+  // re-enable + reset password → login with new password works
+  const resetRes = await api(`/api/admin/staff/${plainStaff.user.id}`, { method: "PATCH", cookie: `ua_session=${cookieAdmin}`, body: { isActive: true, password: "ResetPass456!" } });
+  const resetLogin = await api("/api/auth/password/signin", { method: "POST", body: { staffCode: plainStaff.user.staffCode, password: "ResetPass456!" } });
+  const oldPassLogin = await api("/api/auth/password/signin", { method: "POST", body: { staffCode: plainStaff.user.staffCode, password: PASSWORD } });
+  if (resetLogin.cookie) created.sessions.push(resetLogin.cookie);
+  record("9-staff-reset-password", resetRes.status === 200 && resetLogin.status === 200 && resetLogin.cookie !== "" && oldPassLogin.status === 401, `reset=${resetRes.status} new=${resetLogin.status} old=${oldPassLogin.status}`);
+
+  // non-admin cannot patch
+  const staffPatchDeny = await api(`/api/admin/staff/${adminStaff.user.id}`, { method: "PATCH", cookie: `ua_session=${cookieStaff}`, body: { fullName: "X" } });
+  record("9-staff-patch-nonadmin-403", staffPatchDeny.status === 403, `status=${staffPatchDeny.status}`);
 
   // summary
   console.log("\n================ GATE RESULTS ================");

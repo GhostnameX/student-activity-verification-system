@@ -8,7 +8,7 @@ import {
   getSession,
   destroySession,
 } from "./auth/session";
-import { verifyStaffPassword } from "@ua/db/auth-helpers";
+import { verifyStaffByCode } from "@ua/db/auth-helpers";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
 const API_BASE = process.env.PUBLIC_API_URL || "http://localhost:3000";
@@ -83,13 +83,17 @@ export const auth = new Elysia()
   .post(
     "/api/auth/password/signin",
     async ({ body, set, headers }) => {
-      const email = body.email.trim().toLowerCase();
-      const result = await verifyStaffPassword(email, body.password);
-      if (!result || !result.ok) {
+      const staffCode = body.staffCode.trim().toLowerCase();
+      const result = await verifyStaffByCode(staffCode, body.password);
+      let st = result?.user;
+      if (!result || !result.ok || !st) {
         set.status = 401;
         return { error: "invalidCredentials" };
       }
-      const st = result.user;
+      if (st.isActive === false) {
+        set.status = 403;
+        return { error: "account_disabled" };
+      }
       const user = {
         id: st.id,
         name: st.fullName,
@@ -105,7 +109,7 @@ export const auth = new Elysia()
     },
     {
       body: t.Object({
-        email: t.String(),
+        staffCode: t.String(),
         password: t.String(),
       }),
     },

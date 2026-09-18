@@ -102,6 +102,10 @@ export async function getSession(headers: Record<string, unknown>): Promise<Sess
   const stf = await db.select().from(staff).where(eq(staff.id, row.userId)).limit(1);
   const st = stf[0];
   if (!st) return null;
+  if (st.isActive === false) {
+    await db.delete(sessions).where(eq(sessions.id, sid)).catch(() => {});
+    return null;
+  }
   return {
     id: st.id,
     name: st.fullName,

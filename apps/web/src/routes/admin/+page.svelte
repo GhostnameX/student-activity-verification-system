@@ -12,11 +12,16 @@
 		createActivity,
 		updateActivity,
 		deleteActivity,
+		getStaffList,
+		createStaff,
+		updateStaff,
 		type RequestItem,
 		type StatsResponse,
 		type AuditLogItem,
 		type Activity,
 		type ActivityInput,
+		type StaffMember,
+		type StaffInput,
 	} from '$lib/api';
 	import {
 		RefreshCw,
@@ -32,6 +37,9 @@
 		Pencil,
 		Trash2,
 		CalendarPlus,
+		UserPlus,
+		KeyRound,
+		Power,
 	} from 'lucide-svelte';
 
 	let requests: RequestItem[] = $state([]);
@@ -39,13 +47,31 @@
 	let auditLogs: AuditLogItem[] = $state([]);
 	let activities: Activity[] = $state([]);
 	let loading: boolean = $state(true);
-	let activeTab: 'stats' | 'audit' | 'activities' = $state('stats');
+	let activeTab: 'stats' | 'audit' | 'activities' | 'staff' = $state('stats');
 	let activityModal: 'add' | 'edit' | null = $state(null);
 	let editingId: string | null = $state(null);
 	let deleteTarget: Activity | null = $state(null);
 	let savingActivity: boolean = $state(false);
 	let activityMsg: string = $state('');
 	let activityForm = $state<ActivityInput & { dateStr: string; deadlineStr: string }>(emptyActivityForm());
+	let staffList: StaffMember[] = $state([]);
+	let staffModal: 'add' | 'edit' | null = $state(null);
+	let editingStaffId: string | null = $state(null);
+	let staffMsg: string = $state('');
+	let savingStaff: boolean = $state(false);
+	let staffForm = $state<StaffInput & { isActive: boolean }>(emptyStaffForm());
+
+	function emptyStaffForm() {
+		return {
+			email: '',
+			staffCode: '',
+			fullName: '',
+			password: '',
+			role: 'staff' as const,
+			kind: 'main' as const,
+			isActive: true,
+		};
+	}
 
 	function emptyActivityForm() {
 		const today = new Date().toISOString().slice(0, 10);
@@ -76,16 +102,18 @@
 	async function refresh() {
 		loading = true;
 		try {
-			const [req, st, audit, acts] = await Promise.all([
+			const [req, st, audit, acts, staffRows] = await Promise.all([
 				getRequests(),
 				getStats(),
 				getAuditLogs(),
 				getActivities(true),
+				getStaffList(),
 			]);
 			requests = req;
 			stats = st;
 			auditLogs = audit;
 			activities = acts;
+			staffList = staffRows;
 		} finally {
 			loading = false;
 		}
@@ -224,6 +252,77 @@
 		};
 		return map[action] ?? action;
 	}
+
+	function openAddStaff() {
+		staffForm = emptyStaffForm();
+		editingStaffId = null;
+		staffMsg = '';
+		staffModal = 'add';
+	}
+
+	function openEditStaff(s: StaffMember) {
+		staffForm = {
+			email: s.email,
+			staffCode: s.staffCode,
+			fullName: s.fullName,
+			password: '',
+			role: s.role === 'admin' ? 'admin' : 'staff',
+			kind: s.kind === 'emergency' ? 'emergency' : 'main',
+			isActive: s.isActive,
+		};
+		editingStaffId = s.id;
+		staffMsg = '';
+		staffModal = 'edit';
+	}
+
+	function closeStaffModal() {
+		staffModal = null;
+		editingStaffId = null;
+		staffMsg = '';
+	}
+
+	async function saveStaff() {
+		savingStaff = true;
+		staffMsg = '';
+		try {
+			const payload: StaffInput = {
+				email: staffForm.email?.trim() || undefined,
+				staffCode: staffForm.staffCode.trim(),
+				fullName: staffForm.fullName.trim(),
+				role: staffForm.role,
+				kind: staffForm.kind,
+				isActive: staffForm.isActive,
+			};
+			if (staffForm.password) payload.password = staffForm.password;
+			if (staffModal === 'edit' && editingStaffId) {
+				await updateStaff(editingStaffId, payload);
+			} else {
+				await createStaff(payload);
+			}
+			closeStaffModal();
+			await refresh();
+		} catch (e) {
+			const err = e instanceof Error ? e.message : String(e);
+			if (err === 'staff_code_taken') staffMsg = translate($lang, 'staffCodeTaken');
+			else if (err === 'password_too_short') staffMsg = translate($lang, 'passwordTooShort');
+			else if (err === 'cannot_disable_self') staffMsg = translate($lang, 'cannotDisableSelf');
+			else staffMsg = translate($lang, 'staffError');
+		} finally {
+			savingStaff = false;
+		}
+	}
+
+	async function toggleStaffActive(s: StaffMember) {
+		staffMsg = '';
+		try {
+			await updateStaff(s.id, { isActive: !s.isActive });
+			await refresh();
+		} catch (e) {
+			const err = e instanceof Error ? e.message : String(e);
+			if (err === 'cannot_disable_self') staffMsg = translate($lang, 'cannotDisableSelf');
+			else staffMsg = translate($lang, 'staffError');
+		}
+	}
 </script>
 
 <div class="space-y-6">
@@ -260,6 +359,14 @@
 					}`}
 				>
 					{translate($lang, 'activities')}
+				</button>
+				<button
+					onclick={() => (activeTab = 'staff')}
+					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+						activeTab === 'staff' ? 'bg-ink-900 text-ink-50 shadow-soft' : 'text-ink-600 hover:bg-ink-50'
+					}`}
+				>
+					{translate($lang, 'staffManagement')}
 				</button>
 			</div>
 			<button
@@ -444,7 +551,7 @@
 				</div>
 			{/if}
 		</div>
-	{:else}
+	{:else if activeTab === 'activities'}
 		<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
 			<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
 				<h2 class="flex items-center gap-2 text-lg font-bold text-ink-900">
@@ -509,6 +616,96 @@
 												class="rounded-lg bg-red-50 p-2 text-red-600 transition hover:bg-red-100"
 											>
 												<Trash2 size={15} />
+											</button>
+										</div>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{:else if activeTab === 'staff'}
+		<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
+			<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+				<h2 class="flex items-center gap-2 text-lg font-bold text-ink-900">
+					<Users size={18} class="text-brand-600" />
+					{translate($lang, 'staffManagement')}
+				</h2>
+				<button
+					onclick={openAddStaff}
+					class="flex items-center gap-1.5 rounded-xl bg-ink-900 px-4 py-2 text-sm font-semibold text-ink-50 shadow-soft transition hover:bg-ink-700"
+				>
+					<UserPlus size={16} />
+					{translate($lang, 'addStaff')}
+				</button>
+			</div>
+			{#if staffMsg}
+				<div class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+					{staffMsg}
+				</div>
+			{/if}
+			{#if staffList.length === 0}
+				<p class="text-sm text-ink-500">{translate($lang, 'noResults')}</p>
+			{:else}
+				<div class="overflow-x-auto">
+					<table class="w-full text-left text-sm">
+						<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
+							<tr>
+								<th class="px-3 py-2">{translate($lang, 'nameLabel')}</th>
+								<th class="px-3 py-2">{translate($lang, 'staffCode')}</th>
+								<th class="hidden px-3 py-2 md:table-cell">{translate($lang, 'role')}</th>
+								<th class="hidden px-3 py-2 md:table-cell">{translate($lang, 'kind')}</th>
+								<th class="px-3 py-2">{translate($lang, 'status')}</th>
+								<th class="px-3 py-2 text-right">{translate($lang, 'actions')}</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each staffList as s (s.id)}
+								<tr class="border-b border-ink-50 last:border-0">
+									<td class="px-3 py-2.5 font-medium text-ink-900">{s.fullName}</td>
+									<td class="px-3 py-2.5 font-mono text-ink-700">{s.staffCode}</td>
+									<td class="hidden px-3 py-2.5 text-ink-600 md:table-cell">
+										{translate($lang, s.role === 'admin' ? 'admin' : 'staff')}
+									</td>
+									<td class="hidden px-3 py-2.5 md:table-cell">
+										{#if s.kind === 'emergency'}
+											<span class="inline-flex rounded-full bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-700 ring-1 ring-purple-200">
+												{translate($lang, 'emergency')}
+											</span>
+										{:else}
+											<span class="inline-flex rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-600 ring-1 ring-ink-200">
+												{translate($lang, 'mainAccount')}
+											</span>
+										{/if}
+									</td>
+									<td class="px-3 py-2.5">
+										<span
+											class={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+												s.isActive ? 'bg-green-50 text-green-700 ring-1 ring-green-200' : 'bg-red-50 text-red-700 ring-1 ring-red-200'
+											}`}
+										>
+											{translate($lang, s.isActive ? 'accountActive' : 'accountDisabled')}
+										</span>
+									</td>
+									<td class="px-3 py-2.5">
+										<div class="flex justify-end gap-1.5">
+											<button
+												onclick={() => openEditStaff(s)}
+												title={translate($lang, 'editStaff')}
+												class="rounded-lg bg-ink-100 p-2 text-ink-600 transition hover:bg-brand-100 hover:text-brand-700"
+											>
+												<Pencil size={15} />
+											</button>
+											<button
+												onclick={() => toggleStaffActive(s)}
+												title={translate($lang, s.isActive ? 'disableAccount' : 'enableAccount')}
+												class={`rounded-lg p-2 transition ${
+													s.isActive ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-green-50 text-green-600 hover:bg-green-100'
+												}`}
+											>
+												<Power size={15} />
 											</button>
 										</div>
 									</td>
@@ -669,6 +866,119 @@
 							class="flex items-center gap-1.5 rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
 						>
 							{savingActivity ? translate($lang, 'submitting') : translate($lang, 'save')}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if staffModal}
+		<div
+			class="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/60 p-4 backdrop-blur-sm"
+			role="dialog"
+			aria-modal="true"
+			tabindex="-1"
+			onclick={(e) => { if (e.target === e.currentTarget) closeStaffModal(); }}
+			onkeydown={(e) => { if (e.key === 'Escape') closeStaffModal(); }}
+		>
+			<div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-ink-100 bg-surface p-6 shadow-lift">
+				<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
+					<UserPlus size={19} class="text-brand-600" />
+					{translate($lang, staffModal === 'add' ? 'createStaff' : 'editStaff')}
+				</h2>
+				<div class="space-y-4">
+					<div>
+						<label for="st-fullname" class="mb-1 block text-sm font-medium text-ink-700">
+							{translate($lang, 'fullNameLabel')}
+						</label>
+						<input
+							id="st-fullname"
+							bind:value={staffForm.fullName}
+							type="text"
+							required
+							class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+						/>
+					</div>
+					<div class="grid gap-4 sm:grid-cols-2">
+						<div>
+							<label for="st-code" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'staffCode')}
+							</label>
+							<input
+								id="st-code"
+								bind:value={staffForm.staffCode}
+								type="text"
+								required
+								autocomplete="off"
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							/>
+						</div>
+						<div>
+							<label for="st-password" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'password')}
+							</label>
+							<input
+								id="st-password"
+								bind:value={staffForm.password}
+								type="password"
+								required={staffModal === 'add'}
+								placeholder={staffModal === 'edit' ? '••••••••' : ''}
+								autocomplete="new-password"
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							/>
+						</div>
+					</div>
+					<div class="grid gap-4 sm:grid-cols-2">
+						<div>
+							<label for="st-role" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'role')}
+							</label>
+							<select
+								id="st-role"
+								bind:value={staffForm.role}
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							>
+								<option value="staff">{translate($lang, 'staff')}</option>
+								<option value="admin">{translate($lang, 'admin')}</option>
+							</select>
+						</div>
+						<div>
+							<label for="st-kind" class="mb-1 block text-sm font-medium text-ink-700">
+								{translate($lang, 'kind')}
+							</label>
+							<select
+								id="st-kind"
+								bind:value={staffForm.kind}
+								class="w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+							>
+								<option value="main">{translate($lang, 'mainAccount')}</option>
+								<option value="emergency">{translate($lang, 'emergency')}</option>
+							</select>
+						</div>
+					</div>
+					{#if staffModal === 'edit'}
+						<label class="flex items-center gap-2 text-sm font-medium text-ink-700">
+							<input type="checkbox" bind:checked={staffForm.isActive} class="h-4 w-4 accent-brand-600" />
+							{translate($lang, 'accountActive')}
+						</label>
+					{/if}
+					{#if staffMsg}
+						<p class="text-sm text-red-600">{staffMsg}</p>
+					{/if}
+					<div class="flex justify-end gap-2 border-t border-ink-100 pt-4">
+						<button
+							onclick={closeStaffModal}
+							class="rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+						>
+							{translate($lang, 'cancel')}
+						</button>
+						<button
+							onclick={saveStaff}
+							disabled={savingStaff}
+							class="flex items-center gap-1.5 rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+						>
+							{savingStaff ? translate($lang, 'submitting') : translate($lang, 'save')}
 						</button>
 					</div>
 				</div>

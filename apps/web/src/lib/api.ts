@@ -261,6 +261,49 @@ export async function getAuditLogs(): Promise<AuditLogItem[]> {
   return apiFetch("/api/audit");
 }
 
+export interface StaffMember {
+  id: string;
+  email: string;
+  staffCode: string;
+  fullName: string;
+  role: "staff" | "admin";
+  isActive: boolean;
+  kind: "main" | "emergency";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StaffInput {
+  email?: string;
+  staffCode: string;
+  fullName: string;
+  password?: string;
+  role?: "staff" | "admin";
+  kind?: "main" | "emergency";
+  isActive?: boolean;
+}
+
+export async function getStaffList(): Promise<StaffMember[]> {
+  return apiFetch("/api/admin/staff");
+}
+
+export async function createStaff(body: StaffInput): Promise<StaffMember> {
+  return apiFetch("/api/admin/staff", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateStaff(
+  id: string,
+  body: Partial<StaffInput>,
+): Promise<StaffMember> {
+  return apiFetch(`/api/admin/staff/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
 export async function getStats(): Promise<StatsResponse> {
   return apiFetch("/api/stats");
 }

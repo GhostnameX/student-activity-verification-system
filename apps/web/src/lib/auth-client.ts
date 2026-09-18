@@ -1,12 +1,12 @@
 import { API_BASE } from "./api";
 import type { SessionUser } from "./api";
 
-export async function signInWithPassword(email: string, password: string) {
+export async function signInWithPassword(staffCode: string, password: string) {
   const res = await fetch(`${API_BASE}/api/auth/password/signin`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ staffCode, password }),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {

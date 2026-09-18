@@ -97,6 +97,8 @@ export const sessions = pgTable(
   (t) => [index("sessions_user_idx").on(t.userId)],
 );
 
+export const staffKindEnum = pgEnum("staff_kind", ["main", "emergency"]);
+
 export const staff = pgTable(
   "staff",
   {
@@ -104,9 +106,12 @@ export const staff = pgTable(
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
     email: text("email").notNull(),
+    staffCode: text("staff_code").notNull(),
     passwordHash: text("password_hash").notNull(),
     role: roleEnum("role").notNull(), // 'admin' | 'staff' (student not used)
     fullName: text("full_name").notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    kind: staffKindEnum("kind").default("main").notNull(), // 'main' | 'emergency'
     createdAt: timestamp("created_at")
       .default(sql`now()`)
       .notNull(),
@@ -114,7 +119,10 @@ export const staff = pgTable(
       .default(sql`now()`)
       .notNull(),
   },
-  (t) => [uniqueIndex("staff_email_unique").on(t.email)],
+  (t) => [
+    uniqueIndex("staff_email_unique").on(t.email),
+    uniqueIndex("staff_code_unique").on(t.staffCode),
+  ],
 );
 
 export const accounts = pgTable("accounts", {

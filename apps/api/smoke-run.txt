@@ -1,0 +1,77 @@
+﻿=== GATE SMOKE TEST RUN 32d97182 ===
+Setup done. Test users: {
+  activeA: "gate-32d971A",
+  activeB: "gate-32d971B",
+  inactiveC: "gate-32d971C",
+}
+bun : [auth] login_blocked: status=graduated for gate-c-gate-32d971@smoke.local
+At line:1 char:62
++ ... env:AUTH_BYPASS_GOOGLE="true"; bun scripts/gate-smoke.ts 2>&1 | Out-F ...
++                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([auth] login_bl...971@smoke.local:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+PASS [3a-inactive-block] status=302 loc=http://localhost:5173/auth/signin?error=not_in_roster
+PASS [3a-inactive-no-session] sessions=0
+PASS [3b-active-login] status=302 hasCookie=true
+PASS [3b-me-a] status=200 id=gate-32d971A
+PASS [3b-active-login-b] cookieB=true
+PASS [3c-staff-admin-login] admin=200 staff=200
+PASS [3d-staff-list-403] status=403
+PASS [3e-admin-create-activity] status=200
+PASS [3f-student-upload-ok] status=200 path=requests/e1c0f009-6ee1-45d2-8547-3cff0b936a85.png
+PASS [3g-staff-upload-403] status=403 err=only_students
+PASS [3h-admin-upload-403] status=403 err=only_students
+PASS [5-invalid-slot-0] status=400 err=slot_must_be_1_or_2
+PASS [5-invalid-slot--1] status=400 err=slot_must_be_1_or_2
+PASS [5-invalid-slot-3] status=400 err=slot_must_be_1_or_2
+PASS [5-invalid-slot-99] status=400 err=slot_must_be_1_or_2
+PASS [5-dup-slot] status=400 err=duplicate_slot
+PASS [5-missing-slot1] status=400 err=slot1_required
+PASS [5-create-slot12] status=200 id=98a2b8df-0200-41e4-985d-2c6527c30622
+PASS [3-db-create-2slot] atts=2 revs=2
+PASS [3-get-detail-revisions] status=200 atts=2
+PASS [4a-request-revision-slot1] status=200 json={"status":"revision_required","slots":[1]}
+PASS [4a-flag-states] s1=needs_revision s2=unchanged
+PASS [4a-old-rev-kept] count=2
+PASS [4a-request-state] status=revision_required
+PASS [4b-revision-from-revreq-400] status=400 err=not_pending
+PASS [6-ownership-resubmit-b] status=403 err=forbidden
+PASS [6-anon-resubmit-401] status=401
+PASS [4e-resubmit-no-replace] status=400 err=flagged_slots_not_replaced
+PASS [4e-resubmit-noop-rollback] reqStatus=revision_required
+PASS [4f-resubmit-ok] status=200 json={"status":"pending"}
+PASS [4f-revision-created] revs=2 newRevNum=2 state=resubmitted
+PASS [4f-current-rev-updated] current=true
+PASS [4f-old-rev-kept] oldState=needs_revision oldPath=requests/e1c0f009-6ee1-45d2-8547-3cff0b936a85.png
+PASS [4f-request-pending] status=pending
+PASS [4f-slot2-untouched-rev] rev=1 state=unchanged
+PASS [5-legacy-slot3-readable] status=200 slots=[3]
+PASS [5-legacy-slot3-not-editable] status=400 err=invalid_slot
+PASS [7-rollback-trigger] status=400 err=flagged_slots_not_replaced
+PASS [7-rollback-full-atomic] revCount=true noNew=true curUnchg=true req=true flags=true
+PASS [7-rollback-recover] status=200 req=pending
+PASS [4g-approve-from-revreq-400] status=400 err=already_reviewed
+PASS [4h-reject-from-revreq-400] status=400 err=already_reviewed
+PASS [4i-revision-from-revreq-400] status=400 err=not_pending
+PASS [7-guardreq-state-intact] status=revision_required
+PASS [4j-guardreq-resubmit] status=200
+[email] skipped (no RESEND_API_KEY) -> gate-a-gate-32d971@smoke.local (rejected)
+PASS [4k-reject-from-pending] status=200
+PASS [4l-reject-again-400] status=400
+[email] skipped (no RESEND_API_KEY) -> gate-a-gate-32d971@smoke.local (approved)
+PASS [4m-approve-from-pending] status=200 json={"id":"d776f02a-4fe8-438a-8c79-aa301ad80b6f","studentId":"gate-32d971A","activityName":null,"certificateNumber":2,"certificateYear":2569,"requestNumber":2}
+PASS [7-approve-atomic-current-approved] req=approved allApproved=true states=["approved"]
+PASS [4n-approve-again-400] status=400 err=already_reviewed
+PASS [6-exclusive-detail-b-forbidden] status=403 err=forbidden
+PASS [6-staff-detail-403] status=403
+PASS [6-patch-other-403] status=403 err=forbidden
+PASS [6-patch-approved-400] status=400 err=already_reviewed
+PASS [6-staff-request-revision-403] status=403
+PASS [6-staff-approve-403] status=403
+PASS [6-student-approve-403] status=403
+PASS [8-no-delete-old-file] revs=2 paths=["requests/e1c0f009-6ee1-45d2-8547-3cff0b936a85.png","requests/6a0559d2-717f-4efd-8114-cba7a8bc2d06.png"]
+
+================ GATE RESULTS ================
+PASS: 58  FAIL: 0
+==============================================

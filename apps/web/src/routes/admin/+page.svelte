@@ -724,7 +724,6 @@
 			role="dialog"
 			aria-modal="true"
 			tabindex="-1"
-			onclick={(e) => { if (e.target === e.currentTarget) closeActivityModal(); }}
 			onkeydown={(e) => { if (e.key === 'Escape') closeActivityModal(); }}
 		>
 			<div class="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-ink-100 bg-surface p-6 shadow-lift">
@@ -879,7 +878,6 @@
 			role="dialog"
 			aria-modal="true"
 			tabindex="-1"
-			onclick={(e) => { if (e.target === e.currentTarget) closeStaffModal(); }}
 			onkeydown={(e) => { if (e.key === 'Escape') closeStaffModal(); }}
 		>
 			<div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-ink-100 bg-surface p-6 shadow-lift">

@@ -9,6 +9,10 @@ export function attachmentUrl(storagePath: string): string {
 	return `${SUPABASE_URL}/storage/v1/object/public/request-attachments/${storagePath}`;
 }
 
+export function avatarUrl(storagePath: string): string {
+	return `${SUPABASE_URL}/storage/v1/object/public/avatars/${storagePath}`;
+}
+
 export interface SessionUser {
   id: string;
   name: string;
@@ -17,6 +21,9 @@ export interface SessionUser {
   faculty?: string | null;
   studentId?: string | null;
   phone?: string | null;
+  avatarUrl?: string | null;
+  admissionYear?: number | null;
+  kind?: "main" | "emergency" | null;
 }
 
 export interface Activity {
@@ -140,9 +147,41 @@ export async function getMe(): Promise<{ user: SessionUser | null }> {
   return apiFetch("/api/me");
 }
 
-export async function updateMe(body: { phone: string }): Promise<{ phone: string | null }> {
+export async function updateMe(body: { phone?: string; name?: string }): Promise<{
+  phone?: string | null;
+  name?: string | null;
+}> {
   return apiFetch("/api/me", {
     method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function uploadAvatar(file: File): Promise<{ avatarUrl: string; url: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/api/me/avatar`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.error || `Upload failed: ${res.status}`);
+  }
+  return data as { avatarUrl: string; url: string };
+}
+
+export async function removeAvatar(): Promise<{ ok: boolean }> {
+  return apiFetch("/api/me/avatar", { method: "DELETE" });
+}
+
+export async function changePassword(body: {
+  currentPassword: string;
+  newPassword: string;
+}): Promise<{ ok: boolean }> {
+  return apiFetch("/api/me/password", {
+    method: "POST",
     body: JSON.stringify(body),
   });
 }

@@ -21,6 +21,7 @@
 		getNotifications,
 		markAllNotificationsRead,
 		markNotificationRead,
+		avatarUrl,
 		type NotificationItem,
 	} from '$lib/api';
 
@@ -231,8 +232,25 @@
 				</button>
 				{#if $user}
 					<div class="hidden items-center gap-2.5 lg:flex">
+						<a href="/profile" class="shrink-0" title={translate($lang, 'profile')}>
+							{#if $user.avatarUrl}
+								<img
+									src={avatarUrl($user.avatarUrl)}
+									alt={translate($lang, 'avatar')}
+									class="h-9 w-9 rounded-xl border border-ink-100 object-cover"
+								/>
+							{:else}
+								<span
+									class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white"
+								>
+									{$user.name.trim().charAt(0).toUpperCase()}
+								</span>
+							{/if}
+						</a>
 						<div class="text-right">
-							<div class="text-sm font-semibold leading-tight text-ink-900">{$user.name}</div>
+							<a href="/profile" class="block text-sm font-semibold leading-tight text-ink-900 hover:text-brand-700">
+								{$user.name}
+							</a>
 							<div class="text-xs capitalize text-ink-400">
 								{translate($lang, $user.role as 'student')}
 							</div>

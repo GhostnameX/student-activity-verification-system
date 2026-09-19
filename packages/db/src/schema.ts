@@ -112,6 +112,7 @@ export const staff = pgTable(
     fullName: text("full_name").notNull(),
     isActive: boolean("is_active").default(true).notNull(),
     kind: staffKindEnum("kind").default("main").notNull(), // 'main' | 'emergency'
+    avatarUrl: text("avatar_url"),
     createdAt: timestamp("created_at")
       .default(sql`now()`)
       .notNull(),
@@ -370,6 +371,7 @@ export const students = pgTable(
     status: studentStatusEnum("status").default("active").notNull(),
     email: text("email"),
     phone: text("phone"),
+    avatarUrl: text("avatar_url"),
     importBatchId: text("import_batch_id").references(() => importBatches.id, {
       onDelete: "set null",
     }),

@@ -18,7 +18,7 @@ import { eq, and, desc, sql, isNull, count, countDistinct, inArray } from "drizz
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { getSession } from "./auth/session";
-import { hash } from "@ua/db/auth-helpers";
+import { hash, verify } from "@ua/db/auth-helpers";
 
 const PUBLIC_API_URL = process.env.PUBLIC_API_URL || "http://localhost:3000";
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
@@ -33,6 +33,13 @@ const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 
 const ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf"]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+const AVATAR_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
+const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
+
+function avatarPublicUrl(storagePath: string): string {
+  return `${SUPABASE_URL}/storage/v1/object/public/avatars/${storagePath}`;
+}
 
 const THAI_MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -1276,26 +1283,246 @@ export const app = new Elysia()
         set.status = 401;
         return { error: "unauthorized" };
       }
-      const raw = (body.phone ?? "").trim();
-      if (raw !== "") {
-        const digits = raw.replace(/[-\s]/g, "");
-        if (!/^\d{9,10}$/.test(digits)) {
-          set.status = 400;
-          return { error: "invalid_phone" };
+
+      let phone: string | null = null;
+      if (body.phone !== undefined) {
+        const raw = body.phone.trim();
+        if (raw !== "") {
+          const digits = raw.replace(/[-\s]/g, "");
+          if (!/^\d{9,10}$/.test(digits)) {
+            set.status = 400;
+            return { error: "invalid_phone" };
+          }
+        }
+        phone = raw === "" ? null : raw;
+        if (user.role === "student") {
+          await db
+            .update(students)
+            .set({ phone, updatedAt: sql`now()` })
+            .where(eq(students.studentId, user.id));
         }
       }
-      const phone = raw === "" ? null : raw;
-      if (user.role === "student") {
+
+      let name: string | null = null;
+      if (body.name !== undefined) {
+        const rawName = body.name.trim();
+        if (!rawName || rawName.length > 100) {
+          set.status = 400;
+          return { error: "invalid_name" };
+        }
+        if (user.role === "student") {
+          set.status = 403;
+          return { error: "student_name_locked" };
+        }
         await db
-          .update(students)
-          .set({ phone, updatedAt: sql`now()` })
-          .where(eq(students.studentId, user.id));
+          .update(staff)
+          .set({ fullName: rawName, updatedAt: sql`now()` })
+          .where(eq(staff.id, user.id));
+        name = rawName;
+        await writeAuditLog({
+          actorStaffId: user.id,
+          action: "staff_change_name",
+          targetType: "staff",
+          targetId: user.id,
+          metadata: { fullName: rawName },
+        });
       }
-      return { phone };
+
+      return { phone, name };
     },
     {
       body: t.Object({
         phone: t.Optional(t.String()),
+        name: t.Optional(t.String()),
+      }),
+    },
+  )
+
+  // ===== Profile avatar =====
+  .post(
+    "/api/me/avatar",
+    async ({ body, headers, set }) => {
+      const user = await getSession(headers);
+      if (!user) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      if (!supabaseAdmin) {
+        set.status = 500;
+        return { error: "storage_not_configured" };
+      }
+
+      const file = body.file;
+      if (!file || typeof file !== "object" || !("type" in file)) {
+        set.status = 400;
+        return { error: "no_file" };
+      }
+      const f = file as unknown as {
+        name?: string;
+        type?: string;
+        size?: number;
+        arrayBuffer?: () => Promise<ArrayBuffer>;
+      };
+      const fileType = f.type || "application/octet-stream";
+      const fileSize = f.size || 0;
+      if (!AVATAR_MIME.has(fileType)) {
+        set.status = 400;
+        return { error: "unsupported_type", allowed: [...AVATAR_MIME] };
+      }
+      if (fileSize > MAX_AVATAR_SIZE) {
+        set.status = 400;
+        return { error: "file_too_large", max: MAX_AVATAR_SIZE };
+      }
+      const buffer = f.arrayBuffer ? Buffer.from(await f.arrayBuffer()) : null;
+      if (!buffer) {
+        set.status = 400;
+        return { error: "cannot_read_file" };
+      }
+
+      const ext = fileType === "image/jpeg" ? "jpg" : fileType.split("/")[1] || "png";
+      const path = `${user.id}/${randomUUID()}.${ext}`;
+
+      const existing =
+        user.role === "student"
+          ? await db
+              .select({ avatarUrl: students.avatarUrl })
+              .from(students)
+              .where(eq(students.studentId, user.id))
+              .limit(1)
+          : await db
+              .select({ avatarUrl: staff.avatarUrl })
+              .from(staff)
+              .where(eq(staff.id, user.id))
+              .limit(1);
+      if (existing[0]?.avatarUrl) {
+        await supabaseAdmin.storage
+          .from("avatars")
+          .remove([existing[0].avatarUrl])
+          .catch(() => {});
+      }
+
+      const { error } = await supabaseAdmin.storage
+        .from("avatars")
+        .upload(path, buffer, {
+          contentType: fileType,
+          cacheControl: "3600",
+          upsert: false,
+        });
+      if (error) {
+        set.status = 400;
+        return { error: "upload_failed", message: error.message };
+      }
+
+      if (user.role === "student") {
+        await db
+          .update(students)
+          .set({ avatarUrl: path, updatedAt: sql`now()` })
+          .where(eq(students.studentId, user.id));
+      } else {
+        await db
+          .update(staff)
+          .set({ avatarUrl: path, updatedAt: sql`now()` })
+          .where(eq(staff.id, user.id));
+      }
+
+      return { avatarUrl: path, url: avatarPublicUrl(path) };
+    },
+    {
+      body: t.Object({
+        file: t.Any(),
+      }),
+    },
+  )
+
+  .delete("/api/me/avatar", async ({ headers, set }) => {
+    const user = await getSession(headers);
+    if (!user) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    const existing =
+      user.role === "student"
+        ? await db
+            .select({ avatarUrl: students.avatarUrl })
+            .from(students)
+            .where(eq(students.studentId, user.id))
+            .limit(1)
+        : await db
+            .select({ avatarUrl: staff.avatarUrl })
+            .from(staff)
+            .where(eq(staff.id, user.id))
+            .limit(1);
+    const path = existing[0]?.avatarUrl;
+    if (path && supabaseAdmin) {
+      await supabaseAdmin.storage.from("avatars").remove([path]).catch(() => {});
+    }
+    if (user.role === "student") {
+      await db
+        .update(students)
+        .set({ avatarUrl: null, updatedAt: sql`now()` })
+        .where(eq(students.studentId, user.id));
+    } else {
+      await db
+        .update(staff)
+        .set({ avatarUrl: null, updatedAt: sql`now()` })
+        .where(eq(staff.id, user.id));
+    }
+    return { ok: true };
+  })
+
+  // ===== Change own password (staff + admin) =====
+  .post(
+    "/api/me/password",
+    async ({ body, headers, set }) => {
+      const user = await getSession(headers);
+      if (!user) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      if (user.role === "student") {
+        set.status = 403;
+        return { error: "student_no_password" };
+      }
+      const [row] = await db
+        .select()
+        .from(staff)
+        .where(eq(staff.id, user.id))
+        .limit(1);
+      if (!row) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+      const ok = await verify(row.passwordHash, body.currentPassword);
+      if (!ok) {
+        set.status = 400;
+        return { error: "wrong_password" };
+      }
+      if (!body.newPassword || body.newPassword.length < 8) {
+        set.status = 400;
+        return { error: "password_too_short" };
+      }
+      const passwordHash = await hash(body.newPassword, {
+        memoryCost: 19456,
+        timeCost: 2,
+        outputLen: 32,
+        parallelism: 1,
+      });
+      await db
+        .update(staff)
+        .set({ passwordHash, updatedAt: sql`now()` })
+        .where(eq(staff.id, user.id));
+      await writeAuditLog({
+        actorStaffId: user.id,
+        action: "staff_change_password_self",
+        targetType: "staff",
+        targetId: user.id,
+      });
+      return { ok: true };
+    },
+    {
+      body: t.Object({
+        currentPassword: t.String(),
+        newPassword: t.String(),
       }),
     },
   )

@@ -268,7 +268,6 @@
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"
-		onclick={(e) => { if (e.target === e.currentTarget) modalOpen = false; }}
 		onkeydown={(e) => { if (e.key === 'Escape') modalOpen = false; }}
 	>
 		<div class="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-surface shadow-lift">

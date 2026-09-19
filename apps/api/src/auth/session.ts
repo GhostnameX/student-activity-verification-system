@@ -14,6 +14,9 @@ export interface SessionUser {
   faculty?: string | null;
   studentId?: string | null;
   phone?: string | null;
+  avatarUrl?: string | null;
+  admissionYear?: number | null;
+  kind?: "main" | "emergency" | null;
   provider: "google" | "password";
 }
 
@@ -95,6 +98,8 @@ export async function getSession(headers: Record<string, unknown>): Promise<Sess
       faculty: s.major,
       studentId: s.studentId,
       phone: s.phone ?? null,
+      avatarUrl: s.avatarUrl ?? null,
+      admissionYear: s.admissionYear ?? null,
       provider: "google",
     };
   }
@@ -114,6 +119,8 @@ export async function getSession(headers: Record<string, unknown>): Promise<Sess
     faculty: null,
     studentId: null,
     phone: null,
+    avatarUrl: st.avatarUrl ?? null,
+    kind: st.kind,
     provider: "password",
   };
 }

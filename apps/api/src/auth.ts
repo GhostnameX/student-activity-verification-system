@@ -15,7 +15,9 @@ const API_BASE = process.env.PUBLIC_API_URL || "http://localhost:3000";
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const GOOGLE_HD = process.env.GOOGLE_HD === undefined ? "psru.ac.th" : (process.env.GOOGLE_HD.trim() || undefined);
-const REDIRECT_URI = `${API_BASE}/api/auth/google/callback`;
+const REDIRECT_URI =
+  (WEB_ORIGIN.startsWith("http://localhost") ? API_BASE : WEB_ORIGIN) +
+  "/api/auth/google/callback";
 const DEV_BYPASS = process.env.NODE_ENV !== "production" && process.env.AUTH_BYPASS_GOOGLE === "true";
 console.log(
   `[auth] boot: API_BASE=${API_BASE} WEB_ORIGIN=${WEB_ORIGIN} REDIRECT_URI=${REDIRECT_URI} GOOGLE_HD=${GOOGLE_HD ? `"${GOOGLE_HD}"` : "(unset)"} NODE_ENV=${process.env.NODE_ENV ?? "(unset)"} DEV_BYPASS=${DEV_BYPASS}`,

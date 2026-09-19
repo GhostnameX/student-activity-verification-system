@@ -192,9 +192,7 @@ export const requests = pgTable(
     studentId: text("student_id")
       .notNull()
       .references(() => students.studentId, { onDelete: "cascade" }),
-    activityId: text("activity_id")
-      .notNull()
-      .references(() => activities.id),
+    activityId: text("activity_id").references(() => activities.id),
     status: requestStatusEnum("status").default("pending").notNull(),
     note: text("note"),
     rejectionReason: text("rejection_reason"),

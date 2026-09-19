@@ -96,11 +96,11 @@
 	}
 
 	function activityTitle(r: RequestItem) {
-		return r.activityName
-			? r.activityName
-			: $lang === 'th'
-				? r.activity.title
-				: r.activity.titleEn;
+		if (r.activityName) return r.activityName;
+		if (r.activity) {
+			return $lang === 'th' ? r.activity.title : r.activity.titleEn;
+		}
+		return translate($lang, 'activity');
 	}
 
 	function statusClass(status: string) {
@@ -249,7 +249,7 @@
 								{r.student?.faculty ?? '-'}
 							</td>
 							<td class="hidden px-5 py-4 text-ink-600 lg:table-cell">
-								{new Date(r.activity.date).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
+								{new Date(r.activity?.date ?? r.submittedAt).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
 							</td>
 							<td class="px-5 py-4">
 								<span

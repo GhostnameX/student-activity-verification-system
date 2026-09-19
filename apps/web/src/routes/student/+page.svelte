@@ -5,14 +5,12 @@
 	import { translate } from '$lib/i18n';
 	import { goto } from '$app/navigation';
 	import {
-		getActivities,
 		getRequests,
 		getRequest,
 		createRequest,
 		uploadFile,
 		resubmitRequest,
 		attachmentUrl,
-		type Activity,
 		type RequestItem,
 		type AttachmentInput,
 		type AttachmentRevision,
@@ -33,9 +31,7 @@
 		ChevronDown,
 	} from 'lucide-svelte';
 
-	let activities: Activity[] = $state([]);
 	let requests: RequestItem[] = $state([]);
-	let selectedActivity: string = $state('');
 	let note: string = $state('');
 	let slot1File: File | null = $state(null);
 	let slot2File: File | null = $state(null);
@@ -71,7 +67,6 @@
 			goto('/auth/signin');
 			return;
 		}
-		activities = await getActivities();
 		requests = await getRequests();
 	});
 
@@ -103,14 +98,12 @@
 				attachments.push(await uploadToInput(slot2File, 2));
 			}
 			await createRequest({
-				activityId: selectedActivity,
 				note: note || undefined,
 				attachments,
 			});
 			note = '';
 			slot1File = null;
 			slot2File = null;
-			selectedActivity = '';
 			await refresh();
 			notify(translate($lang, 'requestSubmitted'));
 		} catch (e) {
@@ -198,11 +191,11 @@
 	}
 
 	function activityTitle(r: RequestItem) {
-		return r.activityName
-			? r.activityName
-			: $lang === 'th'
-				? r.activity.title
-				: r.activity.titleEn;
+		if (r.activityName) return r.activityName;
+		if (r.activity) {
+			return $lang === 'th' ? r.activity.title : r.activity.titleEn;
+		}
+		return translate($lang, 'activity');
 	}
 
 	function statusLabel(r: RequestItem) {
@@ -258,19 +251,6 @@
 				<h2 class="text-lg font-bold text-ink-900">{translate($lang, 'submitRequest')}</h2>
 			</div>
 			<form onsubmit={submit} class="space-y-4">
-				<div>
-					<label for="activity" class="mb-1.5 block text-sm font-medium text-ink-700">
-						{translate($lang, 'activity')} *
-					</label>
-					<select id="activity" bind:value={selectedActivity} required class={inputClass}>
-						<option value="">{translate($lang, 'selectActivity')}</option>
-						{#each activities as a}
-							<option value={a.id}>
-								{$lang === 'th' ? a.title : a.titleEn}
-							</option>
-						{/each}
-					</select>
-				</div>
 				<div>
 					<label for="note" class="mb-1.5 block text-sm font-medium text-ink-700">
 						{translate($lang, 'note')}
@@ -366,7 +346,7 @@
 
 				<button
 					type="submit"
-					disabled={loading || !selectedActivity}
+					disabled={loading}
 					class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-2.5 font-medium text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-50"
 				>
 					<Send size={17} />
@@ -403,7 +383,7 @@
 								</div>
 								<p class="mt-1.5 flex items-center gap-1.5 text-sm text-ink-500">
 									<CalendarDays size={14} />
-									{new Date(r.activity.date).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
+									{new Date(r.activity?.date ?? r.submittedAt).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
 								</p>
 								{#if r.note}
 									<p class="mt-2 text-sm text-ink-600">{r.note}</p>

@@ -442,7 +442,7 @@ export const app = new Elysia()
           },
         })
         .from(requests)
-        .innerJoin(activities, eq(requests.activityId, activities.id))
+        .leftJoin(activities, eq(requests.activityId, activities.id))
         .where(where)
         .orderBy(desc(requests.submittedAt));
       return list;
@@ -478,7 +478,7 @@ export const app = new Elysia()
         },
       })
       .from(requests)
-      .innerJoin(activities, eq(requests.activityId, activities.id))
+      .leftJoin(activities, eq(requests.activityId, activities.id))
       .innerJoin(students, eq(requests.studentId, students.studentId))
       .where(statusWhere)
       .orderBy(desc(requests.submittedAt));
@@ -521,7 +521,7 @@ export const app = new Elysia()
         },
       })
       .from(requests)
-      .innerJoin(activities, eq(requests.activityId, activities.id))
+      .leftJoin(activities, eq(requests.activityId, activities.id))
       .innerJoin(students, eq(requests.studentId, students.studentId))
       .where(eq(requests.id, params.id));
 
@@ -578,28 +578,6 @@ export const app = new Elysia()
         return { error: "only_students" };
       }
 
-      const activity = await db
-        .select({
-          id: activities.id,
-          isActive: activities.isActive,
-          submissionDeadline: activities.submissionDeadline,
-        })
-        .from(activities)
-        .where(eq(activities.id, body.activityId));
-      if (activity.length === 0) {
-        set.status = 400;
-        return { error: "invalid_activity" };
-      }
-      const act = activity[0];
-      if (act.isActive === false) {
-        set.status = 400;
-        return { error: "activity_closed" };
-      }
-      if (act.submissionDeadline && new Date(act.submissionDeadline).getTime() < Date.now()) {
-        set.status = 400;
-        return { error: "deadline_passed" };
-      }
-
       const attachments = body.attachments ?? [];
       const seenSlots = new Set<number>();
       for (const a of attachments) {
@@ -623,7 +601,7 @@ export const app = new Elysia()
           .insert(requests)
           .values({
             studentId: user.id,
-            activityId: body.activityId,
+            activityId: body.activityId ?? null,
             status: "pending",
             note: body.note ?? null,
           })
@@ -663,7 +641,7 @@ export const app = new Elysia()
     },
     {
       body: t.Object({
-        activityId: t.String(),
+        activityId: t.Optional(t.String()),
         note: t.Optional(t.String()),
         attachments: t.Optional(
           t.Array(
@@ -832,12 +810,12 @@ export const app = new Elysia()
       })
       .from(requests)
       .innerJoin(students, eq(requests.studentId, students.studentId))
-      .innerJoin(activities, eq(requests.activityId, activities.id))
+      .leftJoin(activities, eq(requests.activityId, activities.id))
       .where(eq(requests.id, params.id));
 
     if (detail.length > 0) {
       const d = detail[0];
-      const displayTitle = d.activityName ?? d.activityTitle;
+      const displayTitle = d.activityName ?? d.activityTitle ?? "กิจกรรม";
       await notifyUser({
         studentId: d.studentId,
         title: "คำร้องได้รับการอนุมัติ",
@@ -949,12 +927,12 @@ export const app = new Elysia()
         })
         .from(requests)
         .innerJoin(students, eq(requests.studentId, students.studentId))
-        .innerJoin(activities, eq(requests.activityId, activities.id))
+        .leftJoin(activities, eq(requests.activityId, activities.id))
         .where(eq(requests.id, params.id));
 
       if (detail.length > 0) {
         const d = detail[0];
-        const displayTitle = d.activityName ?? d.activityTitle;
+        const displayTitle = d.activityName ?? d.activityTitle ?? "กิจกรรม";
         await notifyUser({
           studentId: d.studentId,
           title: "คำร้องถูกไม่อนุมัติ",
@@ -1878,20 +1856,20 @@ export const app = new Elysia()
         faculty: students.major,
       })
       .from(requests)
-      .innerJoin(activities, eq(requests.activityId, activities.id))
+      .leftJoin(activities, eq(requests.activityId, activities.id))
       .innerJoin(students, eq(requests.studentId, students.studentId));
 
     const countBy = (status?: string) =>
       status ? all.filter((r) => r.status === status).length : all.length;
 
-    const byActivityMap = new Map<string, { title: string; titleEn: string; total: number; pending: number; approved: number; rejected: number }>();
+    const byActivityMap = new Map<string | null, { title: string; titleEn: string; total: number; pending: number; approved: number; rejected: number }>();
     const byFacultyMap = new Map<string, { faculty: string; total: number; pending: number; approved: number; rejected: number }>();
 
     for (const r of all) {
       const a = byActivityMap.get(r.activityId) ?? {
-        id: r.activityId,
-        title: r.activityTitle,
-        titleEn: r.activityTitleEn,
+        id: r.activityId ?? "",
+        title: r.activityTitle ?? "ไม่ระบุกิจกรรม",
+        titleEn: r.activityTitleEn ?? "Unspecified activity",
         total: 0, pending: 0, approved: 0, rejected: 0,
       };
       a.total++;

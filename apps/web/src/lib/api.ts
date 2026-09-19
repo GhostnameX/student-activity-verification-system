@@ -85,7 +85,7 @@ export interface RequestItem {
     titleEn: string;
     type: string;
     date: string;
-  };
+  } | null;
   student?: {
     id: string;
     name: string;
@@ -228,7 +228,7 @@ export interface AttachmentInput {
 }
 
 export async function createRequest(body: {
-  activityId: string;
+  activityId?: string;
   note?: string;
   attachments?: AttachmentInput[];
 }): Promise<{ id: string; status: string }> {

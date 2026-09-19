@@ -236,10 +236,12 @@
 	}
 
 	function requestActivityTitle(r: {
-		activity: { title: string; titleEn: string };
+		activity: { title: string; titleEn: string } | null;
 		activityName?: string | null;
 	}) {
-		return r.activityName ? r.activityName : activityTitle(r.activity);
+		if (r.activityName) return r.activityName;
+		if (r.activity) return activityTitle(r.activity);
+		return translate($lang, 'activity');
 	}
 
 	function actionLabel(action: string) {

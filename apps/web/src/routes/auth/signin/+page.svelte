@@ -2,7 +2,7 @@
 	import { lang } from '$lib/store';
 	import { translate } from '$lib/i18n';
 	import { signInWithPassword, getGoogleSignInUrl } from '$lib/auth-client';
-	import { loadSession } from '$lib/auth';
+	import { loadSession, user } from '$lib/auth';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { LogIn, Mail, Lock, GraduationCap, ShieldCheck, FileText } from 'lucide-svelte';
@@ -11,6 +11,15 @@
 	let password: string = $state('');
 	let loading: boolean = $state(false);
 	let errorMsg: string = $state('');
+
+	const rolePath = { student: '/student', staff: '/stats', admin: '/admin' } as const;
+
+	$effect(() => {
+		const u = $user;
+		if (u) {
+			goto(rolePath[u.role as keyof typeof rolePath]);
+		}
+	});
 
 	onMount(() => {
 		const q = new URLSearchParams(window.location.search);

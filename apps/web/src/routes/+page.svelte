@@ -4,7 +4,6 @@
 	import { translate } from '$lib/i18n';
 	import {
 		FileText,
-		Inbox,
 		LayoutDashboard,
 		ShieldCheck,
 		Clock,
@@ -15,19 +14,19 @@
 
 	const rolePath = {
 		student: '/student',
-		staff: '/staff',
+		staff: '/stats',
 		admin: '/admin',
 	} as const;
 
 	const roleIcon = {
 		student: FileText,
-		staff: Inbox,
+		staff: LayoutDashboard,
 		admin: LayoutDashboard,
 	} as const;
 
 	const roleAction = {
 		student: 'myRequests',
-		staff: 'allRequests',
+		staff: 'submissionStats',
 		admin: 'dashboard',
 	} as const;
 

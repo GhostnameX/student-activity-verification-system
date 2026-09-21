@@ -45,8 +45,12 @@
 	}
 
 	onMount(async () => {
-		if (!$user || ($user.role !== 'staff' && $user.role !== 'admin')) {
+		if (!$user) {
 			goto('/auth/signin');
+			return;
+		}
+		if ($user.role !== 'admin') {
+			goto('/stats');
 			return;
 		}
 		await refresh();

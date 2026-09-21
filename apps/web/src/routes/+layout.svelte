@@ -86,7 +86,7 @@
 			$user?.role === 'student'
 				? { href: '/student', label: translate($lang, 'myRequests'), icon: FileText }
 				: null,
-			$user?.role === 'staff' || $user?.role === 'admin'
+			$user?.role === 'admin'
 				? { href: '/staff', label: translate($lang, 'allRequests'), icon: Inbox }
 				: null,
 			$user?.role === 'staff' || $user?.role === 'admin'

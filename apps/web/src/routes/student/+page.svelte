@@ -40,6 +40,7 @@
 	let showSuccess: boolean = $state(false);
 	let successText: string = $state('');
 	let successTimer: ReturnType<typeof setTimeout> | null = $state(null);
+	let currentDate: Date | null = $state(null);
 
 	let detail: RequestItem | null = $state(null);
 	let detailLoading: boolean = $state(false);
@@ -63,6 +64,7 @@
 	}
 
 	onMount(async () => {
+		currentDate = new Date();
 		if (!$user || $user.role !== 'student') {
 			goto('/auth/signin');
 			return;
@@ -260,11 +262,21 @@
 					</div>
 					<div>
 						<div class="text-xs text-ink-400">{translate($lang, 'studentId')}</div>
-						<div class="font-medium text-ink-800">{$user?.studentId ?? $user?.id ?? '-'}</div>
+						<div class="font-medium text-ink-800">{$user?.studentId ?? '-'}</div>
 					</div>
 					<div class="col-span-2">
 						<div class="text-xs text-ink-400">{translate($lang, 'major')}</div>
 						<div class="font-medium text-ink-800">{$user?.faculty ?? '-'}</div>
+					</div>
+					<div>
+						<div class="text-xs text-ink-400">{translate($lang, 'phone')}</div>
+						<div class="font-medium text-ink-800">{$user?.phone ?? '-'}</div>
+					</div>
+					<div>
+						<div class="text-xs text-ink-400">{translate($lang, 'date')}</div>
+						<div class="font-medium text-ink-800">
+							{currentDate?.toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US') ?? '-'}
+						</div>
 					</div>
 				</div>
 
@@ -360,6 +372,8 @@
 						class="sr-only"
 					/>
 				</div>
+
+				<p class="text-sm text-ink-500">{translate($lang, 'requestNumberPending')}</p>
 
 				<button
 					type="submit"

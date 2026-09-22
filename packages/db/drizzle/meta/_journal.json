@@ -92,6 +92,20 @@
       "when": 1797000000000,
       "tag": "0012_staff_code_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1797177600000,
+      "tag": "0013_profile_avatar",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1797264000000,
+      "tag": "0014_request_numbers",
+      "breakpoints": true
     }
   ]
 }

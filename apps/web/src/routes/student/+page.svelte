@@ -97,7 +97,7 @@
 			if (slot2File) {
 				attachments.push(await uploadToInput(slot2File, 2));
 			}
-			await createRequest({
+			const res = await createRequest({
 				note: note || undefined,
 				attachments,
 			});
@@ -105,7 +105,9 @@
 			slot1File = null;
 			slot2File = null;
 			await refresh();
-			notify(translate($lang, 'requestSubmitted'));
+			notify(res.requestNumber
+				? `${translate($lang, 'requestSubmitted')} — ${translate($lang, 'requestNumber')}: ${res.requestNumber}`
+				: translate($lang, 'requestSubmitted'));
 		} catch (e) {
 			errorMsg = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -251,6 +253,21 @@
 				<h2 class="text-lg font-bold text-ink-900">{translate($lang, 'submitRequest')}</h2>
 			</div>
 			<form onsubmit={submit} class="space-y-4">
+				<div class="grid grid-cols-2 gap-3 rounded-xl border border-ink-100 bg-ink-50/60 p-3.5 text-sm">
+					<div>
+						<div class="text-xs text-ink-400">{translate($lang, 'nameLabel')}</div>
+						<div class="font-medium text-ink-800">{$user?.name ?? '-'}</div>
+					</div>
+					<div>
+						<div class="text-xs text-ink-400">{translate($lang, 'studentId')}</div>
+						<div class="font-medium text-ink-800">{$user?.studentId ?? $user?.id ?? '-'}</div>
+					</div>
+					<div class="col-span-2">
+						<div class="text-xs text-ink-400">{translate($lang, 'major')}</div>
+						<div class="font-medium text-ink-800">{$user?.faculty ?? '-'}</div>
+					</div>
+				</div>
+
 				<div>
 					<label for="note" class="mb-1.5 block text-sm font-medium text-ink-700">
 						{translate($lang, 'note')}
@@ -385,6 +402,11 @@
 									<CalendarDays size={14} />
 									{new Date(r.activity?.date ?? r.submittedAt).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
 								</p>
+								{#if r.requestNumber}
+									<p class="mt-1.5 text-sm text-ink-600">
+										{translate($lang, 'requestNumber')}: {r.requestNumber}
+									</p>
+								{/if}
 								{#if r.note}
 									<p class="mt-2 text-sm text-ink-600">{r.note}</p>
 								{/if}
@@ -477,6 +499,12 @@
 				</div>
 
 				<div class="mb-5 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+					{#if detail.requestNumber}
+						<div>
+							<span class="text-ink-400">{translate($lang, 'requestNumber')}: </span>
+							<span class="font-semibold text-ink-800">{detail.requestNumber}</span>
+						</div>
+					{/if}
 					<div>
 						<span class="text-ink-400">{translate($lang, 'submittedAt')}: </span>
 						<span class="font-medium text-ink-800">

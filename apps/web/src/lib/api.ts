@@ -77,6 +77,9 @@ export interface RequestItem {
   note?: string | null;
   rejectionReason?: string | null;
   activityName?: string | null;
+  requestSequence?: number | null;
+  requestYear?: number | null;
+  requestNumber?: string | null;
   submittedAt: string;
   reviewedAt?: string | null;
   activity: {
@@ -231,7 +234,7 @@ export async function createRequest(body: {
   activityId?: string;
   note?: string;
   attachments?: AttachmentInput[];
-}): Promise<{ id: string; status: string }> {
+}): Promise<{ id: string; status: string; requestNumber?: string | null }> {
   return apiFetch("/api/requests", {
     method: "POST",
     body: JSON.stringify(body),

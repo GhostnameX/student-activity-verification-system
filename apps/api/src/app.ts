@@ -10,6 +10,7 @@ import {
   notifications,
   auditLogs,
   certificateCounters,
+  requestCounters,
   students,
   staff,
 } from "@ua/db/schema";
@@ -37,6 +38,12 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const AVATAR_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
 
+// Mock storage is test/development only. Production with GATE_SMOKE_MOCK_STORAGE=1
+// by mistake must still fail closed (never skip real upload).
+const allowMockStorage =
+  process.env.GATE_SMOKE_MOCK_STORAGE === "1" &&
+  (process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development");
+
 function avatarPublicUrl(storagePath: string): string {
   return `${SUPABASE_URL}/storage/v1/object/public/avatars/${storagePath}`;
 }
@@ -46,12 +53,35 @@ const THAI_MONTHS = [
   "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
 ];
 
+const THAI_TZ = "Asia/Bangkok";
+
+export function thaiDateParts(d: Date = new Date()): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: THAI_TZ,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(d);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return { year: get("year"), month: get("month"), day: get("day") };
+}
+
+export function thaiBuddhistYear(d: Date = new Date()): number {
+  return thaiDateParts(d).year + 543;
+}
+
 function formatBuddhistDate(d: Date): { day: number; month: string; year: number } {
+  const { year, month, day } = thaiDateParts(d);
   return {
-    day: d.getDate(),
-    month: THAI_MONTHS[d.getMonth()],
-    year: d.getFullYear() + 543,
+    day,
+    month: THAI_MONTHS[month - 1],
+    year: year + 543,
   };
+}
+
+function requestNumberLabel(sequence: number | null, year: number | null): string | null {
+  if (sequence === null || sequence === undefined || year === null || year === undefined) return null;
+  return `${String(sequence).padStart(3, "0")}/${year}`;
 }
 
 async function sendStatusEmail(opts: {
@@ -347,7 +377,7 @@ export const app = new Elysia()
         set.status = 403;
         return { error: "only_students" };
       }
-      if (!supabaseAdmin) {
+      if (!allowMockStorage && !supabaseAdmin) {
         set.status = 500;
         return { error: "storage_not_configured" };
       }
@@ -380,17 +410,27 @@ export const app = new Elysia()
       const ext = fileType === "image/jpeg" ? "jpg" : fileType.split("/")[1] || "bin";
       const path = `requests/${randomUUID()}.${ext}`;
 
-      const { error } = await supabaseAdmin.storage
-        .from("request-attachments")
-        .upload(path, buffer, {
-          contentType: fileType,
-          cacheControl: "3600",
-          upsert: false,
-        });
+      // Real storage vs mock: mock only in test/dev (allowMockStorage).
+      // Branch structure lets TypeScript narrow supabaseAdmin without non-null assertion.
+      if (allowMockStorage) {
+        // skip real upload — test files never reach the storage bucket
+      } else {
+        if (!supabaseAdmin) {
+          set.status = 500;
+          return { error: "storage_not_configured" };
+        }
+        const { error } = await supabaseAdmin.storage
+          .from("request-attachments")
+          .upload(path, buffer, {
+            contentType: fileType,
+            cacheControl: "3600",
+            upsert: false,
+          });
 
-      if (error) {
-        set.status = 400;
-        return { error: "upload_failed", message: error.message };
+        if (error) {
+          set.status = 400;
+          return { error: "upload_failed", message: error.message };
+        }
       }
 
       return {
@@ -431,6 +471,8 @@ export const app = new Elysia()
           note: requests.note,
           rejectionReason: requests.rejectionReason,
           activityName: requests.activityName,
+          requestSequence: requests.requestSequence,
+          requestYear: requests.requestYear,
           submittedAt: requests.submittedAt,
           reviewedAt: requests.reviewedAt,
           activity: {
@@ -445,7 +487,10 @@ export const app = new Elysia()
         .leftJoin(activities, eq(requests.activityId, activities.id))
         .where(where)
         .orderBy(desc(requests.submittedAt));
-      return list;
+      return list.map((r) => ({
+        ...r,
+        requestNumber: requestNumberLabel(r.requestSequence, r.requestYear),
+      }));
     }
 
     if (role === "staff") {
@@ -460,6 +505,8 @@ export const app = new Elysia()
         note: requests.note,
         rejectionReason: requests.rejectionReason,
         activityName: requests.activityName,
+        requestSequence: requests.requestSequence,
+        requestYear: requests.requestYear,
         submittedAt: requests.submittedAt,
         reviewedAt: requests.reviewedAt,
         activity: {
@@ -482,7 +529,10 @@ export const app = new Elysia()
       .innerJoin(students, eq(requests.studentId, students.studentId))
       .where(statusWhere)
       .orderBy(desc(requests.submittedAt));
-    return list;
+    return list.map((r) => ({
+      ...r,
+      requestNumber: requestNumberLabel(r.requestSequence, r.requestYear),
+    }));
   })
 
   .get("/api/requests/:id", async ({ params, headers, set }) => {
@@ -499,6 +549,8 @@ export const app = new Elysia()
         status: requests.status,
         note: requests.note,
         activityName: requests.activityName,
+        requestSequence: requests.requestSequence,
+        requestYear: requests.requestYear,
         submittedAt: requests.submittedAt,
         reviewedAt: requests.reviewedAt,
         activity: {
@@ -561,7 +613,11 @@ export const app = new Elysia()
       revisions: revisions.filter((r) => r.attachmentId === a.id),
     }));
 
-    return { ...req, attachments: attachmentsWithRevisions };
+    return {
+      ...req,
+      requestNumber: requestNumberLabel(req.requestSequence, req.requestYear),
+      attachments: attachmentsWithRevisions,
+    };
   })
 
   .post(
@@ -591,12 +647,25 @@ export const app = new Elysia()
         }
         seenSlots.add(a.slot);
       }
-      if (attachments.length > 0 && !seenSlots.has(1)) {
+      if (!seenSlots.has(1)) {
         set.status = 400;
         return { error: "slot1_required" };
       }
 
+      const requestYear = thaiBuddhistYear();
       const created = await db.transaction(async (tx) => {
+        await tx
+          .insert(requestCounters)
+          .values({ year: requestYear, lastNumber: 0 })
+          .onConflictDoNothing();
+
+        const [counter] = await tx
+          .update(requestCounters)
+          .set({ lastNumber: sql`${requestCounters.lastNumber} + 1` })
+          .where(eq(requestCounters.year, requestYear))
+          .returning({ lastNumber: requestCounters.lastNumber });
+        if (!counter) throw new Error("request_counter_missing");
+
         const [row] = await tx
           .insert(requests)
           .values({
@@ -604,6 +673,8 @@ export const app = new Elysia()
             activityId: body.activityId ?? null,
             status: "pending",
             note: body.note ?? null,
+            requestSequence: counter.lastNumber,
+            requestYear,
           })
           .returning();
 
@@ -637,7 +708,11 @@ export const app = new Elysia()
         return row;
       });
 
-      return { id: created.id, status: created.status };
+      return {
+        id: created.id,
+        status: created.status,
+        requestNumber: requestNumberLabel(created.requestSequence, created.requestYear),
+      };
     },
     {
       body: t.Object({
@@ -742,12 +817,17 @@ export const app = new Elysia()
           updatedAt: sql`now()`,
         })
         .where(and(eq(requests.id, params.id), eq(requests.status, "pending")))
-        .returning({ id: requests.id, certificateNumber: requests.certificateNumber });
+        .returning({
+          id: requests.id,
+          requestSequence: requests.requestSequence,
+          requestYear: requests.requestYear,
+          certificateNumber: requests.certificateNumber,
+        });
       if (!claimed) return null;
 
       let requestNumber = claimed.certificateNumber;
       if (requestNumber == null) {
-        const year = new Date().getFullYear() + 543;
+        const year = thaiBuddhistYear();
         await tx
           .insert(certificateCounters)
           .values({ year, lastNumber: 0 })
@@ -769,6 +849,8 @@ export const app = new Elysia()
           id: requests.id,
           studentId: requests.studentId,
           activityName: requests.activityName,
+          requestSequence: requests.requestSequence,
+          requestYear: requests.requestYear,
           certificateNumber: requests.certificateNumber,
           certificateYear: requests.certificateYear,
         })
@@ -830,6 +912,7 @@ export const app = new Elysia()
         metadata: {
           status: "approved",
           activityName: d.activityName ?? null,
+          requestNumber: requestNumberLabel(approved.requestSequence, approved.requestYear),
           certificateNumber: approved.requestNumber,
           certificateYear: approved.certificateYear,
         },
@@ -839,9 +922,11 @@ export const app = new Elysia()
       try {
         const now = new Date();
         const buddhist = formatBuddhistDate(now);
-        const reviewedDate = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear() + 543}`;
+        const thaiNow = thaiDateParts(now);
+        const reviewedDate = `${String(thaiNow.day).padStart(2, "0")}/${String(thaiNow.month).padStart(2, "0")}/${thaiNow.year + 543}`;
         attachment = await generateCertificatePDFForEmail({
-          requestNumber: approved.requestNumber,
+          requestNumber: approved.requestSequence ?? approved.requestNumber,
+          certificateNumber: approved.requestNumber,
           location: process.env.CERTIFICATE_LOCATION || "พิษณุโลก",
           dateDay: buddhist.day,
           dateMonth: buddhist.month,

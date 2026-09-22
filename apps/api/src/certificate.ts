@@ -12,6 +12,7 @@ const FONT_BOLD_PATH = path.join(__dirname, "..", "assets", "fonts", "THSarabunN
 
 export interface CertificateData {
   requestNumber: number;
+  certificateNumber?: number | null;
   location: string;
   dateDay: number;
   dateMonth: string;
@@ -125,7 +126,7 @@ export const CERTIFICATE_FILENAME = (n: number, year: number) => `ใบรั�
 export async function generateCertificatePDFForEmail(data: CertificateData) {
   const buffer = await generateCertificatePDF(data);
   return {
-    filename: CERTIFICATE_FILENAME(data.requestNumber, data.dateYear),
+    filename: CERTIFICATE_FILENAME(data.certificateNumber ?? data.requestNumber, data.dateYear),
     content: buffer.toString("base64"),
   };
 }

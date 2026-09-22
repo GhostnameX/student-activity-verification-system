@@ -1,6 +1,7 @@
-import { app } from "../src/app";
+import { app, thaiBuddhistYear, thaiDateParts } from "../src/app";
+import { generateCertificatePDFForEmail } from "../src/certificate";
 import { db, pool } from "@ua/db/client";
-import { students, staff, requests, requestAttachments, requestAttachmentRevisions, activities, sessions, notifications, auditLogs } from "@ua/db/schema";
+import { students, staff, requests, requestAttachments, requestAttachmentRevisions, activities, sessions, notifications, auditLogs, requestCounters, certificateCounters } from "@ua/db/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { ensureStaff } from "@ua/db/auth-helpers";
@@ -8,6 +9,26 @@ import { ensureStaff } from "@ua/db/auth-helpers";
 const BASE = "http://localhost:3000";
 const GATE_TAG = "gate://";
 const PASSWORD = "GateTest123!";
+
+class SimulatedCrash extends Error {}
+
+// refuse unless DATABASE_URL is local postgres targeting ua_dev; never shared/remote/prod.
+// returns a SANITIZED reason (host/database only — never leaks user/password or full URL).
+function assertLocalDevDb(url: string | undefined): string | null {
+  if (!url) return "DATABASE_URL not set";
+  let u: URL;
+  try { u = new URL(url); } catch { return "DATABASE_URL is not a valid URL"; }
+  const proto = u.protocol.toLowerCase().replace(":", "");
+  if (proto !== "postgresql" && proto !== "postgres") return `protocol '${proto}' is not postgres`;
+  const rawHost = u.hostname.toLowerCase();
+  const host = rawHost.startsWith("[") && rawHost.endsWith("]") ? rawHost.slice(1, -1) : rawHost;
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") return `host '${host}' is not 127.0.0.1/localhost (remote/production refused)`;
+  let dbName = "";
+  try { dbName = decodeURIComponent(u.pathname.replace(/^\//, "")); } catch { /* keep '' */ }
+  if (dbName !== "ua_dev") return `database '${dbName || "(none)"}' is not 'ua_dev'`;
+  if (url.toLowerCase().includes("supabase") || url.toLowerCase().includes("pooler")) return "supabase/pooler-like URL detected (production refused)";
+  return null;
+}
 
 let passCount = 0;
 let failCount = 0;
@@ -68,11 +89,222 @@ let created: {
   storagePaths: string[];
 } = { students: [], staff: [], activities: [], requests: [], attachments: [], revisions: [], sessions: [], storagePaths: [] };
 
-async function main() {
+// counter rows captured before the run so cleanup can restore them exactly
+let countersSnapshot: { request: { year: number; lastNumber: number }[]; certificate: { year: number; lastNumber: number }[] } = { request: [], certificate: [] };
+let countersCaptured = false;
+
+type CounterRow = { year: number; lastNumber: number };
+
+// run every cleanup step even when one fails; collect label + error (never swallow)
+async function hush(label: string, p: Promise<unknown>, errors: string[]) {
+  try { await p; } catch (e) { errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`); }
+}
+
+async function cleanupCreated(errors: string[]) {
+  const reqIds = created.requests.filter((id): id is string => !!id);
+  // pull attachment ids for our requests (some were created via API tx, not pushed)
+  const attIdSet = new Set(created.attachments.filter((id): id is string => !!id));
+  if (reqIds.length) {
+    try {
+      const atts = await db.select({ id: requestAttachments.id }).from(requestAttachments).where(inArray(requestAttachments.requestId, reqIds));
+      for (const att of atts) attIdSet.add(att.id);
+    } catch (e) {
+      errors.push(`read attachments for cleanup: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  const attIds = [...attIdSet];
+  if (attIds.length) {
+    await hush("delete revisions", db.delete(requestAttachmentRevisions).where(inArray(requestAttachmentRevisions.attachmentId, attIds)), errors);
+    await hush("delete attachments", db.delete(requestAttachments).where(inArray(requestAttachments.id, attIds)), errors);
+  }
+  if (reqIds.length) {
+    await hush("delete notifications(requestId)", db.delete(notifications).where(inArray(notifications.requestId, reqIds)), errors);
+    await hush("delete auditLogs(request target)", db.delete(auditLogs).where(and(inArray(auditLogs.targetId, reqIds), eq(auditLogs.targetType, "request"))), errors);
+    await hush("delete requests", db.delete(requests).where(inArray(requests.id, reqIds)), errors);
+  }
+  const stuIds = created.students.filter((id): id is string => !!id);
+  const staffIds = created.staff.filter((id): id is string => !!id);
+  const actIds = created.activities.filter((id): id is string => !!id);
+  if (stuIds.length) {
+    await hush("delete auditLogs(student actor)", db.delete(auditLogs).where(inArray(auditLogs.actorStudentId, stuIds)), errors);
+    await hush("delete notifications(student)", db.delete(notifications).where(inArray(notifications.studentId, stuIds)), errors);
+  }
+  if (staffIds.length) {
+    await hush("delete auditLogs(staff actor)", db.delete(auditLogs).where(inArray(auditLogs.actorStaffId, staffIds)), errors);
+    await hush("delete notifications(staff)", db.delete(notifications).where(inArray(notifications.staffId, staffIds)), errors);
+  }
+  if (actIds.length) await hush("delete activities", db.delete(activities).where(inArray(activities.id, actIds)), errors);
+  if (staffIds.length) await hush("delete staff", db.delete(staff).where(inArray(staff.id, staffIds)), errors);
+  if (stuIds.length) await hush("delete students", db.delete(students).where(inArray(students.studentId, stuIds)), errors);
+  if (created.sessions.length) await hush("delete sessions", db.delete(sessions).where(inArray(sessions.id, created.sessions)), errors);
+}
+
+async function readCounters(kind: "request" | "certificate"): Promise<CounterRow[]> {
+  const t = kind === "request" ? requestCounters : certificateCounters;
+  return db.select({ year: t.year, lastNumber: t.lastNumber }).from(t);
+}
+
+// restore ONLY the counter years this run touched, and refuse to write if a
+// concurrent change raced in after the post-run capture (never clobber silently)
+async function restoreCounters(errors: string[]) {
+  if (!countersCaptured) return;
+  for (const kind of ["request", "certificate"] as const) {
+    let capture: CounterRow[];
+    try { capture = await readCounters(kind); }
+    catch (e) { errors.push(`read post-run ${kind}_counters: ${e instanceof Error ? e.message : String(e)}`); continue; }
+    const snapshot = countersSnapshot[kind];
+    const snapshotByYear = new Map(snapshot.map(r => [r.year, r.lastNumber]));
+    const byYear = new Map(capture.map(r => [r.year, r.lastNumber]));
+    const updated: { year: number; value: number }[] = [];
+    const deleted: { year: number; value: number }[] = [];
+    for (const r of capture) {
+      const snapVal = snapshotByYear.get(r.year);
+      if (snapVal === undefined) deleted.push({ year: r.year, value: r.lastNumber });
+      else if (snapVal !== r.lastNumber) updated.push({ year: r.year, value: snapVal });
+    }
+    for (const s of snapshot) {
+      if (!byYear.has(s.year)) updated.push({ year: s.year, value: s.lastNumber }); // snapshot row vanished -> restore
+    }
+    if (updated.length === 0 && deleted.length === 0) continue;
+    // race check: re-read must equal the post-run capture for every touched year
+    let verify: CounterRow[];
+    try { verify = await readCounters(kind); }
+    catch (e) { errors.push(`re-read ${kind}_counters: ${e instanceof Error ? e.message : String(e)}`); continue; }
+    const verifyByYear = new Map(verify.map(r => [r.year, r.lastNumber]));
+    const raced = [...updated, ...deleted].filter(x => verifyByYear.get(x.year) !== byYear.get(x.year));
+    if (raced.length > 0) {
+      errors.push(`ABORT ${kind}_counters restore: concurrent change detected on year(s) ${raced.map(x => x.year).join(",")} since post-run capture — refusing to overwrite`);
+      continue;
+    }
+    const t = kind === "request" ? requestCounters : certificateCounters;
+    for (const x of updated) {
+      await hush(`restore ${kind}_counters year=${x.year}`, db.insert(t).values({ year: x.year, lastNumber: x.value }).onConflictDoUpdate({ target: t.year, set: { lastNumber: x.value } }), errors);
+    }
+    for (const x of deleted) {
+      await hush(`delete ${kind}_counters year=${x.year}`, db.delete(t).where(eq(t.year, x.year)), errors);
+    }
+  }
+}
+
+async function countRows(label: string, q: Promise<unknown[]>, leftover: string[]) {
+  try { const r = await q; if (r.length > 0) leftover.push(`${label}: ${r.length}`); }
+  catch (e) { leftover.push(`${label} CHECK ERROR: ${e instanceof Error ? e.message : String(e)}`); }
+}
+
+async function checkCountersResidue(kind: "request" | "certificate", snapshot: CounterRow[], leftover: string[]) {
+  let cur: CounterRow[];
+  try { cur = await readCounters(kind); }
+  catch (e) { leftover.push(`${kind}_counters CHECK ERROR: ${e instanceof Error ? e.message : String(e)}`); return; }
+  const a = new Map(snapshot.map(r => [r.year, r.lastNumber]));
+  const b = new Map(cur.map(r => [r.year, r.lastNumber]));
+  const diffs: string[] = [];
+  for (const y of new Set([...a.keys(), ...b.keys()])) {
+    if (a.get(y) !== b.get(y)) diffs.push(`${y}:${a.get(y) ?? "none"} != ${b.get(y) ?? "none"}`);
+  }
+  if (diffs.length) leftover.push(`${kind}_counters diff: ${diffs.join(", ")}`);
+}
+
+async function collectResidue(): Promise<string[]> {
+  const leftover: string[] = [];
+  const reqIds = created.requests.filter((id): id is string => !!id);
+  const stuIds = created.students.filter((id): id is string => !!id);
+  const staffIds = created.staff.filter((id): id is string => !!id);
+  const actIds = created.activities.filter((id): id is string => !!id);
+  const attIdSet = new Set(created.attachments.filter((id): id is string => !!id));
+  if (reqIds.length) {
+    try {
+      const atts = await db.select({ id: requestAttachments.id }).from(requestAttachments).where(inArray(requestAttachments.requestId, reqIds));
+      for (const att of atts) attIdSet.add(att.id);
+    } catch (e) {
+      leftover.push(`attachments lookup CHECK ERROR: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  const attIds = [...attIdSet];
+  await countRows("students", db.select().from(students).where(inArray(students.studentId, stuIds)), leftover);
+  await countRows("staff", db.select().from(staff).where(inArray(staff.id, staffIds)), leftover);
+  await countRows("activities", db.select().from(activities).where(inArray(activities.id, actIds)), leftover);
+  await countRows("requests", db.select().from(requests).where(inArray(requests.id, reqIds)), leftover);
+  await countRows("attachments", db.select().from(requestAttachments).where(inArray(requestAttachments.id, attIds)), leftover);
+  await countRows("revisions", db.select().from(requestAttachmentRevisions).where(inArray(requestAttachmentRevisions.attachmentId, attIds)), leftover);
+  await countRows("notifications(request)", db.select().from(notifications).where(inArray(notifications.requestId, reqIds)), leftover);
+  if (stuIds.length) await countRows("notifications(student)", db.select().from(notifications).where(inArray(notifications.studentId, stuIds)), leftover);
+  if (staffIds.length) await countRows("notifications(staff)", db.select().from(notifications).where(inArray(notifications.staffId, staffIds)), leftover);
+  await countRows("auditLogs(request)", db.select().from(auditLogs).where(and(inArray(auditLogs.targetId, reqIds), eq(auditLogs.targetType, "request"))), leftover);
+  if (stuIds.length) await countRows("auditLogs(student)", db.select().from(auditLogs).where(inArray(auditLogs.actorStudentId, stuIds)), leftover);
+  if (staffIds.length) await countRows("auditLogs(staff)", db.select().from(auditLogs).where(inArray(auditLogs.actorStaffId, staffIds)), leftover);
+  if (created.sessions.length) await countRows("sessions", db.select().from(sessions).where(inArray(sessions.id, created.sessions)), leftover);
+  if (countersCaptured) {
+    await checkCountersResidue("request", countersSnapshot.request, leftover);
+    await checkCountersResidue("certificate", countersSnapshot.certificate, leftover);
+  }
+  return leftover;
+}
+
+async function main(): Promise<number> {
   const testRun = randomUUID();
   const prefix = `gate-${testRun.slice(0, 6)}`;
 
   console.log(`=== GATE SMOKE TEST RUN ${testRun.slice(0, 8)} ===`);
+
+  // hard requirement: this script may only run against the local ua_dev DB.
+  // abort before touching the database when DATABASE_URL is missing/non-local.
+  if (process.env.GATE_SMOKE_EXCLUSIVE_DB !== "1") {
+    console.error("ABORT gate-smoke: set GATE_SMOKE_EXCLUSIVE_DB=1 (this script must only run against the local ua_dev database)");
+    return 2;
+  }
+  const guardReason = assertLocalDevDb(process.env.DATABASE_URL);
+  if (guardReason) {
+    console.error("ABORT gate-smoke:", guardReason);
+    return 2;
+  }
+  const simulateCrash = process.env.GATE_SMOKE_SIMULATE_CRASH === "1";
+  console.warn("GATE-SMOKE WARNING: run this only while no other process is using ua_dev — counters are restored to their pre-run values");
+
+  const cleanupErrors: string[] = [];
+  let crashExpected = "";
+  let crashRaised = false;
+
+  try {
+    countersSnapshot = {
+      request: await db.select({ year: requestCounters.year, lastNumber: requestCounters.lastNumber }).from(requestCounters),
+      certificate: await db.select({ year: certificateCounters.year, lastNumber: certificateCounters.lastNumber }).from(certificateCounters),
+    };
+    countersCaptured = true;
+
+    // GATE_SMOKE_SIMULATE_CRASH=1: prove cleanup still runs on crash. Seed a
+    // partial setup (student + staff + activity) and bump request_counters,
+    // then throw — the finally block must wipe it all and restore counters.
+    if (simulateCrash) {
+      const cr = randomUUID().slice(0, 6);
+      const sid = `gate-crash-${cr}`;
+      await db.insert(students).values({
+        studentId: sid,
+        firstName: "Gate",
+        lastName: "Crash",
+        major: "วิศวกรรมศาสตร์",
+        admissionYear: 2024,
+        status: "active",
+        email: `gate-crash-${cr}@smoke.local`,
+      });
+      created.students.push(sid);
+      const crashStaff = await ensureStaff({ email: `gate-crash-${cr}@smoke.local`, fullName: "Gate Crash", role: "staff", password: PASSWORD, staffCode: `gate-crash-${cr}` });
+      created.staff.push(crashStaff.user.id);
+      const crashAct = await db.insert(activities).values({
+        title: `Gate Crash Activity ${cr}`,
+        titleEn: `Gate Crash Activity ${cr}`,
+        type: "activity",
+        organizer: "Gate",
+        date: new Date(),
+        location: "พิษณุโลก",
+        description: "tmp",
+      }).returning();
+      created.activities.push(crashAct[0].id);
+      const crashYear = thaiBuddhistYear(new Date());
+      await db.insert(requestCounters).values({ year: crashYear, lastNumber: 1 })
+        .onConflictDoUpdate({ target: requestCounters.year, set: { lastNumber: sql`${requestCounters.lastNumber} + 1` } });
+      crashExpected = `GATE_SMOKE_SIMULATE_CRASH after partial setup (${sid}) — cleanup must remove student/staff/activity and restore request_counters`;
+      throw new SimulatedCrash(crashExpected);
+    }
 
   // ---------- Test data setup (direct DB) ----------
   const now = new Date();
@@ -190,6 +422,8 @@ async function main() {
   record("5-dup-slot", dupSlot.status === 400 && dupSlot.json?.error === "duplicate_slot", `status=${dupSlot.status} err=${dupSlot.json?.error}`);
   const noSlot1 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [{ slot: 2, fileName: "a.png", fileType: "image/png", fileSize: 100, storagePath: "requests/a" }] } });
   record("5-missing-slot1", noSlot1.status === 400 && noSlot1.json?.error === "slot1_required", `status=${noSlot1.status} err=${noSlot1.json?.error}`);
+  const emptySlot1 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [] } });
+  record("5-empty-attachments-slot1-required", emptySlot1.status === 400 && emptySlot1.json?.error === "slot1_required", `status=${emptySlot1.status} err=${emptySlot1.json?.error}`);
 
   // ==========================================================
   // Verify 3/5: create request with slots 1 + 2 (real upload path reused)
@@ -464,7 +698,138 @@ async function main() {
   const staffPatchDeny = await api(`/api/admin/staff/${adminStaff.user.id}`, { method: "PATCH", cookie: `ua_session=${cookieStaff}`, body: { fullName: "X" } });
   record("9-staff-patch-nonadmin-403", staffPatchDeny.status === 403, `status=${staffPatchDeny.status}`);
 
-  // summary
+  // ==========================================================
+  // Verify 10: request number vs certificate number (Plan B)
+  // ==========================================================
+  // NOTE: this section REQUIRES migration 0014 (request_counters +
+  // requests.request_sequence/request_year) applied to the DB it runs against.
+  // creating() uploads a real file through the API first so the storagePath
+  // comes from the upload endpoint (not fabricated).
+  const creating = async (slot: number) => {
+    const cu = new FormData();
+    cu.append("file", new File([pngBytes], "rn.png", { type: "image/png" }), "rn.png");
+    const cup = await api("/api/upload", { method: "POST", form: cu, cookie: `ua_session=${cookieA}` });
+    return [{ slot, fileName: "rn.png", fileType: "image/png", fileSize: 68, storagePath: cup.json?.storagePath }];
+  };
+  const rnRe = /^\d{3,}\/\d{4}$/; // sequence padded to ≥3 digits + Buddhist year
+
+  // 10a. create returns requestNumber; seq persisted, unique per request
+  const rn1 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: await creating(1) } });
+  const rn2 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: await creating(1) } });
+  created.requests.push(rn1.json?.id, rn2.json?.id);
+  const rn1num = rn1.json?.requestNumber as string | undefined;
+  const rn2num = rn2.json?.requestNumber as string | undefined;
+  record("10a-create-request-number", rn1.status === 200 && rn2.status === 200 && !!rn1num && !!rn2num && rnRe.test(rn1num) && rnRe.test(rn2num) && rn1num !== rn2num, `rn1=${rn1num} rn2=${rn2num}`);
+  const rn1Db = (await db.select().from(requests).where(eq(requests.id, rn1.json?.id)))[0];
+  record("10a-request-seq-persisted", rn1Db?.requestSequence != null && rn1Db?.requestYear != null, `seq=${rn1Db?.requestSequence} year=${rn1Db?.requestYear}`);
+
+  // 10b. request-revision + resubmit → request number unchanged
+  const rnRev = await api(`/api/requests/${rn1.json?.id}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1] } });
+  const rnResub = await api(`/api/requests/${rn1.json?.id}/resubmit`, { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: await creating(1) } });
+  const rn1Detail = await api(`/api/requests/${rn1.json?.id}`, { cookie: `ua_session=${cookieA}` });
+  record("10b-seq-unchanged-revision-resubmit", rnRev.status === 200 && rnResub.status === 200 && (rn1Detail.json?.requestNumber ?? null) === rn1num, `reqNum=${rn1Detail.json?.requestNumber}`);
+
+  // 10c. reject → next submit gets a NEW seq (no reuse)
+  const rn2Reject = await api(`/api/requests/${rn2.json?.id}/reject`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { reason: "rn test" } });
+  const rn3 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: await creating(1) } });
+  created.requests.push(rn3.json?.id);
+  const rn2Db = (await db.select().from(requests).where(eq(requests.id, rn2.json?.id)))[0];
+  const rn3Db = (await db.select().from(requests).where(eq(requests.id, rn3.json?.id)))[0];
+  record("10c-no-reuse-after-reject", rn2Reject.status === 200 && rn3.status === 200 && (rn3Db?.requestSequence ?? 0) > (rn2Db?.requestSequence ?? Number.MAX_SAFE_INTEGER), `rejectedSeq=${rn2Db?.requestSequence} newSeq=${rn3Db?.requestSequence}`);
+
+  // 10d. independence: request number assigned at SUBMIT only (cert NULL),
+  // certificate number assigned at APPROVE only, and approve must not touch
+  // requestSequence/requestYear (different concerns, different counters).
+  const rn3Before = (await db.select().from(requests).where(eq(requests.id, rn3.json?.id)))[0];
+  const rn3Approve = await api(`/api/requests/${rn3.json?.id}/approve`, { method: "POST", cookie: `ua_session=${cookieAdmin}` });
+  const rn3Approved = (await db.select().from(requests).where(eq(requests.id, rn3.json?.id)))[0];
+  record("10d-cert-independent-of-request-seq",
+    rn3Approve.status === 200
+    && rn3Before?.requestSequence != null && rn3Before?.certificateNumber == null
+    && rn3Approved?.certificateNumber != null
+    && rn3Approved?.requestSequence === rn3Before.requestSequence
+    && rn3Approved?.requestYear === rn3Before.requestYear
+    && rn3Approved?.certificateYear != null,
+    `submitSeq=${rn3Before?.requestSequence} submitCert=${rn3Before?.certificateNumber} reqSeq=${rn3Approved?.requestSequence} reqYear=${rn3Approved?.requestYear} cert=${rn3Approved?.certificateNumber} certYear=${rn3Approved?.certificateYear}`);
+
+  // 10e. legacy request (NULL request seq) → approve assigns cert only; seq stays NULL
+  const legacyRnId = randomUUID();
+  const legacyRnAttId = randomUUID();
+  const legacyRnRevId = randomUUID();
+  await db.insert(requests).values({ id: legacyRnId, studentId: activeA.studentId, activityId, status: "pending", updatedAt: now }).onConflictDoNothing({});
+  await db.insert(requestAttachments).values({ id: legacyRnAttId, requestId: legacyRnId, slot: 1, fileName: "legacy.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` });
+  await db.insert(requestAttachmentRevisions).values({ id: legacyRnRevId, attachmentId: legacyRnAttId, revisionNumber: 1, fileName: "legacy.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png`, revisionState: "unchanged" });
+  await db.update(requestAttachments).set({ currentRevisionId: legacyRnRevId }).where(eq(requestAttachments.id, legacyRnAttId));
+  created.requests.push(legacyRnId); created.attachments.push(legacyRnAttId); created.revisions.push(legacyRnRevId);
+  const legacyApprove = await api(`/api/requests/${legacyRnId}/approve`, { method: "POST", cookie: `ua_session=${cookieAdmin}` });
+  const legacyRnDb = (await db.select().from(requests).where(eq(requests.id, legacyRnId)))[0];
+  record("10e-legacy-null-seq-approve-cert-only", legacyApprove.status === 200 && legacyRnDb?.certificateNumber != null && legacyRnDb?.requestSequence == null, `cert=${legacyRnDb?.certificateNumber} reqSeq=${legacyRnDb?.requestSequence}`);
+
+  // 10f. PDF filename uses certificateNumber when present; falls back to requestNumber for legacy
+  const pdfNew = await generateCertificatePDFForEmail({
+    requestNumber: rn3Approved.requestSequence,
+    certificateNumber: rn3Approved.certificateNumber,
+    location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: 2569,
+    studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
+    approved: true, reason: null, reviewedDate: "01/01/2569",
+  });
+  const pdfLegacy = await generateCertificatePDFForEmail({
+    requestNumber: legacyRnDb.certificateNumber,
+    location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: 2569,
+    studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
+    approved: true, reason: null, reviewedDate: "01/01/2569",
+  });
+  record("10f-pdf-filename-cert-number", pdfNew.filename.includes(`_${rn3Approved.certificateNumber}_`) && pdfLegacy.filename.includes(`_${legacyRnDb.certificateNumber}_`) && !pdfNew.filename.includes(`_${rn3Approved.requestSequence}_`), `new=${pdfNew.filename} legacy=${pdfLegacy.filename}`);
+
+  // ==========================================================
+  // Verify 11: timezone boundary (Asia/Bangkok, Buddhist year)
+  // ==========================================================
+  // requestYear must be derived from Bangkok local time, not UTC. A request
+  // submitted at 2026-12-31T17:00:00Z is 2027-01-01 00:00 +07:00 -> year 2570.
+  const tzCases: { iso: string; expYear: number; expDay: number }[] = [
+    { iso: "2026-12-31T16:59:59.000Z", expYear: 2569, expDay: 31 }, // still Dec 31 in Bangkok
+    { iso: "2026-12-31T17:00:00.000Z", expYear: 2570, expDay: 1 },  // UTC Dec 31 but Bangkok Jan 1
+    { iso: "2027-01-01T00:00:00.000Z", expYear: 2570, expDay: 1 },  // UTC midnight still Jan 1 +07
+    { iso: "2024-12-31T16:59:59.000Z", expYear: 2567, expDay: 31 }, // 2024+543
+    { iso: "2024-12-31T17:00:00.000Z", expYear: 2568, expDay: 1 },  // 2025-01-01 Bangkok -> 2568
+    { iso: "2026-06-15T04:00:00.000Z", expYear: 2569, expDay: 15 }, // midday Bangkok sanity
+  ];
+  let tzOk = true;
+  const tzNotes: string[] = [];
+  for (const c of tzCases) {
+    const parts = thaiDateParts(new Date(c.iso));
+    const buddhist = thaiBuddhistYear(new Date(c.iso));
+    const ok = parts.year + 543 === c.expYear && parts.day === c.expDay && buddhist === c.expYear;
+    if (!ok) tzOk = false;
+    tzNotes.push(`${c.iso}->${parts.year}/${parts.day} (${buddhist})`);
+  }
+  const bangkokNow = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+  tzNotes.push(`bangkokNow=${bangkokNow}`);
+  record("11-tz-bangkok-year-boundary", tzOk, tzNotes.join(" "));
+
+  } catch (e) {
+    if (simulateCrash && e instanceof SimulatedCrash) {
+      crashRaised = true;
+      console.log(`CRASH HOOK (expected): ${e instanceof Error ? e.message : String(e)}`);
+    } else {
+      // real failure: let the bottom callback report and exit(2)
+      throw e;
+    }
+  } finally {
+    // cleanup runs on EVERY path (normal, crash, partial failure)
+    await cleanupCreated(cleanupErrors);
+    await restoreCounters(cleanupErrors);
+    const residue = await collectResidue();
+    const cleanupOk = cleanupErrors.length === 0 && residue.length === 0;
+
+    record("12-cleanup-errors", cleanupErrors.length === 0, cleanupErrors.join(", ") || "none");
+    record("12-cleanup-residue", residue.length === 0, residue.join(", ") || "none");
+    if (simulateCrash) {
+      record("12-crash-cleanup", crashRaised && cleanupOk, `crashRaised=${crashRaised} cleanupErrors=${cleanupErrors.length} residue=${residue.length} pass=${crashRaised && cleanupOk}`);
+    }
+  }
+
+  // summary AFTER cleanup (so 12-* verdicts are included)
   console.log("\n================ GATE RESULTS ================");
   console.log(`PASS: ${passCount}  FAIL: ${failCount}`);
   if (failCount > 0) {
@@ -472,17 +837,14 @@ async function main() {
   }
   console.log("==============================================");
 
-  // cleanup session rows created by logins (keep test data for DB-level verify step first)
-  if (created.sessions.length) {
-    await db.delete(sessions).where(inArray(sessions.id, created.sessions)).catch(() => {});
-  }
-
-  await pool.end();
-  process.exit(failCount > 0 ? 1 : 0);
+  return failCount > 0 ? 1 : 0;
 }
 
-main().catch(async (e) => {
-  console.error("GATE ERROR:", e);
+main().then(async (exitCode) => {
+  await pool.end();
+  process.exit(exitCode);
+}).catch(async (error) => {
+  console.error("GATE ERROR:", error);
   await pool.end();
   process.exit(2);
 });

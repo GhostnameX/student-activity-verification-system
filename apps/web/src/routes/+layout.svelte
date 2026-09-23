@@ -119,7 +119,7 @@
 			</a>
 
 			{#if $user}
-				<nav class="flex items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-0.5 sm:p-1">
+				<nav class="hidden items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-0.5 md:flex md:p-1">
 					{#each nav as item (item.href)}
 						<a
 							href={item.href}
@@ -275,13 +275,34 @@
 		</div>
 	</header>
 
-	<main class="mx-auto w-full max-w-[1600px] flex-1 px-6 py-8 xl:px-10">
+	<main class="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 pb-28 sm:px-6 md:py-8 md:pb-8 xl:px-10">
 		{@render children()}
 	</main>
 
-	<footer class="border-t border-ink-100 bg-surface py-6">
+	<footer class="border-t border-ink-100 bg-surface py-6 pb-28 md:pb-6">
 		<div class="mx-auto max-w-[1600px] px-6 text-center text-sm text-ink-400 xl:px-10">
 			{translate($lang, 'appName')} &middot; © {new Date().getFullYear()}
 		</div>
 	</footer>
+
+	{#if $user}
+		<nav
+			class="fixed inset-x-0 bottom-0 z-50 border-t border-ink-200 bg-surface/95 px-2 pt-2 shadow-lift backdrop-blur md:hidden"
+			style="padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem)"
+			aria-label="เมนูหลัก"
+		>
+			<div class="mx-auto flex max-w-lg items-stretch justify-around gap-1">
+				{#each nav as item (item.href)}
+					<a
+					href={item.href}
+						class="flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1 text-center text-ink-700 transition hover:bg-ink-50 hover:text-brand-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+						aria-label={item.label}
+					>
+						<item.icon size={20} />
+						<span class="w-full truncate text-[11px] font-medium leading-tight">{item.label}</span>
+					</a>
+				{/each}
+			</div>
+		</nav>
+	{/if}
 </div>

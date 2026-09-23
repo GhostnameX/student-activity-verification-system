@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { lang } from '$lib/store';
-	import { user } from '$lib/auth';
+	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
 	import { goto } from '$app/navigation';
 	import {
@@ -43,6 +43,7 @@
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 	onMount(async () => {
+		await loadSession();
 		if (!$user || ($user.role !== 'staff' && $user.role !== 'admin')) {
 			goto('/auth/signin');
 			return;

@@ -20,6 +20,7 @@ import {
   type OAuthStateEntry,
 } from "./auth/oauth-security";
 import { verifyStaffByCode } from "@ua/db/auth-helpers";
+import { LoginRateLimiter, resolveLoginClientIp } from "./auth/login-rate-limit";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
 const API_BASE = process.env.PUBLIC_API_URL || "http://localhost:3000";
@@ -35,6 +36,13 @@ console.log(
   `[auth] boot: API_BASE=${API_BASE} WEB_ORIGIN=${WEB_ORIGIN} REDIRECT_URI=${REDIRECT_URI} GOOGLE_HD=${GOOGLE_HD ? `"${GOOGLE_HD}"` : "(unset)"} NODE_ENV=${process.env.NODE_ENV ?? "(unset)"} DEV_BYPASS=${DEV_BYPASS}`,
 );
 const googleDevPath = `./auth/${"google"}.${"dev"}`;
+
+export const passwordLoginLimiter = new LoginRateLimiter({
+  accountLimit: 5,
+  ipLimit: 20,
+  windowMs: 15 * 60 * 1000,
+  maxEntries: 10_000,
+});
 
 const oauthStates = new Map<string, OAuthStateEntry>();
 
@@ -96,8 +104,20 @@ export const auth = new Elysia()
 
   .post(
     "/api/auth/password/signin",
-    async ({ body, set, headers }) => {
+    async ({ body, set, headers, request, server }) => {
       const staffCode = body.staffCode.trim().toLowerCase();
+      const clientIp = resolveLoginClientIp({
+        isRender: process.env.RENDER === "true",
+        forwardedFor: request.headers.get("x-forwarded-for"),
+        socketAddress: server?.requestIP(request)?.address,
+      });
+      const rateLimit = passwordLoginLimiter.consumeAttempt(staffCode, clientIp);
+      if (!rateLimit.allowed) {
+        set.status = 429;
+        set.headers["Retry-After"] = String(rateLimit.retryAfterSeconds);
+        return { error: "too_many_attempts" };
+      }
+
       const result = await verifyStaffByCode(staffCode, body.password);
       let st = result?.user;
       if (!result || !result.ok || !st) {
@@ -108,6 +128,7 @@ export const auth = new Elysia()
         set.status = 403;
         return { error: "account_disabled" };
       }
+      passwordLoginLimiter.recordSuccess(staffCode, clientIp);
       const user = {
         id: st.id,
         name: st.fullName,

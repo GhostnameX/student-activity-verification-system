@@ -1110,9 +1110,12 @@ export const app = new Elysia()
         const buddhist = formatBuddhistDate(now);
         const thaiNow = thaiDateParts(now);
         const reviewedDate = `${String(thaiNow.day).padStart(2, "0")}/${String(thaiNow.month).padStart(2, "0")}/${thaiNow.year + 543}`;
+        if (approved.certificateYear == null) throw new Error("approved request has no certificate year");
         attachment = await generateCertificatePDFForEmail({
           requestNumber: approved.requestSequence ?? approved.requestNumber,
+          requestYear: approved.requestYear ?? approved.certificateYear,
           certificateNumber: approved.requestNumber,
+          certificateYear: approved.certificateYear,
           location: process.env.CERTIFICATE_LOCATION || "พิษณุโลก",
           dateDay: buddhist.day,
           dateMonth: buddhist.month,

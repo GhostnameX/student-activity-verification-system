@@ -12,6 +12,24 @@ const PASSWORD = "GateTest123!";
 
 class SimulatedCrash extends Error {}
 
+async function withFixedNow<T>(iso: string, action: () => Promise<T>): Promise<T> {
+  const RealDate = globalThis.Date;
+  const fixedMs = RealDate.parse(iso);
+  class FixedDate extends RealDate {
+    constructor(value?: string | number | Date) {
+      if (arguments.length === 0) super(fixedMs);
+      else super(value as string | number);
+    }
+    static now() { return fixedMs; }
+  }
+  globalThis.Date = FixedDate as DateConstructor;
+  try {
+    return await action();
+  } finally {
+    globalThis.Date = RealDate;
+  }
+}
+
 // refuse unless DATABASE_URL is local postgres targeting ua_dev; never shared/remote/prod.
 // returns a SANITIZED reason (host/database only — never leaks user/password or full URL).
 function assertLocalDevDb(url: string | undefined): string | null {
@@ -932,13 +950,17 @@ async function main(): Promise<number> {
   // 10f. PDF filename uses certificateNumber when present; falls back to requestNumber for legacy
   const pdfNew = await generateCertificatePDFForEmail({
     requestNumber: rn3Approved.requestSequence,
+    requestYear: rn3Approved.requestYear,
     certificateNumber: rn3Approved.certificateNumber,
+    certificateYear: rn3Approved.certificateYear,
     location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: 2569,
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
     approved: true, reason: null, reviewedDate: "01/01/2569",
   });
   const pdfLegacy = await generateCertificatePDFForEmail({
     requestNumber: legacyRnDb.certificateNumber,
+    requestYear: legacyRnDb.certificateYear,
+    certificateYear: legacyRnDb.certificateYear,
     location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: 2569,
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
     approved: true, reason: null, reviewedDate: "01/01/2569",
@@ -970,6 +992,50 @@ async function main(): Promise<number> {
   const bangkokNow = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
   tzNotes.push(`bangkokNow=${bangkokNow}`);
   record("11-tz-bangkok-year-boundary", tzOk, tzNotes.join(" "));
+
+  // 11b. End-to-end cross-year flow: submit at 23:59:59 Bangkok, then
+  // approve one second later in the next Buddhist year. The persisted request
+  // number must retain its submit year while the certificate uses approve year.
+  const crossSubmitIso = "2025-12-31T16:59:59.000Z"; // 31 Dec 2568 23:59:59 Bangkok
+  const crossApproveIso = "2025-12-31T17:00:00.000Z"; // 1 Jan 2569 00:00:00 Bangkok
+  const crossAttachments = await creating(1);
+  const crossRequest = await withFixedNow(crossSubmitIso, () => api("/api/requests", {
+    method: "POST",
+    cookie: `ua_session=${cookieA}`,
+    body: { activityId, attachments: crossAttachments },
+  }));
+  created.requests.push(crossRequest.json?.id);
+  const crossBefore = (await db.select().from(requests).where(eq(requests.id, crossRequest.json?.id)))[0];
+  const crossApprove = await withFixedNow(crossApproveIso, () => api(`/api/requests/${crossRequest.json?.id}/approve`, {
+    method: "POST",
+    cookie: `ua_session=${cookieAdmin}`,
+  }));
+  const crossAfter = (await db.select().from(requests).where(eq(requests.id, crossRequest.json?.id)))[0];
+  record("11b-cross-year-numbering",
+    crossRequest.status === 200
+    && crossApprove.status === 200
+    && crossBefore?.requestYear === 2568
+    && crossAfter?.requestSequence === crossBefore?.requestSequence
+    && crossAfter?.requestYear === 2568
+    && crossAfter?.certificateNumber != null
+    && crossAfter?.certificateYear === 2569,
+    `request=${crossBefore?.requestSequence}/${crossBefore?.requestYear} certificate=${crossAfter?.certificateNumber}/${crossAfter?.certificateYear}`);
+
+  const crossPdf = await generateCertificatePDFForEmail({
+    requestNumber: crossAfter.requestSequence,
+    requestYear: crossAfter.requestYear,
+    certificateNumber: crossAfter.certificateNumber,
+    certificateYear: crossAfter.certificateYear,
+    location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: crossAfter.certificateYear,
+    studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
+    approved: true, reason: null, reviewedDate: "01/01/2569",
+  });
+  const crossPdfBytes = Buffer.from(crossPdf.content, "base64");
+  record("11c-cross-year-pdf",
+    crossPdfBytes.subarray(0, 5).toString() === "%PDF-"
+    && crossPdfBytes.length > 10_000
+    && crossPdf.filename.includes(`_${crossAfter.certificateNumber}_${crossAfter.certificateYear}.pdf`),
+    `visibleRequest=${crossAfter.requestSequence}/${crossAfter.requestYear} filename=${crossPdf.filename} bytes=${crossPdfBytes.length}`);
 
   } catch (e) {
     if (simulateCrash && e instanceof SimulatedCrash) {

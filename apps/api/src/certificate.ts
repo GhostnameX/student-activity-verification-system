@@ -12,7 +12,9 @@ const FONT_BOLD_PATH = path.join(__dirname, "..", "assets", "fonts", "THSarabunN
 
 export interface CertificateData {
   requestNumber: number;
+  requestYear: number;
   certificateNumber?: number | null;
+  certificateYear: number;
   location: string;
   dateDay: number;
   dateMonth: string;
@@ -79,8 +81,10 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
     page.drawText(text, { x: startX, y: baselineY, size, font: f, color: black });
   }
 
-  // 1. คำร้องที่ N/2569 (size 14, right-aligned before "/")
-  drawRight(String(data.requestNumber), 557, 753.24, 14);
+  // 1. Replace the template's dotted placeholder and hard-coded /2569 with
+  // the request number captured at submission time.
+  page.drawRectangle({ x: 514.5, y: 749, width: 70.5, height: 19, color: rgb(1, 1, 1) });
+  drawRight(`${data.requestNumber}/${data.requestYear}`, 584.2, 753.24, 14);
 
   // 2. เขียนที่ (location)
   drawLeft(data.location, 394, 639.46, 16);
@@ -126,7 +130,7 @@ export const CERTIFICATE_FILENAME = (n: number, year: number) => `ใบรั�
 export async function generateCertificatePDFForEmail(data: CertificateData) {
   const buffer = await generateCertificatePDF(data);
   return {
-    filename: CERTIFICATE_FILENAME(data.certificateNumber ?? data.requestNumber, data.dateYear),
+    filename: CERTIFICATE_FILENAME(data.certificateNumber ?? data.requestNumber, data.certificateYear),
     content: buffer.toString("base64"),
   };
 }

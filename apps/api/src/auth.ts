@@ -7,24 +7,36 @@ import {
   createSessionFor,
   getSession,
   destroySession,
+  parseCookies,
 } from "./auth/session";
+import {
+  clearOAuthStateCookieString,
+  consumeOAuthState,
+  matchesGoogleHostedDomain,
+  normalizeOAuthRedirectPath,
+  oauthStateCookieString,
+  OAUTH_STATE_COOKIE,
+  OAUTH_STATE_TTL_SECONDS,
+  type OAuthStateEntry,
+} from "./auth/oauth-security";
 import { verifyStaffByCode } from "@ua/db/auth-helpers";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
 const API_BASE = process.env.PUBLIC_API_URL || "http://localhost:3000";
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
-const GOOGLE_HD = process.env.GOOGLE_HD === undefined ? "psru.ac.th" : (process.env.GOOGLE_HD.trim() || undefined);
+const GOOGLE_HD = (process.env.GOOGLE_HD?.trim() || "psru.ac.th").toLowerCase();
 const REDIRECT_URI =
   (WEB_ORIGIN.startsWith("http://localhost") ? API_BASE : WEB_ORIGIN) +
   "/api/auth/google/callback";
 const DEV_BYPASS = process.env.NODE_ENV !== "production" && process.env.AUTH_BYPASS_GOOGLE === "true";
+const SECURE_COOKIES = process.env.NODE_ENV === "production";
 console.log(
   `[auth] boot: API_BASE=${API_BASE} WEB_ORIGIN=${WEB_ORIGIN} REDIRECT_URI=${REDIRECT_URI} GOOGLE_HD=${GOOGLE_HD ? `"${GOOGLE_HD}"` : "(unset)"} NODE_ENV=${process.env.NODE_ENV ?? "(unset)"} DEV_BYPASS=${DEV_BYPASS}`,
 );
 const googleDevPath = `./auth/${"google"}.${"dev"}`;
 
-const oauthStates = new Map<string, { redirect?: string; expires: number }>();
+const oauthStates = new Map<string, OAuthStateEntry>();
 
 setInterval(() => {
   const now = Date.now();
@@ -68,7 +80,7 @@ async function resolveGoogleProfile(code: string): Promise<{ email: string; name
       hd?: string;
     };
     if (!info.email || !info.email_verified) return null;
-    if (GOOGLE_HD && info.hd && info.hd !== GOOGLE_HD) return null;
+    if (!matchesGoogleHostedDomain(GOOGLE_HD, info.hd)) return null;
     return { email: info.email, name: info.name ?? "" };
   } catch (e) {
     console.log(`[auth] google exchange failed: ${e}`);
@@ -126,8 +138,12 @@ export const auth = new Elysia()
       return { error: "google_not_configured" };
     }
     const state = randomUUID();
-    const redirect = typeof query.redirect === "string" ? query.redirect : undefined;
-    oauthStates.set(state, { redirect, expires: Date.now() + 10 * 60 * 1000 });
+    const redirect = normalizeOAuthRedirectPath(
+      typeof query.redirect === "string" ? query.redirect : undefined,
+      WEB_ORIGIN,
+    );
+    oauthStates.set(state, { redirect, expires: Date.now() + OAUTH_STATE_TTL_SECONDS * 1000 });
+    set.headers["Set-Cookie"] = oauthStateCookieString(state, SECURE_COOKIES);
     const params = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
       redirect_uri: REDIRECT_URI,
@@ -137,25 +153,27 @@ export const auth = new Elysia()
       access_type: "online",
       prompt: "select_account",
     });
-    if (GOOGLE_HD) params.set("hd", GOOGLE_HD);
+    params.set("hd", GOOGLE_HD);
     return { redirectUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` };
   })
 
-  .get("/api/auth/google/callback", async ({ query, set }) => {
+  .get("/api/auth/google/callback", async ({ query, headers, set }) => {
     const code = typeof query.code === "string" ? query.code : undefined;
     const state = typeof query.state === "string" ? query.state : undefined;
-    let redirectTo = WEB_ORIGIN;
-    if (state) {
-      const saved = oauthStates.get(state);
-      if (saved) {
-        oauthStates.delete(state);
-        if (saved.redirect) redirectTo = new URL(saved.redirect, WEB_ORIGIN).toString();
-      }
-    }
+    const cookieState = parseCookies(headers.cookie as string | undefined)[OAUTH_STATE_COOKIE];
+    const clearStateCookie = clearOAuthStateCookieString(SECURE_COOKIES);
     const fail = (reason: string) => {
       set.status = 302;
       set.headers.Location = `${WEB_ORIGIN}/auth/signin?error=${encodeURIComponent(reason)}`;
+      set.headers["Set-Cookie"] = clearStateCookie;
     };
+
+    let redirectTo = WEB_ORIGIN;
+    if (!DEV_BYPASS) {
+      const saved = consumeOAuthState(oauthStates, state, cookieState);
+      if (!saved) return fail("invalid_state");
+      if (saved.redirect) redirectTo = new URL(saved.redirect, `${new URL(WEB_ORIGIN).origin}/`).toString();
+    }
     if (!code) return fail("missing_code");
 
     const profile = await resolveGoogleProfile(code);

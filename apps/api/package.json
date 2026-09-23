@@ -8,6 +8,7 @@
     "start": "bun src/index.ts",
     "build": "bun build src/index.ts --target bun --outdir dist",
     "build:check": "bun run build && bun scripts/check-dev-bypass.ts",
+    "test:oauth-security": "bun test scripts/oauth-security.test.ts scripts/oauth-flow.security.test.ts",
     "storage:private-request-attachments": "bun scripts/configure-private-request-attachments.ts"
   },
   "dependencies": {

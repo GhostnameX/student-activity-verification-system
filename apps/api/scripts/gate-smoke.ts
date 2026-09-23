@@ -61,7 +61,7 @@ async function inspectPaintedRequestNumber(pdfBytes: Uint8Array): Promise<{ text
     glyphs.set(match[1], String.fromCharCode(Number.parseInt(match[2], 16)));
   }
   const encoded = field[2].match(/.{4}/g) ?? [];
-  const text = encoded.map((glyph) => glyphs.get(glyph) ?? "�").join("");
+  const text = encoded.map((glyph) => glyphs.get(glyph) ?? "\uFFFD").join("");
   return { text, coverBeforeText: coverAt >= 0 && coverAt < (field.index ?? -1) };
 }
 

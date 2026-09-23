@@ -28,53 +28,6 @@ export const attachmentRevisionStateEnum = pgEnum("attachment_revision_state", [
   "approved",
 ]);
 
-export const users = pgTable(
-  "users",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => crypto.randomUUID()),
-    name: text("name").notNull(),
-    email: text("email").notNull(),
-    emailVerified: boolean("email_verified").default(false).notNull(),
-    image: text("image"),
-    createdAt: timestamp("created_at")
-      .default(sql`now()`)
-      .notNull(),
-    updatedAt: timestamp("updated_at")
-      .default(sql`now()`)
-      .notNull(),
-    role: roleEnum("role").default("student").notNull(),
-    faculty: text("faculty"),
-    studentId: text("student_id"),
-    phone: text("phone"),
-  },
-  (t) => [
-    uniqueIndex("users_email_unique").on(t.email),
-    index("users_role_idx").on(t.role),
-  ],
-);
-
-// Better Auth session table (old auth system). Renamed so the new custom
-// `sessions` table can take the name. Dropped by migration 0010 once the new
-// auth is verified in production.
-export const betterAuthSessions = pgTable("better_auth_sessions", {
-  id: text("id").primaryKey(),
-  token: text("token").notNull(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  expiresAt: timestamp("expires_at").notNull(),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  createdAt: timestamp("created_at")
-    .default(sql`now()`)
-    .notNull(),
-  updatedAt: timestamp("updated_at")
-    .default(sql`now()`)
-    .notNull(),
-});
-
 // Custom auth sessions (Google for students + password for staff/admin).
 // user_id is intentionally NOT a foreign key: it can reference either
 // students.student_id or staff.id (polymorphic token store, short-lived).
@@ -125,37 +78,6 @@ export const staff = pgTable(
     uniqueIndex("staff_code_unique").on(t.staffCode),
   ],
 );
-
-export const accounts = pgTable("accounts", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  accountId: text("account_id").notNull(),
-  providerId: text("provider_id").notNull(),
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at"),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
-  scope: text("scope"),
-  password: text("password"),
-  createdAt: timestamp("created_at")
-    .default(sql`now()`)
-    .notNull(),
-  updatedAt: timestamp("updated_at")
-    .default(sql`now()`)
-    .notNull(),
-});
-
-export const verifications = pgTable("verifications", {
-  id: text("id").primaryKey(),
-  identifier: text("identifier").notNull(),
-  value: text("value").notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").default(sql`now()`),
-  updatedAt: timestamp("updated_at").default(sql`now()`),
-});
 
 export const activities = pgTable(
   "activities",

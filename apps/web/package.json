@@ -25,7 +25,6 @@
 	},
 	"dependencies": {
 		"@supabase/supabase-js": "^2.112.2",
-		"better-auth": "^1.6.26",
 		"lucide-svelte": "^1.0.1"
 	}
 }

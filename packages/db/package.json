@@ -22,7 +22,6 @@
     "build": "echo \"db: no build step\""
   },
   "dependencies": {
-    "@better-auth/utils": "^0.4.2",
     "@node-rs/argon2": "^1.8.2",
     "drizzle-orm": "^0.38.3",
     "pg": "^8.13.1"

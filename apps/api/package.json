@@ -16,7 +16,6 @@
     "@pdf-lib/fontkit": "^1.1.1",
     "@supabase/supabase-js": "^2.112.2",
     "@ua/db": "workspace:*",
-    "better-auth": "^1.2.3",
     "drizzle-orm": "^0.38.3",
     "elysia": "^1.2.5",
     "pdf-lib": "^1.17.1",

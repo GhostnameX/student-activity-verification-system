@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import '../app.css';
 	import { lang, dark } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
@@ -16,6 +17,8 @@
 		User,
 		Moon,
 		Sun,
+		Menu,
+		X,
 	} from 'lucide-svelte';
 	import {
 		getNotifications,
@@ -41,6 +44,19 @@
 
 	let notifications: NotificationItem[] = $state([]);
 	let bellOpen = $state(false);
+	let mobileNavOpen = $state(false);
+
+	function isNavActive(href: string) {
+		return page.url.pathname === href || page.url.pathname.startsWith(`${href}/`);
+	}
+
+	function closeMobileNav() {
+		mobileNavOpen = false;
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') closeMobileNav();
+	}
 
 	$effect(() => {
 		if ($user) {
@@ -100,6 +116,8 @@
 	);
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 <svelte:head>
 	<title>{translate($lang, 'appName')}</title>
 </svelte:head>
@@ -119,7 +137,7 @@
 			</a>
 
 			{#if $user}
-				<nav class="flex items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-0.5 sm:p-1">
+				<nav class="hidden items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-1 md:flex">
 					{#each nav as item (item.href)}
 						<a
 							href={item.href}
@@ -134,9 +152,22 @@
 
 			<div class="flex items-center gap-1.5 sm:gap-2.5">
 				{#if $user}
+					<button
+						onclick={() => (mobileNavOpen = !mobileNavOpen)}
+						class="flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 md:hidden"
+						aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
+						aria-expanded={mobileNavOpen}
+						aria-controls="mobile-navigation"
+					>
+						{#if mobileNavOpen}
+							<X size={18} />
+						{:else}
+							<Menu size={18} />
+						{/if}
+					</button>
 					<a
 						href="/auth/signout"
-						class="flex h-11 w-11 items-center justify-center rounded-xl bg-ink-900 text-ink-50 transition hover:bg-ink-800 lg:hidden"
+						class="hidden h-9 w-9 items-center justify-center rounded-xl bg-ink-900 text-ink-50 transition hover:bg-ink-800 md:flex lg:hidden"
 						aria-label={translate($lang, 'logout')}
 						title={translate($lang, 'logout')}
 					>
@@ -274,6 +305,53 @@
 			</div>
 		</div>
 	</header>
+
+	{#if $user}
+		<button
+			class={`fixed inset-x-0 bottom-0 top-16 z-40 bg-ink-900/30 backdrop-blur-[1px] transition-opacity duration-200 md:hidden ${
+				mobileNavOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+			}`}
+			onclick={closeMobileNav}
+			aria-label="Close navigation"
+			tabindex={mobileNavOpen ? 0 : -1}
+		></button>
+		<aside
+			id="mobile-navigation"
+			class={`fixed bottom-0 left-0 top-16 z-50 flex w-[min(82vw,20rem)] flex-col border-r border-ink-100 bg-surface shadow-lift transition-transform duration-200 ease-out md:hidden ${
+				mobileNavOpen ? 'translate-x-0' : '-translate-x-full'
+			}`}
+			aria-label="Mobile navigation"
+			aria-hidden={!mobileNavOpen}
+			inert={!mobileNavOpen}
+		>
+			<nav class="flex flex-1 flex-col gap-1 overflow-y-auto p-4">
+				{#each nav as item (item.href)}
+					<a
+						href={item.href}
+						onclick={closeMobileNav}
+						aria-current={isNavActive(item.href) ? 'page' : undefined}
+						class={`flex min-h-12 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+							isNavActive(item.href)
+								? 'bg-brand-50 text-brand-700'
+								: 'text-ink-600 hover:bg-ink-50 hover:text-ink-900'
+						}`}
+					>
+						<item.icon size={19} />
+						<span class="min-w-0 truncate">{item.label}</span>
+					</a>
+				{/each}
+			</nav>
+			<div class="border-t border-ink-100 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+				<a
+					href="/auth/signout"
+					class="flex min-h-12 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
+				>
+					<LogOut size={19} />
+					<span>{translate($lang, 'logout')}</span>
+				</a>
+			</div>
+		</aside>
+	{/if}
 
 	<main class="mx-auto w-full max-w-[1600px] flex-1 px-6 py-8 xl:px-10">
 		{@render children()}

@@ -345,10 +345,14 @@ async function main(): Promise<number> {
   // tiny valid PNG (1x1)
   const pngBytes = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"));
 
-  async function uploadAttachment(cookie: string, slot: number, fileName = "proof.png") {
+  async function uploadRaw(cookie: string, bytes: Uint8Array, fileName: string, fileType: string) {
     const form = new FormData();
-    form.append("file", new File([pngBytes], fileName, { type: "image/png" }), fileName);
-    const response = await api("/api/upload", { method: "POST", form, cookie: `ua_session=${cookie}` });
+    form.append("file", new File([bytes], fileName, { type: fileType }), fileName);
+    return api("/api/upload", { method: "POST", form, cookie: `ua_session=${cookie}` });
+  }
+
+  async function uploadAttachment(cookie: string, slot: number, fileName = "proof.png") {
+    const response = await uploadRaw(cookie, pngBytes, fileName, "image/png");
     if (response.status !== 200 || !response.json?.storagePath) {
       throw new Error(`test upload failed: status=${response.status} error=${response.json?.error}`);
     }
@@ -427,6 +431,56 @@ async function main(): Promise<number> {
   const upRes = uploadedA1.response;
   record("3f-student-upload-ok", upRes.status === 200 && !!upRes.json?.storagePath, `status=${upRes.status} path=${upRes.json?.storagePath}`);
   record("13-upload-no-public-url", upRes.json?.url == null, `hasUrl=${upRes.json?.url != null}`);
+
+  // --- magic-byte validation: all allowed signatures pass; spoofed/unknown content is rejected ---
+  const validMagicFixtures = [
+    { label: "jpeg", mime: "image/jpeg", ext: "jpg", name: "magic.jpg", bytes: Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]) },
+    { label: "webp", mime: "image/webp", ext: "webp", name: "magic.webp", bytes: Uint8Array.from(Buffer.from("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEAAUAmJaQAA3AA/v89WAAAAA==", "base64")) },
+    { label: "gif", mime: "image/gif", ext: "gif", name: "magic.gif", bytes: Uint8Array.from(Buffer.from("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", "base64")) },
+    { label: "pdf", mime: "application/pdf", ext: "pdf", name: "magic.pdf", bytes: Uint8Array.from(Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF", "ascii")) },
+  ];
+  for (const fixture of validMagicFixtures) {
+    const result = await uploadRaw(cookieA, fixture.bytes, fixture.name, fixture.mime);
+    if (result.json?.storagePath) created.storagePaths.push(result.json.storagePath);
+    record(
+      `14-valid-${fixture.label}-signature`,
+      result.status === 200
+        && result.json?.fileType === fixture.mime
+        && result.json?.storagePath?.endsWith(`.${fixture.ext}`),
+      `status=${result.status} type=${result.json?.fileType} ext=${result.json?.storagePath?.split(".").pop()}`,
+    );
+  }
+
+  const [ledgerBeforeInvalidMagic] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(attachmentUploads)
+    .where(eq(attachmentUploads.studentId, activeA.studentId));
+  const spoofedMime = await uploadRaw(cookieA, pngBytes, "spoofed.pdf", "application/pdf");
+  record(
+    "14-spoofed-mime-rejected",
+    spoofedMime.status === 400 && spoofedMime.json?.error === "file_type_mismatch",
+    `status=${spoofedMime.status} err=${spoofedMime.json?.error}`,
+  );
+  const unknownSignature = await uploadRaw(
+    cookieA,
+    Uint8Array.from(Buffer.from("not a real png", "ascii")),
+    "unknown.png",
+    "image/png",
+  );
+  record(
+    "14-unknown-signature-rejected",
+    unknownSignature.status === 400 && unknownSignature.json?.error === "file_type_mismatch",
+    `status=${unknownSignature.status} err=${unknownSignature.json?.error}`,
+  );
+  const [ledgerAfterInvalidMagic] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(attachmentUploads)
+    .where(eq(attachmentUploads.studentId, activeA.studentId));
+  record(
+    "14-invalid-signatures-not-tracked",
+    ledgerAfterInvalidMagic.count === ledgerBeforeInvalidMagic.count,
+    `before=${ledgerBeforeInvalidMagic.count} after=${ledgerAfterInvalidMagic.count}`,
+  );
 
   // --- upload from staff/admin rejected ---
   const formS = new FormData();

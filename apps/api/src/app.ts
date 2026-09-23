@@ -37,6 +37,35 @@ const ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/webp", "image/gi
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ATTACHMENT_SIGNED_URL_TTL_SECONDS = 10 * 60;
 
+type AllowedUploadFileType = { mime: string; ext: string };
+
+function detectAllowedUploadFileType(buffer: Buffer): AllowedUploadFileType | null {
+  const startsWith = (...signature: number[]) =>
+    buffer.length >= signature.length && signature.every((byte, index) => buffer[index] === byte);
+
+  if (startsWith(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) {
+    return { mime: "image/png", ext: "png" };
+  }
+  if (startsWith(0xff, 0xd8, 0xff)) {
+    return { mime: "image/jpeg", ext: "jpg" };
+  }
+  if (
+    buffer.length >= 12
+    && buffer.subarray(0, 4).toString("ascii") === "RIFF"
+    && buffer.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return { mime: "image/webp", ext: "webp" };
+  }
+  const gifSignature = buffer.subarray(0, 6).toString("ascii");
+  if (gifSignature === "GIF87a" || gifSignature === "GIF89a") {
+    return { mime: "image/gif", ext: "gif" };
+  }
+  if (startsWith(0x25, 0x50, 0x44, 0x46, 0x2d)) {
+    return { mime: "application/pdf", ext: "pdf" };
+  }
+  return null;
+}
+
 const AVATAR_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
 
@@ -399,10 +428,10 @@ export const app = new Elysia()
       }
       const f = file as unknown as { name?: string; type?: string; size?: number; arrayBuffer?: () => Promise<ArrayBuffer> };
       const fileName = f.name || "file";
-      const fileType = f.type || "application/octet-stream";
+      const declaredFileType = f.type || "application/octet-stream";
       const fileSize = f.size || 0;
 
-      if (!ALLOWED_MIME.has(fileType)) {
+      if (!ALLOWED_MIME.has(declaredFileType)) {
         set.status = 400;
         return { error: "unsupported_type", allowed: [...ALLOWED_MIME] };
       }
@@ -417,7 +446,18 @@ export const app = new Elysia()
         return { error: "cannot_read_file" };
       }
 
-      const ext = fileType === "image/jpeg" ? "jpg" : fileType.split("/")[1] || "bin";
+      const detectedFileType = detectAllowedUploadFileType(buffer);
+      if (
+        !detectedFileType
+        || !ALLOWED_MIME.has(detectedFileType.mime)
+        || detectedFileType.mime !== declaredFileType
+      ) {
+        set.status = 400;
+        return { error: "file_type_mismatch" };
+      }
+
+      const fileType = detectedFileType.mime;
+      const ext = detectedFileType.ext;
       const path = `requests/${randomUUID()}.${ext}`;
 
       // Real storage vs mock: mock only in test/dev (allowMockStorage).

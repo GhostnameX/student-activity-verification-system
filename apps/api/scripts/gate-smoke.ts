@@ -5,6 +5,8 @@ import { students, staff, requests, requestAttachments, requestAttachmentRevisio
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { ensureStaff } from "@ua/db/auth-helpers";
+import { PDFDocument, PDFName } from "pdf-lib";
+import { PDFArray, PDFDict, PDFRawStream, decodePDFRawStream } from "pdf-lib/cjs/core/index.js";
 
 const BASE = "http://localhost:3000";
 const GATE_TAG = "gate://";
@@ -28,6 +30,39 @@ async function withFixedNow<T>(iso: string, action: () => Promise<T>): Promise<T
   } finally {
     globalThis.Date = RealDate;
   }
+}
+
+function decodePdfStream(stream: PDFRawStream): string {
+  return new TextDecoder().decode(decodePDFRawStream(stream).decode());
+}
+
+async function inspectPaintedRequestNumber(pdfBytes: Uint8Array): Promise<{ text: string; coverBeforeText: boolean }> {
+  const pdf = await PDFDocument.load(pdfBytes);
+  const page = pdf.getPage(0);
+  const contents = page.node.Contents();
+  if (!(contents instanceof PDFArray) || contents.size() === 0) throw new Error("certificate page has no content streams");
+
+  // pdf-lib appends our field replacement as the final stream. Verify the
+  // white cover is painted first, then decode the visible text through the
+  // embedded font's ToUnicode map instead of trusting test input or metadata.
+  const stream = contents.lookup(contents.size() - 1, PDFRawStream);
+  const operators = decodePdfStream(stream);
+  const coverAt = operators.indexOf("1 0 0 1 514.5 749 cm");
+  const field = operators.match(/\/(\S+) 14 Tf[\s\S]*?1 0 0 1 [\d.]+ 753\.24 Tm\s*<([0-9A-F]+)> Tj/);
+  if (!field) throw new Error("painted request-number field not found");
+
+  const resources = page.node.Resources();
+  const fonts = resources.lookup(PDFName.of("Font"), PDFDict);
+  const font = fonts.lookup(PDFName.of(field[1]), PDFDict);
+  const toUnicode = font.lookup(PDFName.of("ToUnicode"), PDFRawStream);
+  const cmap = decodePdfStream(toUnicode);
+  const glyphs = new Map<string, string>();
+  for (const match of cmap.matchAll(/<([0-9A-F]{4})>\s*<([0-9A-F]{4})>/g)) {
+    glyphs.set(match[1], String.fromCharCode(Number.parseInt(match[2], 16)));
+  }
+  const encoded = field[2].match(/.{4}/g) ?? [];
+  const text = encoded.map((glyph) => glyphs.get(glyph) ?? "�").join("");
+  return { text, coverBeforeText: coverAt >= 0 && coverAt < (field.index ?? -1) };
 }
 
 // refuse unless DATABASE_URL is local postgres targeting ua_dev; never shared/remote/prod.
@@ -1031,11 +1066,15 @@ async function main(): Promise<number> {
     approved: true, reason: null, reviewedDate: "01/01/2569",
   });
   const crossPdfBytes = Buffer.from(crossPdf.content, "base64");
+  const paintedRequest = await inspectPaintedRequestNumber(crossPdfBytes);
+  const expectedPaintedRequest = `${crossAfter.requestSequence}/${crossAfter.requestYear}`;
   record("11c-cross-year-pdf",
     crossPdfBytes.subarray(0, 5).toString() === "%PDF-"
     && crossPdfBytes.length > 10_000
+    && paintedRequest.coverBeforeText
+    && paintedRequest.text === expectedPaintedRequest
     && crossPdf.filename.includes(`_${crossAfter.certificateNumber}_${crossAfter.certificateYear}.pdf`),
-    `visibleRequest=${crossAfter.requestSequence}/${crossAfter.requestYear} filename=${crossPdf.filename} bytes=${crossPdfBytes.length}`);
+    `paintedRequest=${paintedRequest.text} coverBeforeText=${paintedRequest.coverBeforeText} filename=${crossPdf.filename} bytes=${crossPdfBytes.length}`);
 
   } catch (e) {
     if (simulateCrash && e instanceof SimulatedCrash) {

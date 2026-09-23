@@ -7,6 +7,7 @@ import {
   activities,
   requestAttachments,
   requestAttachmentRevisions,
+  attachmentUploads,
   notifications,
   auditLogs,
   certificateCounters,
@@ -37,6 +38,14 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 const AVATAR_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
+
+class AttachmentOwnershipError extends Error {
+  constructor(readonly slot: number) {
+    super("attachment_ownership_invalid");
+  }
+}
+
+class ResubmitStateChangedError extends Error {}
 
 // Mock storage is test/development only. Production with GATE_SMOKE_MOCK_STORAGE=1
 // by mistake must still fail closed (never skip real upload).
@@ -433,6 +442,26 @@ export const app = new Elysia()
         }
       }
 
+      try {
+        await db.insert(attachmentUploads).values({
+          storagePath: path,
+          studentId: user.id,
+          fileName,
+          fileType,
+          fileSize,
+        });
+      } catch (e) {
+        console.error(`[upload] failed to record ownership: ${e}`);
+        if (!allowMockStorage && supabaseAdmin) {
+          const { error: cleanupError } = await supabaseAdmin.storage
+            .from("request-attachments")
+            .remove([path]);
+          if (cleanupError) console.error(`[upload] failed to remove untracked object: ${cleanupError.message}`);
+        }
+        set.status = 500;
+        return { error: "upload_tracking_failed" };
+      }
+
       return {
         storagePath: path,
         fileName,
@@ -653,60 +682,87 @@ export const app = new Elysia()
       }
 
       const requestYear = thaiBuddhistYear();
-      const created = await db.transaction(async (tx) => {
-        await tx
-          .insert(requestCounters)
-          .values({ year: requestYear, lastNumber: 0 })
-          .onConflictDoNothing();
-
-        const [counter] = await tx
-          .update(requestCounters)
-          .set({ lastNumber: sql`${requestCounters.lastNumber} + 1` })
-          .where(eq(requestCounters.year, requestYear))
-          .returning({ lastNumber: requestCounters.lastNumber });
-        if (!counter) throw new Error("request_counter_missing");
-
-        const [row] = await tx
-          .insert(requests)
-          .values({
-            studentId: user.id,
-            activityId: body.activityId ?? null,
-            status: "pending",
-            note: body.note ?? null,
-            requestSequence: counter.lastNumber,
-            requestYear,
-          })
-          .returning();
-
-        for (const a of attachments) {
-          const attId = crypto.randomUUID();
-          await tx.insert(requestAttachments).values({
-            id: attId,
-            requestId: row.id,
-            slot: a.slot,
-            fileName: a.fileName,
-            fileType: a.fileType,
-            fileSize: a.fileSize,
-            storagePath: a.storagePath,
-          });
-          const [rev] = await tx
-            .insert(requestAttachmentRevisions)
-            .values({
-              attachmentId: attId,
-              revisionNumber: 1,
-              fileName: a.fileName,
-              fileType: a.fileType,
-              fileSize: a.fileSize,
-              storagePath: a.storagePath,
-            })
-            .returning({ id: requestAttachmentRevisions.id });
+      let created;
+      try {
+        created = await db.transaction(async (tx) => {
           await tx
-            .update(requestAttachments)
-            .set({ currentRevisionId: rev.id })
-            .where(eq(requestAttachments.id, attId));
+            .insert(requestCounters)
+            .values({ year: requestYear, lastNumber: 0 })
+            .onConflictDoNothing();
+
+          const [counter] = await tx
+            .update(requestCounters)
+            .set({ lastNumber: sql`${requestCounters.lastNumber} + 1` })
+            .where(eq(requestCounters.year, requestYear))
+            .returning({ lastNumber: requestCounters.lastNumber });
+          if (!counter) throw new Error("request_counter_missing");
+
+          const [row] = await tx
+            .insert(requests)
+            .values({
+              studentId: user.id,
+              activityId: body.activityId ?? null,
+              status: "pending",
+              note: body.note ?? null,
+              requestSequence: counter.lastNumber,
+              requestYear,
+            })
+            .returning();
+
+          for (const a of attachments) {
+            const [upload] = await tx
+              .update(attachmentUploads)
+              .set({ requestId: row.id, consumedAt: sql`now()` })
+              .where(
+                and(
+                  eq(attachmentUploads.storagePath, a.storagePath),
+                  eq(attachmentUploads.studentId, user.id),
+                  isNull(attachmentUploads.consumedAt),
+                ),
+              )
+              .returning({
+                storagePath: attachmentUploads.storagePath,
+                fileName: attachmentUploads.fileName,
+                fileType: attachmentUploads.fileType,
+                fileSize: attachmentUploads.fileSize,
+              });
+            if (!upload) throw new AttachmentOwnershipError(a.slot);
+
+            const attId = crypto.randomUUID();
+            await tx.insert(requestAttachments).values({
+              id: attId,
+              requestId: row.id,
+              slot: a.slot,
+              fileName: upload.fileName,
+              fileType: upload.fileType,
+              fileSize: upload.fileSize,
+              storagePath: upload.storagePath,
+            });
+            const [rev] = await tx
+              .insert(requestAttachmentRevisions)
+              .values({
+                attachmentId: attId,
+                revisionNumber: 1,
+                fileName: upload.fileName,
+                fileType: upload.fileType,
+                fileSize: upload.fileSize,
+                storagePath: upload.storagePath,
+              })
+              .returning({ id: requestAttachmentRevisions.id });
+            await tx
+              .update(requestAttachments)
+              .set({ currentRevisionId: rev.id })
+              .where(eq(requestAttachments.id, attId));
+          }
+          return row;
+        });
+      } catch (e) {
+        if (e instanceof AttachmentOwnershipError) {
+          set.status = 400;
+          return { error: "attachment_ownership_invalid", slot: e.slot };
         }
-        return row;
-      });
+        throw e;
+      }
 
       return {
         id: created.id,
@@ -1206,6 +1262,24 @@ export const app = new Elysia()
             .where(eq(requestAttachments.requestId, params.id));
 
           for (const a of replacements) {
+            const [upload] = await tx
+              .update(attachmentUploads)
+              .set({ requestId: params.id, consumedAt: sql`now()` })
+              .where(
+                and(
+                  eq(attachmentUploads.storagePath, a.storagePath),
+                  eq(attachmentUploads.studentId, user.id),
+                  isNull(attachmentUploads.consumedAt),
+                ),
+              )
+              .returning({
+                storagePath: attachmentUploads.storagePath,
+                fileName: attachmentUploads.fileName,
+                fileType: attachmentUploads.fileType,
+                fileSize: attachmentUploads.fileSize,
+              });
+            if (!upload) throw new AttachmentOwnershipError(a.slot);
+
             const att = atts.find((x) => x.slot === a.slot);
             if (!att) {
               const attId = crypto.randomUUID();
@@ -1214,10 +1288,10 @@ export const app = new Elysia()
                 .values({
                   attachmentId: attId,
                   revisionNumber: 1,
-                  fileName: a.fileName,
-                  fileType: a.fileType,
-                  fileSize: a.fileSize,
-                  storagePath: a.storagePath,
+                  fileName: upload.fileName,
+                  fileType: upload.fileType,
+                  fileSize: upload.fileSize,
+                  storagePath: upload.storagePath,
                   revisionState: "resubmitted",
                 })
                 .returning({ id: requestAttachmentRevisions.id });
@@ -1226,10 +1300,10 @@ export const app = new Elysia()
                 requestId: params.id,
                 slot: a.slot,
                 currentRevisionId: rev.id,
-                fileName: a.fileName,
-                fileType: a.fileType,
-                fileSize: a.fileSize,
-                storagePath: a.storagePath,
+                fileName: upload.fileName,
+                fileType: upload.fileType,
+                fileSize: upload.fileSize,
+                storagePath: upload.storagePath,
               });
             } else {
               const [maxRev] = await tx
@@ -1244,10 +1318,10 @@ export const app = new Elysia()
                 .values({
                   attachmentId: att.id,
                   revisionNumber: nextNum,
-                  fileName: a.fileName,
-                  fileType: a.fileType,
-                  fileSize: a.fileSize,
-                  storagePath: a.storagePath,
+                  fileName: upload.fileName,
+                  fileType: upload.fileType,
+                  fileSize: upload.fileSize,
+                  storagePath: upload.storagePath,
                   revisionState: "resubmitted",
                 })
                 .returning({ id: requestAttachmentRevisions.id });
@@ -1255,10 +1329,10 @@ export const app = new Elysia()
                 .update(requestAttachments)
                 .set({
                   currentRevisionId: rev.id,
-                  fileName: a.fileName,
-                  fileType: a.fileType,
-                  fileSize: a.fileSize,
-                  storagePath: a.storagePath,
+                  fileName: upload.fileName,
+                  fileType: upload.fileType,
+                  fileSize: upload.fileSize,
+                  storagePath: upload.storagePath,
                 })
                 .where(eq(requestAttachments.id, att.id));
             }
@@ -1298,11 +1372,19 @@ export const app = new Elysia()
               and(eq(requests.id, params.id), eq(requests.status, "revision_required")),
             )
             .returning({ id: requests.id });
-          return !!claimed;
+          if (!claimed) throw new ResubmitStateChangedError();
+          return true;
         });
       } catch (e) {
+        if (e instanceof AttachmentOwnershipError) {
+          set.status = 400;
+          return { error: "attachment_ownership_invalid", slot: e.slot };
+        }
         if ((e as Error).message === "flagged_slots_not_replaced") {
           resubmitted = false;
+        } else if (e instanceof ResubmitStateChangedError) {
+          set.status = 400;
+          return { error: "not_revision_required" };
         } else {
           throw e;
         }

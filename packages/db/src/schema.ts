@@ -403,3 +403,29 @@ export const students = pgTable(
       .where(sql`${t.email} is not null`),
   ],
 );
+
+export const attachmentUploads = pgTable(
+  "attachment_uploads",
+  {
+    storagePath: text("storage_path").primaryKey(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.studentId, { onDelete: "cascade" }),
+    fileName: text("file_name").notNull(),
+    fileType: text("file_type").notNull(),
+    fileSize: integer("file_size").notNull(),
+    requestId: text("request_id").references(() => requests.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+    consumedAt: timestamp("consumed_at"),
+  },
+  (t) => [
+    index("attachment_uploads_student_unconsumed_idx")
+      .on(t.studentId)
+      .where(sql`${t.consumedAt} is null`),
+    index("attachment_uploads_request_idx").on(t.requestId),
+  ],
+);

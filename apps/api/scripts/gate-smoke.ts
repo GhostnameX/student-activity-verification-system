@@ -1,7 +1,7 @@
 import { app, thaiBuddhistYear, thaiDateParts } from "../src/app";
 import { generateCertificatePDFForEmail } from "../src/certificate";
 import { db, pool } from "@ua/db/client";
-import { students, staff, requests, requestAttachments, requestAttachmentRevisions, activities, sessions, notifications, auditLogs, requestCounters, certificateCounters } from "@ua/db/schema";
+import { students, staff, requests, requestAttachments, requestAttachmentRevisions, attachmentUploads, activities, sessions, notifications, auditLogs, requestCounters, certificateCounters } from "@ua/db/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { ensureStaff } from "@ua/db/auth-helpers";
@@ -102,6 +102,7 @@ async function hush(label: string, p: Promise<unknown>, errors: string[]) {
 
 async function cleanupCreated(errors: string[]) {
   const reqIds = created.requests.filter((id): id is string => !!id);
+  const storagePaths = created.storagePaths.filter((path): path is string => !!path);
   // pull attachment ids for our requests (some were created via API tx, not pushed)
   const attIdSet = new Set(created.attachments.filter((id): id is string => !!id));
   if (reqIds.length) {
@@ -132,6 +133,12 @@ async function cleanupCreated(errors: string[]) {
   if (staffIds.length) {
     await hush("delete auditLogs(staff actor)", db.delete(auditLogs).where(inArray(auditLogs.actorStaffId, staffIds)), errors);
     await hush("delete notifications(staff)", db.delete(notifications).where(inArray(notifications.staffId, staffIds)), errors);
+  }
+  if (storagePaths.length) {
+    await hush("delete attachment uploads(path)", db.delete(attachmentUploads).where(inArray(attachmentUploads.storagePath, storagePaths)), errors);
+  }
+  if (stuIds.length) {
+    await hush("delete attachment uploads(student)", db.delete(attachmentUploads).where(inArray(attachmentUploads.studentId, stuIds)), errors);
   }
   if (actIds.length) await hush("delete activities", db.delete(activities).where(inArray(activities.id, actIds)), errors);
   if (staffIds.length) await hush("delete staff", db.delete(staff).where(inArray(staff.id, staffIds)), errors);
@@ -210,6 +217,7 @@ async function collectResidue(): Promise<string[]> {
   const stuIds = created.students.filter((id): id is string => !!id);
   const staffIds = created.staff.filter((id): id is string => !!id);
   const actIds = created.activities.filter((id): id is string => !!id);
+  const storagePaths = created.storagePaths.filter((path): path is string => !!path);
   const attIdSet = new Set(created.attachments.filter((id): id is string => !!id));
   if (reqIds.length) {
     try {
@@ -226,6 +234,8 @@ async function collectResidue(): Promise<string[]> {
   await countRows("requests", db.select().from(requests).where(inArray(requests.id, reqIds)), leftover);
   await countRows("attachments", db.select().from(requestAttachments).where(inArray(requestAttachments.id, attIds)), leftover);
   await countRows("revisions", db.select().from(requestAttachmentRevisions).where(inArray(requestAttachmentRevisions.attachmentId, attIds)), leftover);
+  if (storagePaths.length) await countRows("attachmentUploads(path)", db.select().from(attachmentUploads).where(inArray(attachmentUploads.storagePath, storagePaths)), leftover);
+  if (stuIds.length) await countRows("attachmentUploads(student)", db.select().from(attachmentUploads).where(inArray(attachmentUploads.studentId, stuIds)), leftover);
   await countRows("notifications(request)", db.select().from(notifications).where(inArray(notifications.requestId, reqIds)), leftover);
   if (stuIds.length) await countRows("notifications(student)", db.select().from(notifications).where(inArray(notifications.studentId, stuIds)), leftover);
   if (staffIds.length) await countRows("notifications(staff)", db.select().from(notifications).where(inArray(notifications.staffId, staffIds)), leftover);
@@ -335,6 +345,26 @@ async function main(): Promise<number> {
   // tiny valid PNG (1x1)
   const pngBytes = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"));
 
+  async function uploadAttachment(cookie: string, slot: number, fileName = "proof.png") {
+    const form = new FormData();
+    form.append("file", new File([pngBytes], fileName, { type: "image/png" }), fileName);
+    const response = await api("/api/upload", { method: "POST", form, cookie: `ua_session=${cookie}` });
+    if (response.status !== 200 || !response.json?.storagePath) {
+      throw new Error(`test upload failed: status=${response.status} error=${response.json?.error}`);
+    }
+    created.storagePaths.push(response.json.storagePath);
+    return {
+      response,
+      attachment: {
+        slot,
+        fileName: response.json.fileName as string,
+        fileType: response.json.fileType as string,
+        fileSize: response.json.fileSize as number,
+        storagePath: response.json.storagePath as string,
+      },
+    };
+  }
+
   // ==========================================================
   // Verify 3: Runtime smoke — Student
   // ==========================================================
@@ -393,10 +423,8 @@ async function main(): Promise<number> {
   record("3e-admin-create-activity", actRes.status === 200 && !!actRes.json?.id, `status=${actRes.status}`);
 
   // --- upload from student ---
-  const formA = new FormData();
-  formA.append("file", new File([pngBytes], "proof.png", { type: "image/png" }), "proof.png");
-  const upRes = await api("/api/upload", { method: "POST", form: formA, cookie: `ua_session=${cookieA}` });
-  created.storagePaths.push(upRes.json?.storagePath);
+  const uploadedA1 = await uploadAttachment(cookieA, 1);
+  const upRes = uploadedA1.response;
   record("3f-student-upload-ok", upRes.status === 200 && !!upRes.json?.storagePath, `status=${upRes.status} path=${upRes.json?.storagePath}`);
 
   // --- upload from staff/admin rejected ---
@@ -426,12 +454,35 @@ async function main(): Promise<number> {
   record("5-empty-attachments-slot1-required", emptySlot1.status === 400 && emptySlot1.json?.error === "slot1_required", `status=${emptySlot1.status} err=${emptySlot1.json?.error}`);
 
   // ==========================================================
-  // Verify 3/5: create request with slots 1 + 2 (real upload path reused)
+  // Verify 8: upload ownership and one-time use
+  // ==========================================================
+  const countStudentRequests = async () => {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(requests)
+      .where(eq(requests.studentId, activeA.studentId));
+    return row.count;
+  };
+  const countBeforeOwnershipFailures = await countStudentRequests();
+  const fakePath = `requests/${randomUUID()}.png`;
+  const fakePathReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [{ slot: 1, fileName: "fake.png", fileType: "image/png", fileSize: 68, storagePath: fakePath }] } });
+  record("8a-fake-path-rejected", fakePathReq.status === 400 && fakePathReq.json?.error === "attachment_ownership_invalid" && fakePathReq.json?.slot === 1, `status=${fakePathReq.status} err=${fakePathReq.json?.error}`);
+
+  const uploadedB = await uploadAttachment(cookieB, 1, "student-b.png");
+  const crossOwnerReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [uploadedB.attachment] } });
+  const [crossOwnerLedger] = await db.select().from(attachmentUploads).where(eq(attachmentUploads.storagePath, uploadedB.attachment.storagePath));
+  record("8b-cross-owner-path-rejected", crossOwnerReq.status === 400 && crossOwnerReq.json?.error === "attachment_ownership_invalid" && crossOwnerLedger?.consumedAt == null, `status=${crossOwnerReq.status} err=${crossOwnerReq.json?.error} unconsumed=${crossOwnerLedger?.consumedAt == null}`);
+  const countAfterOwnershipFailures = await countStudentRequests();
+  record("8b-failed-create-rollback", countAfterOwnershipFailures === countBeforeOwnershipFailures, `before=${countBeforeOwnershipFailures} after=${countAfterOwnershipFailures}`);
+
+  // ==========================================================
+  // Verify 3/5: create request with slots 1 + 2
   // ==========================================================
   const pathA = upRes.json.storagePath;
+  const uploadedA2 = await uploadAttachment(cookieA, 2, "proof2.png");
   const createdReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [
-    { slot: 1, fileName: "proof.png", fileType: "image/png", fileSize: 68, storagePath: pathA },
-    { slot: 2, fileName: "proof2.png", fileType: "image/png", fileSize: 68, storagePath: `requests/${randomUUID()}.png` },
+    { slot: 1, fileName: "spoofed.exe", fileType: "application/octet-stream", fileSize: 1, storagePath: pathA },
+    uploadedA2.attachment,
   ] } });
   created.requests.push(createdReq.json?.id);
   record("5-create-slot12", createdReq.status === 200 && createdReq.json?.status === "pending", `status=${createdReq.status} id=${createdReq.json?.id}`);
@@ -441,6 +492,30 @@ async function main(): Promise<number> {
   const dbAtts = await db.select().from(requestAttachments).where(eq(requestAttachments.requestId, reqId)).orderBy(requestAttachments.slot);
   const dbRevs = await db.select().from(requestAttachmentRevisions).where(inArray(requestAttachmentRevisions.attachmentId, dbAtts.map(a => a.id)));
   record("3-db-create-2slot", dbReq.length === 1 && dbReq[0].status === "pending" && dbAtts.length === 2 && dbAtts.every(a => !!a.currentRevisionId) && dbRevs.length === 2 && dbRevs.every(r => r.revisionNumber === 1 && r.revisionState === "unchanged"), `atts=${dbAtts.length} revs=${dbRevs.length}`);
+  const canonicalA1 = dbAtts.find((a) => a.slot === 1);
+  record("8c-server-metadata-canonical", canonicalA1?.fileName === "proof.png" && canonicalA1.fileType === "image/png" && canonicalA1.fileSize === pngBytes.byteLength, `name=${canonicalA1?.fileName} type=${canonicalA1?.fileType} size=${canonicalA1?.fileSize}`);
+
+  const reuseReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [uploadedA1.attachment] } });
+  const countAfterReuse = await countStudentRequests();
+  record("8d-consumed-path-rejected", reuseReq.status === 400 && reuseReq.json?.error === "attachment_ownership_invalid" && countAfterReuse === countAfterOwnershipFailures + 1, `status=${reuseReq.status} err=${reuseReq.json?.error} requests=${countAfterReuse}`);
+
+  const concurrentUpload = await uploadAttachment(cookieA, 1, "concurrent.png");
+  const concurrentBody = { activityId, attachments: [concurrentUpload.attachment] };
+  const concurrentResults = await Promise.all([
+    api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: concurrentBody }),
+    api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: concurrentBody }),
+  ]);
+  const concurrentWinner = concurrentResults.find((result) => result.status === 200);
+  if (concurrentWinner?.json?.id) created.requests.push(concurrentWinner.json.id);
+  const concurrentLoser = concurrentResults.find((result) => result.status === 400);
+  const [concurrentLedger] = await db.select().from(attachmentUploads).where(eq(attachmentUploads.storagePath, concurrentUpload.attachment.storagePath));
+  record(
+    "8e-concurrent-reuse-rejected",
+    !!concurrentWinner
+      && concurrentLoser?.json?.error === "attachment_ownership_invalid"
+      && concurrentLedger?.requestId === concurrentWinner.json?.id,
+    `statuses=${concurrentResults.map((result) => result.status).join(",")} loser=${concurrentLoser?.json?.error} owner=${concurrentLedger?.requestId === concurrentWinner?.json?.id}`,
+  );
 
   // detailed GET with revisions
   const detailA = await api(`/api/requests/${reqId}`, { cookie: `ua_session=${cookieA}` });
@@ -486,9 +561,9 @@ async function main(): Promise<number> {
   record("4e-resubmit-noop-rollback", stillFlagged.length === 1 && (stillFlagged[0].id === s1rev.id) && stillFlagged[0].revisionState === "needs_revision" && stillReq.status === "revision_required", `reqStatus=${stillReq.status}`);
 
   // --- 4f. resubmit slot 1 replacement (new revision) ---
-  const newPath1 = `requests/${randomUUID()}.png`;
-  created.storagePaths.push(newPath1);
-  const resubRes = await api(`/api/requests/${reqId}/resubmit`, { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [ { slot: 1, fileName: "proof.png", fileType: "image/png", fileSize: 68, storagePath: newPath1 } ] } });
+  const replacementA1 = await uploadAttachment(cookieA, 1, "replacement.png");
+  const newPath1 = replacementA1.attachment.storagePath;
+  const resubRes = await api(`/api/requests/${reqId}/resubmit`, { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [replacementA1.attachment] } });
   record("4f-resubmit-ok", resubRes.status === 200 && resubRes.json?.status === "pending", `status=${resubRes.status} json=${JSON.stringify(resubRes.json)}`);
 
   const afterResub = await db.select().from(requestAttachmentRevisions).where(inArray(requestAttachmentRevisions.attachmentId, [s1.id])).orderBy(requestAttachmentRevisions.revisionNumber);
@@ -527,9 +602,11 @@ async function main(): Promise<number> {
   // ==========================================================
 
   // rollback test: flag both slots on a fresh request; resubmit replaces only slot1 → must fail & roll everything back
+  const rollUpload1 = await uploadAttachment(cookieA, 1, "roll-a.png");
+  const rollUpload2 = await uploadAttachment(cookieA, 2, "roll-b.png");
   const rollReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [
-    { slot: 1, fileName: "a.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` },
-    { slot: 2, fileName: "b.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` },
+    rollUpload1.attachment,
+    rollUpload2.attachment,
   ] } });
   created.requests.push(rollReq.json?.id);
   await api(`/api/requests/${rollReq.json?.id}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1, 2] } });
@@ -537,7 +614,8 @@ async function main(): Promise<number> {
   const rollAtts = await db.select().from(requestAttachments).where(eq(requestAttachments.requestId, rollReq.json?.id)).orderBy(requestAttachments.slot);
   const rollRevsBefore = await db.select().from(requestAttachmentRevisions).where(inArray(requestAttachmentRevisions.attachmentId, rollAtts.map(a => a.id))).orderBy(requestAttachmentRevisions.revisionNumber);
 
-  const partialResub = await api(`/api/requests/${rollReq.json?.id}/resubmit`, { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [ { slot: 1, fileName: "new-a.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` } ] } });
+  const partialUpload = await uploadAttachment(cookieA, 1, "partial-a.png");
+  const partialResub = await api(`/api/requests/${rollReq.json?.id}/resubmit`, { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [partialUpload.attachment] } });
   record("7-rollback-trigger", partialResub.status === 400 && partialResub.json?.error === "flagged_slots_not_replaced", `status=${partialResub.status} err=${partialResub.json?.error}`);
 
   const rollRevsAfter = await db.select().from(requestAttachmentRevisions).where(inArray(requestAttachmentRevisions.attachmentId, rollAtts.map(a => a.id))).orderBy(requestAttachmentRevisions.revisionNumber);
@@ -550,11 +628,14 @@ async function main(): Promise<number> {
   const reqStillRevReq = rollReqNow.status === "revision_required";
   const flagsIntact = rollRevsAfter.filter(r => r.attachmentId === rollS1.id || r.attachmentId === (rollAtts.find(a => a.slot === 2)!.id)).every(r => r.revisionState === "needs_revision");
   record("7-rollback-full-atomic", revCountSame && noNewRev && currentUnchanged && reqStillRevReq && flagsIntact, `revCount=${revCountSame} noNew=${noNewRev} curUnchg=${currentUnchanged} req=${reqStillRevReq} flags=${flagsIntact}`);
+  const [partialLedger] = await db.select().from(attachmentUploads).where(eq(attachmentUploads.storagePath, partialUpload.attachment.storagePath));
+  record("8f-resubmit-claim-rollback", partialLedger?.consumedAt == null && partialLedger?.requestId == null, `unconsumed=${partialLedger?.consumedAt == null} requestId=${partialLedger?.requestId ?? "none"}`);
 
   // then complete properly (replace both) → pending
+  const completeUpload2 = await uploadAttachment(cookieA, 2, "complete-b.png");
   const completeResub = await api(`/api/requests/${rollReq.json?.id}/resubmit`, { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [
-    { slot: 1, fileName: "new-a.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` },
-    { slot: 2, fileName: "new-b.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` },
+    partialUpload.attachment,
+    completeUpload2.attachment,
   ] } });
   const rollReqDone = (await db.select().from(requests).where(eq(requests.id, rollReq.json?.id)))[0];
   record("7-rollback-recover", completeResub.status === 200 && rollReqDone.status === "pending", `status=${completeResub.status} req=${rollReqDone.status}`);
@@ -566,7 +647,8 @@ async function main(): Promise<number> {
   const adminActions: [string, () => Promise<any>][] = [];
 
   // approve from revision_required (use legacyReq? it's pending; create a fresh one and flag it)
-  const guardReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [ { slot: 1, fileName: "a.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` } ] } });
+  const guardUpload = await uploadAttachment(cookieA, 1, "guard.png");
+  const guardReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [guardUpload.attachment] } });
   const guardReqId = guardReq.json?.id;
   created.requests.push(guardReqId);
   await api(`/api/requests/${guardReqId}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1] } });
@@ -582,7 +664,8 @@ async function main(): Promise<number> {
   record("7-guardreq-state-intact", guardReqNow.status === "revision_required", `status=${guardReqNow.status}`);
 
   // resubmit guardReq → pending, then reject from pending → ok
-  const guardResub = await api(`/api/requests/${guardReqId}/resubmit`, { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [ { slot: 1, fileName: "new.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` } ] } });
+  const guardReplacement = await uploadAttachment(cookieA, 1, "guard-new.png");
+  const guardResub = await api(`/api/requests/${guardReqId}/resubmit`, { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [guardReplacement.attachment] } });
   record("4j-guardreq-resubmit", guardResub.status === 200, `status=${guardResub.status}`);
   const rejectOk = await api(`/api/requests/${guardReqId}/reject`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { reason: "gate reject test" } });
   record("4k-reject-from-pending", rejectOk.status === 200 && rejectOk.json?.status === "rejected", `status=${rejectOk.status}`);
@@ -590,7 +673,8 @@ async function main(): Promise<number> {
   record("4l-reject-again-400", rejectAgain.status === 400, `status=${rejectAgain.status}`);
 
   // approve from pending → ok + current revisions approved (atomic)
-  const approveReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [ { slot: 1, fileName: "a.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` } ] } });
+  const approveUpload = await uploadAttachment(cookieA, 1, "approve.png");
+  const approveReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [approveUpload.attachment] } });
   const approveReqId = approveReq.json?.id;
   created.requests.push(approveReqId);
   const approveRes = await api(`/api/requests/${approveReqId}/approve`, { method: "POST", cookie: `ua_session=${cookieAdmin}` });
@@ -706,10 +790,8 @@ async function main(): Promise<number> {
   // creating() uploads a real file through the API first so the storagePath
   // comes from the upload endpoint (not fabricated).
   const creating = async (slot: number) => {
-    const cu = new FormData();
-    cu.append("file", new File([pngBytes], "rn.png", { type: "image/png" }), "rn.png");
-    const cup = await api("/api/upload", { method: "POST", form: cu, cookie: `ua_session=${cookieA}` });
-    return [{ slot, fileName: "rn.png", fileType: "image/png", fileSize: 68, storagePath: cup.json?.storagePath }];
+    const uploaded = await uploadAttachment(cookieA, slot, "rn.png");
+    return [uploaded.attachment];
   };
   const rnRe = /^\d{3,}\/\d{4}$/; // sequence padded to ≥3 digits + Buddhist year
 

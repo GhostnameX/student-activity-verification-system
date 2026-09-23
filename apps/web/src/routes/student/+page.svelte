@@ -44,6 +44,7 @@
 
 	let detail: RequestItem | null = $state(null);
 	let detailLoading: boolean = $state(false);
+	let attachmentUrls: Record<string, string> = $state({});
 	let resubmitFiles: Record<number, File> = $state({});
 	let resubmitting: boolean = $state(false);
 	let resubmitMsg: string = $state('');
@@ -120,15 +121,31 @@
 	async function openDetail(id: string) {
 		detailLoading = true;
 		detail = null;
+		attachmentUrls = {};
 		resubmitMsg = '';
 		resubmitFiles = {};
 		try {
-			detail = await getRequest(id);
+			const request = await getRequest(id);
+			attachmentUrls = await loadAttachmentUrls(request);
+			detail = request;
 		} catch (e) {
 			errorMsg = e instanceof Error ? e.message : String(e);
 		} finally {
 			detailLoading = false;
 		}
+	}
+
+	async function loadAttachmentUrls(request: RequestItem): Promise<Record<string, string>> {
+		const revisions = (request.attachments ?? []).flatMap((attachment) =>
+			(attachment.revisions ?? []).map((revision) => ({ attachment, revision })),
+		);
+		const entries = await Promise.all(
+			revisions.map(async ({ attachment, revision }) => [
+				revision.id,
+				await attachmentUrl(attachment.id, revision.id),
+			] as const),
+		);
+		return Object.fromEntries(entries);
 	}
 
 	function currentRevision(a: { revisions?: AttachmentRevision[] }): AttachmentRevision | undefined {
@@ -164,7 +181,9 @@
 			await resubmitRequest(r.id, attachments);
 			resubmitFiles = {};
 			await refresh();
-			detail = await getRequest(r.id);
+			const request = await getRequest(r.id);
+			attachmentUrls = await loadAttachmentUrls(request);
+			detail = request;
 			notify(translate($lang, 'resubmitSuccess'));
 		} catch (e) {
 			resubmitMsg = e instanceof Error ? e.message : String(e);
@@ -588,7 +607,7 @@
 
 									{#if cur}
 										<a
-											href={attachmentUrl(cur.storagePath)}
+											href={attachmentUrls[cur.id]}
 											target="_blank"
 											rel="noopener noreferrer"
 											class="flex items-center gap-2 rounded-xl bg-surface px-3 py-2 text-sm text-ink-700 ring-1 ring-ink-100 transition hover:text-brand-700"
@@ -609,7 +628,7 @@
 											<div class="space-y-1.5">
 												{#each (a.revisions?.slice(1) ?? []) as rev, i}
 													<a
-														href={attachmentUrl(rev.storagePath)}
+														href={attachmentUrls[rev.id]}
 														target="_blank"
 														rel="noopener noreferrer"
 														class="flex items-center gap-2 px-2 py-1 text-xs text-ink-600 transition hover:text-brand-700"

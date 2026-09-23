@@ -5,10 +5,6 @@ export const API_BASE = import.meta.env.DEV
 const SUPABASE_URL =
 	import.meta.env.PUBLIC_SUPABASE_URL || "https://eioaetihyoxzgpqfjkck.supabase.co";
 
-export function attachmentUrl(storagePath: string): string {
-	return `${SUPABASE_URL}/storage/v1/object/public/request-attachments/${storagePath}`;
-}
-
 export function avatarUrl(storagePath: string): string {
 	return `${SUPABASE_URL}/storage/v1/object/public/avatars/${storagePath}`;
 }
@@ -220,6 +216,17 @@ export async function getRequests(): Promise<RequestItem[]> {
 
 export async function getRequest(id: string): Promise<RequestItem> {
   return apiFetch(`/api/requests/${id}`);
+}
+
+export async function attachmentUrl(
+  attachmentId: string,
+  revisionId?: string,
+): Promise<string> {
+  const query = revisionId ? `?revisionId=${encodeURIComponent(revisionId)}` : "";
+  const result = await apiFetch<{ url: string; expiresIn: number }>(
+    `/api/attachments/${encodeURIComponent(attachmentId)}/signed-url${query}`,
+  );
+  return result.url;
 }
 
 export interface AttachmentInput {

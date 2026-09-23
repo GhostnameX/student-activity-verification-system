@@ -32,6 +32,7 @@
 	let rejectReason: string = $state('');
 	let detail: RequestItem | null = $state(null);
 	let detailLoading: boolean = $state(false);
+	let attachmentUrls: Record<string, string> = $state({});
 	let removingId: string | null = $state(null);
 	let removingStatus: 'approved' | 'rejected' = $state('approved');
 
@@ -90,8 +91,17 @@
 	async function openDetail(id: string) {
 		detailLoading = true;
 		detail = null;
+		attachmentUrls = {};
 		try {
-			detail = await getRequest(id);
+			const request = await getRequest(id);
+			const entries = await Promise.all(
+				(request.attachments ?? []).map(async (attachment) => [
+					attachment.id,
+					await attachmentUrl(attachment.id),
+				] as const),
+			);
+			attachmentUrls = Object.fromEntries(entries);
+			detail = request;
 		} catch (e) {
 			actionMsg = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -381,14 +391,14 @@
 							<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
 								{#each detail.attachments as a (a.id)}
 									<a
-										href={attachmentUrl(a.storagePath)}
+										href={attachmentUrls[a.id]}
 										target="_blank"
 										rel="noopener noreferrer"
 										class="group flex flex-col items-center gap-2 rounded-2xl border border-ink-100 bg-ink-50/60 p-3 text-center transition hover:border-brand-300 hover:bg-brand-50"
 									>
 										{#if a.fileType.startsWith('image/')}
 											<img
-												src={attachmentUrl(a.storagePath)}
+												src={attachmentUrls[a.id]}
 												alt={a.fileName}
 												class="h-20 w-full rounded-lg object-cover"
 											/>

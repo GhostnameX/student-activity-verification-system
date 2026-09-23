@@ -426,6 +426,7 @@ async function main(): Promise<number> {
   const uploadedA1 = await uploadAttachment(cookieA, 1);
   const upRes = uploadedA1.response;
   record("3f-student-upload-ok", upRes.status === 200 && !!upRes.json?.storagePath, `status=${upRes.status} path=${upRes.json?.storagePath}`);
+  record("13-upload-no-public-url", upRes.json?.url == null, `hasUrl=${upRes.json?.url != null}`);
 
   // --- upload from staff/admin rejected ---
   const formS = new FormData();
@@ -520,6 +521,33 @@ async function main(): Promise<number> {
   // detailed GET with revisions
   const detailA = await api(`/api/requests/${reqId}`, { cookie: `ua_session=${cookieA}` });
   record("3-get-detail-revisions", detailA.status === 200 && Array.isArray(detailA.json?.attachments) && detailA.json.attachments.length === 2 && detailA.json.attachments.every((a: any) => Array.isArray(a.revisions) && a.revisions.length === 1), `status=${detailA.status} atts=${detailA.json?.attachments?.length}`);
+
+  // ==========================================================
+  // Verify 13: private attachment signed URL authorization
+  // ==========================================================
+  const signedAtt = dbAtts[0];
+  const signedRev = dbRevs.find((revision) => revision.attachmentId === signedAtt.id)!;
+  const otherRev = dbRevs.find((revision) => revision.attachmentId !== signedAtt.id)!;
+  const signedPath = `/api/attachments/${signedAtt.id}/signed-url`;
+  const ownerSigned = await api(`${signedPath}?revisionId=${signedRev.id}`, { cookie: `ua_session=${cookieA}` });
+  record(
+    "13-owner-signed-url",
+    ownerSigned.status === 200
+      && ownerSigned.json?.expiresIn === 600
+      && ownerSigned.json?.url?.startsWith("https://mock-storage.local/")
+      && !ownerSigned.json?.url?.includes("/object/public/"),
+    `status=${ownerSigned.status} expires=${ownerSigned.json?.expiresIn}`,
+  );
+  const adminSigned = await api(signedPath, { cookie: `ua_session=${cookieAdmin}` });
+  record("13-admin-signed-url", adminSigned.status === 200 && adminSigned.json?.expiresIn === 600, `status=${adminSigned.status}`);
+  const otherStudentSigned = await api(signedPath, { cookie: `ua_session=${cookieB}` });
+  record("13-other-student-signed-url-403", otherStudentSigned.status === 403 && otherStudentSigned.json?.error === "forbidden", `status=${otherStudentSigned.status} err=${otherStudentSigned.json?.error}`);
+  const staffSigned = await api(signedPath, { cookie: `ua_session=${cookieStaff}` });
+  record("13-staff-signed-url-403", staffSigned.status === 403 && staffSigned.json?.error === "staff_cannot_access", `status=${staffSigned.status} err=${staffSigned.json?.error}`);
+  const anonSigned = await api(signedPath);
+  record("13-anon-signed-url-401", anonSigned.status === 401 && anonSigned.json?.error === "unauthorized", `status=${anonSigned.status}`);
+  const mismatchedRevision = await api(`${signedPath}?revisionId=${otherRev.id}`, { cookie: `ua_session=${cookieA}` });
+  record("13-revision-mismatch-404", mismatchedRevision.status === 404 && mismatchedRevision.json?.error === "attachment_revision_not_found", `status=${mismatchedRevision.status} err=${mismatchedRevision.json?.error}`);
 
   // ==========================================================
   // Verify 4: Revision state machine

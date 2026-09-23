@@ -35,6 +35,7 @@ const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 
 const ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf"]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const ATTACHMENT_SIGNED_URL_TTL_SECONDS = 10 * 60;
 
 const AVATAR_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
@@ -432,7 +433,7 @@ export const app = new Elysia()
           .from("request-attachments")
           .upload(path, buffer, {
             contentType: fileType,
-            cacheControl: "3600",
+            cacheControl: String(ATTACHMENT_SIGNED_URL_TTL_SECONDS),
             upsert: false,
           });
 
@@ -467,12 +468,101 @@ export const app = new Elysia()
         fileName,
         fileType,
         fileSize,
-        url: `${SUPABASE_URL}/storage/v1/object/public/request-attachments/${path}`,
       };
     },
     {
       body: t.Object({
         file: t.Any(),
+      }),
+    },
+  )
+
+  .get(
+    "/api/attachments/:id/signed-url",
+    async ({ params, query, headers, set }) => {
+      const user = await getSession(headers);
+      if (!user) {
+        set.status = 401;
+        return { error: "unauthorized" };
+      }
+
+      const [attachment] = await db
+        .select({
+          id: requestAttachments.id,
+          requestId: requestAttachments.requestId,
+          storagePath: requestAttachments.storagePath,
+          studentId: requests.studentId,
+        })
+        .from(requestAttachments)
+        .innerJoin(requests, eq(requestAttachments.requestId, requests.id))
+        .where(eq(requestAttachments.id, params.id))
+        .limit(1);
+
+      if (!attachment) {
+        set.status = 404;
+        return { error: "attachment_not_found" };
+      }
+      if (user.role === "staff") {
+        set.status = 403;
+        return { error: "staff_cannot_access" };
+      }
+      if (user.role === "student" && attachment.studentId !== user.id) {
+        set.status = 403;
+        return { error: "forbidden" };
+      }
+
+      let storagePath = attachment.storagePath;
+      if (query.revisionId) {
+        const [revision] = await db
+          .select({ storagePath: requestAttachmentRevisions.storagePath })
+          .from(requestAttachmentRevisions)
+          .where(
+            and(
+              eq(requestAttachmentRevisions.id, query.revisionId),
+              eq(requestAttachmentRevisions.attachmentId, attachment.id),
+            ),
+          )
+          .limit(1);
+        if (!revision) {
+          set.status = 404;
+          return { error: "attachment_revision_not_found" };
+        }
+        storagePath = revision.storagePath;
+      }
+
+      if (!storagePath) {
+        set.status = 404;
+        return { error: "attachment_file_not_found" };
+      }
+
+      let signedUrl: string;
+      if (allowMockStorage) {
+        signedUrl = `https://mock-storage.local/request-attachments/${encodeURIComponent(storagePath)}?token=gate-smoke`;
+      } else {
+        if (!supabaseAdmin) {
+          set.status = 500;
+          return { error: "storage_not_configured" };
+        }
+        const { data, error } = await supabaseAdmin.storage
+          .from("request-attachments")
+          .createSignedUrl(storagePath, ATTACHMENT_SIGNED_URL_TTL_SECONDS);
+        if (error || !data?.signedUrl) {
+          console.error(`[attachments] failed to create signed URL: ${error?.message ?? "missing URL"}`);
+          set.status = 502;
+          return { error: "signed_url_failed" };
+        }
+        signedUrl = data.signedUrl;
+      }
+
+      set.headers["Cache-Control"] = "private, no-store";
+      return {
+        url: signedUrl,
+        expiresIn: ATTACHMENT_SIGNED_URL_TTL_SECONDS,
+      };
+    },
+    {
+      query: t.Object({
+        revisionId: t.Optional(t.String()),
       }),
     },
   )

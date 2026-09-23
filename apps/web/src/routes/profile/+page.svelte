@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { lang } from '$lib/store';
-	import { user } from '$lib/auth';
+	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
 	import { updateMe, uploadAvatar, removeAvatar, changePassword, avatarUrl } from '$lib/api';
 	import { goto } from '$app/navigation';
@@ -32,7 +32,8 @@
 	const isStaff = $derived($user !== null && $user.role !== 'student');
 	const initial = $derived(($user?.name ?? '?').trim().charAt(0).toUpperCase());
 
-	onMount(() => {
+	onMount(async () => {
+		await loadSession();
 		if (!$user) {
 			goto('/auth/signin');
 			return;

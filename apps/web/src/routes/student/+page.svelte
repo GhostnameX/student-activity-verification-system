@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { lang } from '$lib/store';
-	import { user } from '$lib/auth';
+	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
 	import { goto } from '$app/navigation';
 	import {
@@ -65,6 +65,7 @@
 	}
 
 	onMount(async () => {
+		await loadSession();
 		currentDate = new Date();
 		if (!$user || $user.role !== 'student') {
 			goto('/auth/signin');

@@ -1,0 +1,16 @@
+{
+  "name": "@ua/load-tests",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "smoke": "k6 run scenarios/smoke.js --env-file=.env.loadtest",
+    "load": "k6 run scenarios/read-load.js --env-file=.env.loadtest",
+    "stress": "k6 run scenarios/stress.js --env-file=.env.loadtest",
+    "smoke:local": "k6 run scenarios/smoke.js -e BASE_URL=http://localhost:3000 -e TEST_STAFF_CODE=admin001 -e TEST_STAFF_PASSWORD=testpass123",
+    "load:local": "k6 run scenarios/read-load.js -e BASE_URL=http://localhost:3000 -e TEST_STAFF_CODE=admin001 -e TEST_STAFF_PASSWORD=testpass123"
+  },
+  "devDependencies": {
+    "k6": "^0.53.0"
+  }
+}

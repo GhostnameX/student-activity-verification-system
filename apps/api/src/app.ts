@@ -20,7 +20,7 @@ import { eq, and, desc, sql, isNull, count, countDistinct, inArray } from "drizz
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { getSession } from "./auth/session";
-import { hash, verify } from "@ua/db/auth-helpers";
+import { hashPassword, verifyPassword } from "@ua/db/auth-helpers";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
 const SUPABASE_URL = process.env.PUBLIC_SUPABASE_URL || "";
@@ -1765,7 +1765,7 @@ export const app = new Elysia()
         set.status = 401;
         return { error: "unauthorized" };
       }
-      const ok = await verify(row.passwordHash, body.currentPassword);
+      const ok = await verifyPassword(row.passwordHash, body.currentPassword);
       if (!ok) {
         set.status = 400;
         return { error: "wrong_password" };
@@ -1774,12 +1774,7 @@ export const app = new Elysia()
         set.status = 400;
         return { error: "password_too_short" };
       }
-      const passwordHash = await hash(body.newPassword, {
-        memoryCost: 19456,
-        timeCost: 2,
-        outputLen: 32,
-        parallelism: 1,
-      });
+      const passwordHash = await hashPassword(body.newPassword);
       await db
         .update(staff)
         .set({ passwordHash, updatedAt: sql`now()` })
@@ -1938,12 +1933,7 @@ export const app = new Elysia()
         return { error: "staff_code_taken" };
       }
 
-      const passwordHash = await hash(body.password, {
-        memoryCost: 19456,
-        timeCost: 2,
-        outputLen: 32,
-        parallelism: 1,
-      });
+      const passwordHash = await hashPassword(body.password);
 
       const [created] = await db
         .insert(staff)
@@ -2086,12 +2076,7 @@ export const app = new Elysia()
           set.status = 400;
           return { error: "password_too_short" };
         }
-        patch.passwordHash = await hash(body.password, {
-          memoryCost: 19456,
-          timeCost: 2,
-          outputLen: 32,
-          parallelism: 1,
-        });
+        patch.passwordHash = await hashPassword(body.password);
         await writeAuditLog({
           actorStaffId: user.id,
           action: "staff_reset_password",

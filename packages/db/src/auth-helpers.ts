@@ -27,6 +27,14 @@ function argon2Opts() {
   };
 }
 
+export function hashPassword(plain: string): Promise<string> {
+  return hash(plain, argon2Opts());
+}
+
+export function verifyPassword(passwordHash: string, plain: string): Promise<boolean> {
+  return verify(passwordHash, plain);
+}
+
 export async function ensureStaff(opts: {
   email: string;
   staffCode?: string;
@@ -40,7 +48,7 @@ export async function ensureStaff(opts: {
     return { user: existing[0], inserted: false };
   }
 
-  const passwordHash = await hash(opts.password, argon2Opts());
+  const passwordHash = await hashPassword(opts.password);
   const code = (opts.staffCode ?? opts.email).trim().toLowerCase();
 
   const [user] = await db
@@ -63,8 +71,6 @@ export async function ensureStaff(opts: {
 export async function verifyStaffByCode(staffCode: string, password: string) {
   const [row] = await db.select().from(staff).where(eq(staff.staffCode, staffCode));
   if (!row || !row.passwordHash) return null;
-  const ok = await verify(row.passwordHash, password);
+  const ok = await verifyPassword(row.passwordHash, password);
   return { user: row, ok };
 }
-
-export { hash, verify };

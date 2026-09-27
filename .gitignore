@@ -16,6 +16,8 @@ build/
 # misc
 *.log
 .DS_Store
+apps/api/smoke-run.txt
+apps/api/api.err
 
 # local MCP config (may contain access tokens)
 .cursor/mcp.json

@@ -22,7 +22,6 @@ import { randomUUID } from "crypto";
 import { getSession } from "./auth/session";
 import { hash, verify } from "@ua/db/auth-helpers";
 
-const PUBLIC_API_URL = process.env.PUBLIC_API_URL || "http://localhost:3000";
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
 const SUPABASE_URL = process.env.PUBLIC_SUPABASE_URL || "";
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -199,10 +198,6 @@ async function notifyUser(opts: {
     body: opts.body,
     requestId: opts.requestId ?? null,
   }).catch((e) => console.log(`[notify] insert failed: ${e}`));
-}
-
-function studentName(s: { firstName: string; lastName: string }): string {
-  return `${s.firstName} ${s.lastName}`;
 }
 
 export const app = new Elysia()
@@ -968,7 +963,7 @@ export const app = new Elysia()
   // ===== Staff review actions =====
   .post(
     "/api/requests/:id/approve",
-    async ({ params, body, headers, set }) => {
+    async ({ params, headers, set }) => {
     const user = await getSession(headers);
     if (!user) {
       set.status = 401;

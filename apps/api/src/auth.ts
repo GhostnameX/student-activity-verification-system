@@ -97,14 +97,9 @@ async function resolveGoogleProfile(code: string): Promise<{ email: string; name
 }
 
 export const auth = new Elysia()
-  .get("/api/auth/session", async ({ headers }) => {
-    const user = await getSession(headers);
-    return { user };
-  })
-
   .post(
     "/api/auth/password/signin",
-    async ({ body, set, headers, request, server }) => {
+    async ({ body, set, request, server }) => {
       const staffCode = body.staffCode.trim().toLowerCase();
       const clientIp = resolveLoginClientIp({
         isRender: process.env.RENDER === "true",

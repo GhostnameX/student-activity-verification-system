@@ -1,6 +1,6 @@
-import { db, pool } from "./client";
+import { db } from "./client";
 import { staff } from "./schema";
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { hash, verify } from "@node-rs/argon2";
 
 export interface StaffMember {

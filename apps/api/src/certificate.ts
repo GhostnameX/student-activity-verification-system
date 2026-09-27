@@ -8,7 +8,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TEMPLATE_PATH = path.join(__dirname, "..", "assets", "forms", "activity-request-form.pdf");
 const FONT_REGULAR_PATH = path.join(__dirname, "..", "assets", "fonts", "THSarabunNew.ttf");
-const FONT_BOLD_PATH = path.join(__dirname, "..", "assets", "fonts", "THSarabunNew-Bold.ttf");
 
 export interface CertificateData {
   requestNumber: number;
@@ -27,9 +26,6 @@ export interface CertificateData {
   reason?: string | null;
   reviewedDate: string;
 }
-
-const PAGE_WIDTH = 612;
-const PAGE_HEIGHT = 792;
 
 const FACULTY_ROWS: Array<{ label: string; baselineY: number }> = [
   { label: "สาขาวิชาการจัดการ", baselineY: 545.23 },
@@ -60,12 +56,9 @@ function findFacultyRow(faculty?: string | null): number | null {
 export async function generateCertificatePDF(data: CertificateData): Promise<Buffer> {
   const templateBytes = readFileSync(TEMPLATE_PATH);
   const fontBytes = readFileSync(FONT_REGULAR_PATH);
-  const boldFontBytes = readFileSync(FONT_BOLD_PATH);
-
   const pdfDoc = await PDFDocument.load(templateBytes);
   pdfDoc.registerFontkit(fontkit);
   const font = await pdfDoc.embedFont(fontBytes, { subset: true });
-  const boldFont = await pdfDoc.embedFont(boldFontBytes, { subset: true });
 
   const page = pdfDoc.getPage(0);
   const black = rgb(0, 0, 0);

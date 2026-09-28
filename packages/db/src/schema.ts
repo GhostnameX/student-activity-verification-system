@@ -350,6 +350,28 @@ export const oauthBindSessions = pgTable(
   ],
 );
 
+// Short-lived Google OAuth CSRF state. Only a SHA-256 hash is persisted; the
+// raw state stays in the browser's HttpOnly cookie and Google's callback URL.
+export const oauthLoginStates = pgTable(
+  "oauth_login_states",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    stateHash: text("state_hash").notNull(),
+    redirectPath: text("redirect_path"),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("oauth_login_states_state_hash_uidx").on(t.stateHash),
+    index("oauth_login_states_expires_at_idx").on(t.expiresAt),
+  ],
+);
+
 export const students = pgTable(
   "students",
   {

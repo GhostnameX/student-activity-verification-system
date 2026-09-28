@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import type { OAuthStateStore } from "../src/auth/oauth-state-store";
 
 const originalEnv = {
   NODE_ENV: process.env.NODE_ENV,
@@ -9,7 +10,41 @@ const originalEnv = {
   WEB_ORIGIN: process.env.WEB_ORIGIN,
 };
 
+interface StoredState {
+  redirectPath: string | null;
+  expiresAt: Date;
+  usedAt: Date | null;
+}
+
+const durableRows = new Map<string, StoredState>();
+let createAuth: (store: OAuthStateStore) => { handle(request: Request): Promise<Response> };
+let hashOAuthState: (state: string) => string;
 let authApp: { handle(request: Request): Promise<Response> };
+
+class TestDurableOAuthStateStore implements OAuthStateStore {
+  async create(input: { state: string; redirectPath?: string; expiresAt: Date }) {
+    durableRows.set(hashOAuthState(input.state), {
+      redirectPath: input.redirectPath ?? null,
+      expiresAt: input.expiresAt,
+      usedAt: null,
+    });
+  }
+
+  async consumeByHash(stateHash: string, now: Date) {
+    const row = durableRows.get(stateHash);
+    if (!row || row.usedAt || row.expiresAt.getTime() <= now.getTime()) return null;
+    row.usedAt = now;
+    return { redirectPath: row.redirectPath };
+  }
+
+  async cleanup(olderThan: Date) {
+    for (const [hash, row] of durableRows) {
+      if (row.expiresAt < olderThan || (row.usedAt && row.usedAt < olderThan)) {
+        durableRows.delete(hash);
+      }
+    }
+  }
+}
 
 beforeAll(async () => {
   process.env.NODE_ENV = "production";
@@ -18,7 +53,15 @@ beforeAll(async () => {
   process.env.GOOGLE_CLIENT_SECRET = "test-client-secret";
   process.env.GOOGLE_HD = "psru.ac.th";
   process.env.WEB_ORIGIN = "https://kingplapow.com";
-  ({ auth: authApp } = await import(`../src/auth?oauth-security-test=${Date.now()}`));
+  const authModule = await import(`../src/auth?oauth-security-test=${Date.now()}`);
+  const securityModule = await import("../src/auth/oauth-security");
+  createAuth = authModule.createAuth;
+  hashOAuthState = securityModule.hashOAuthState;
+});
+
+beforeEach(() => {
+  durableRows.clear();
+  authApp = createAuth(new TestDurableOAuthStateStore());
 });
 
 afterAll(() => {
@@ -28,9 +71,9 @@ afterAll(() => {
   }
 });
 
-async function startOAuth(redirect?: string) {
+async function startOAuth(app = authApp, redirect?: string) {
   const suffix = redirect ? `?redirect=${encodeURIComponent(redirect)}` : "";
-  const response = await authApp.handle(
+  const response = await app.handle(
     new Request(`https://kingplapow.com/api/auth/google/url${suffix}`),
   );
   const body = await response.json() as { redirectUrl: string };
@@ -40,46 +83,56 @@ async function startOAuth(redirect?: string) {
   return { response, authorizationUrl, state, cookie };
 }
 
+function callback(state: string, cookie: string) {
+  return new Request(
+    `https://kingplapow.com/api/auth/google/callback?state=${state}`,
+    { headers: { cookie } },
+  );
+}
+
 describe("production OAuth route security", () => {
-  test("issues a hosted-domain request with a browser-bound state cookie", async () => {
-    const started = await startOAuth("/student");
+  test("issues a hosted-domain request with a browser-bound hashed state", async () => {
+    const started = await startOAuth(authApp, "/student");
     expect(started.response.status).toBe(200);
     expect(started.authorizationUrl.searchParams.get("hd")).toBe("psru.ac.th");
-    expect(started.state).not.toBe("");
     expect(started.cookie).toContain(`ua_oauth_state=${started.state}`);
     expect(started.cookie).toContain("HttpOnly");
     expect(started.cookie).toContain("SameSite=Lax");
     expect(started.cookie).toContain("Secure");
+    expect(durableRows.has(started.state)).toBe(false);
+    expect(durableRows.has(hashOAuthState(started.state))).toBe(true);
   });
 
-  test("rejects a state not bound to the callback browser", async () => {
+  test("does not consume mismatch, accepts once, then rejects replay", async () => {
     const started = await startOAuth();
-    const rejected = await authApp.handle(
-      new Request(`https://kingplapow.com/api/auth/google/callback?code=dummy&state=${started.state}`),
-    );
-    expect(rejected.status).toBe(302);
-    expect(rejected.headers.get("location")).toContain("error=invalid_state");
-  });
-
-  test("does not consume state on cookie mismatch, then rejects replay", async () => {
-    const started = await startOAuth();
-    const mismatch = await authApp.handle(new Request(
-      `https://kingplapow.com/api/auth/google/callback?state=${started.state}`,
-      { headers: { cookie: "ua_oauth_state=different-browser" } },
-    ));
+    const mismatch = await authApp.handle(callback(started.state, "ua_oauth_state=different-browser"));
     expect(mismatch.headers.get("location")).toContain("error=invalid_state");
 
     const matchingCookie = started.cookie.split(";", 1)[0];
-    const accepted = await authApp.handle(new Request(
-      `https://kingplapow.com/api/auth/google/callback?state=${started.state}`,
-      { headers: { cookie: matchingCookie } },
-    ));
+    const accepted = await authApp.handle(callback(started.state, matchingCookie));
     expect(accepted.headers.get("location")).toContain("error=missing_code");
-
-    const replay = await authApp.handle(new Request(
-      `https://kingplapow.com/api/auth/google/callback?state=${started.state}`,
-      { headers: { cookie: matchingCookie } },
-    ));
+    const replay = await authApp.handle(callback(started.state, matchingCookie));
     expect(replay.headers.get("location")).toContain("error=invalid_state");
+  });
+
+  test("survives app recreation because state is outside the app instance", async () => {
+    const firstProcess = createAuth(new TestDurableOAuthStateStore());
+    const started = await startOAuth(firstProcess, "/student");
+    const restartedProcess = createAuth(new TestDurableOAuthStateStore());
+    const response = await restartedProcess.handle(
+      callback(started.state, started.cookie.split(";", 1)[0]),
+    );
+    expect(response.headers.get("location")).toContain("error=missing_code");
+  });
+
+  test("keeps only the latest duplicate login flow active", async () => {
+    const oldFlow = await startOAuth();
+    const latestFlow = await startOAuth();
+    const latestCookie = latestFlow.cookie.split(";", 1)[0];
+    const oldCallback = await authApp.handle(callback(oldFlow.state, latestCookie));
+    expect(oldCallback.headers.get("location")).toContain("error=invalid_state");
+    expect(durableRows.get(hashOAuthState(oldFlow.state))?.usedAt).toBeNull();
+    const latestCallback = await authApp.handle(callback(latestFlow.state, latestCookie));
+    expect(latestCallback.headers.get("location")).toContain("error=missing_code");
   });
 });

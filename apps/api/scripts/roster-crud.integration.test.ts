@@ -95,6 +95,18 @@ function cookieValue(setCookie: string, name: string): string | null {
   return null;
 }
 
+function responseCookies(response: Response): string[] {
+  return response.headers.getSetCookie();
+}
+
+function responseCookieValue(response: Response, name: string): string | null {
+  for (const cookie of responseCookies(response)) {
+    const pair = cookie.split(";", 1)[0];
+    if (pair.startsWith(`${name}=`)) return pair.slice(name.length + 1);
+  }
+  return null;
+}
+
 function cookieHeader(sid: string): string {
   return `ua_session=${sid}`;
 }
@@ -223,7 +235,8 @@ beforeAll(async () => {
   }
 
   await db.execute(sql`
-    TRUNCATE students, staff, sessions, audit_logs, requests, request_attachments,
+    TRUNCATE students, staff, sessions, oauth_bind_sessions, oauth_login_states,
+      audit_logs, requests, request_attachments,
       request_attachment_revisions, attachment_uploads, notifications, activities CASCADE
   `);
 
@@ -741,6 +754,49 @@ describe("POST /api/roster/students/:id/restore", () => {
 });
 
 // --- 8. login behaviour around soft delete ----------------------------------
+
+describe("OAuth bind cookie integration", () => {
+  test("unbound callback emits separate state-clear and bind cookies that round-trip", async () => {
+    const studentId = await createStudent(staffCookie, { phone: "0812345678" });
+    const email = `bind.${randomUUID()}@psru.ac.th`;
+    process.env.DEV_GOOGLE_EMAIL = email;
+
+    const callback = await app.handle(
+      new Request(`${ORIGIN}/api/auth/google/callback?code=bind-code`),
+    );
+    const callbackCookies = responseCookies(callback);
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get("location")).toBe(`${ORIGIN}/auth/bind`);
+    expect(callbackCookies).toHaveLength(2);
+    expect(callbackCookies.filter((cookie) => cookie.startsWith("ua_oauth_state=;"))).toHaveLength(1);
+    expect(callbackCookies.filter((cookie) => cookie.startsWith("ua_oauth_bind=") && !cookie.startsWith("ua_oauth_bind=;"))).toHaveLength(1);
+    expect(callbackCookies.every((cookie) => !(cookie.includes("ua_oauth_state=") && cookie.includes("ua_oauth_bind=")))).toBe(true);
+
+    const bindToken = responseCookieValue(callback, "ua_oauth_bind");
+    expect(bindToken).not.toBeNull();
+    const bindCookie = `ua_oauth_bind=${bindToken}`;
+    const status = await api("GET", "/api/auth/google/bind/session", { cookie: bindCookie });
+    expect(status.status).toBe(200);
+    expect(status.body.valid).toBe(true);
+
+    const bound = await app.handle(
+      new Request(`${ORIGIN}/api/auth/google/bind`, {
+        method: "POST",
+        headers: {
+          cookie: bindCookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ studentId, phone: "0812345678" }),
+      }),
+    );
+    const boundCookies = responseCookies(bound);
+    expect(bound.status).toBe(200);
+    expect(boundCookies).toHaveLength(2);
+    expect(boundCookies.filter((cookie) => cookie.startsWith("ua_oauth_bind=;"))).toHaveLength(1);
+    expect(boundCookies.filter((cookie) => cookie.startsWith("ua_session=") && !cookie.startsWith("ua_session=;"))).toHaveLength(1);
+    expect(boundCookies.every((cookie) => !(cookie.includes("ua_oauth_bind=") && cookie.includes("ua_session=")))).toBe(true);
+  });
+});
 
 describe("OAuth login with roster state", () => {
   test("an active student can sign in and gets a session", async () => {

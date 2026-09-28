@@ -39,6 +39,7 @@
 	let errorMsg: string = $state('');
 	let showSuccess: boolean = $state(false);
 	let successText: string = $state('');
+	const studentUser = $derived($user?.role === 'student' ? $user : null);
 	let successTimer: ReturnType<typeof setTimeout> | null = $state(null);
 	let currentDate: Date | null = $state(null);
 
@@ -252,7 +253,7 @@
 				onclose={closeSuccess}
 			/>
 		{/if}
-		{#if $user && !$user.phone}
+		{#if studentUser && !studentUser.phone}
 			<div
 				class="mt-4 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
 			>
@@ -278,19 +279,19 @@
 				<div class="grid grid-cols-2 gap-3 rounded-xl border border-ink-100 bg-ink-50/60 p-3.5 text-sm">
 					<div>
 						<div class="text-xs text-ink-400">{translate($lang, 'nameLabel')}</div>
-						<div class="font-medium text-ink-800">{$user?.name ?? '-'}</div>
+						<div class="font-medium text-ink-800">{studentUser?.name ?? '-'}</div>
 					</div>
 					<div>
 						<div class="text-xs text-ink-400">{translate($lang, 'studentId')}</div>
-						<div class="font-medium text-ink-800">{$user?.studentId ?? '-'}</div>
+						<div class="font-medium text-ink-800">{studentUser?.studentId ?? '-'}</div>
 					</div>
 					<div class="col-span-2">
 						<div class="text-xs text-ink-400">{translate($lang, 'major')}</div>
-						<div class="font-medium text-ink-800">{$user?.faculty ?? '-'}</div>
+						<div class="font-medium text-ink-800">{studentUser?.faculty ?? '-'}</div>
 					</div>
 					<div>
 						<div class="text-xs text-ink-400">{translate($lang, 'phone')}</div>
-						<div class="font-medium text-ink-800">{$user?.phone ?? '-'}</div>
+						<div class="font-medium text-ink-800">{studentUser?.phone ?? '-'}</div>
 					</div>
 					<div>
 						<div class="text-xs text-ink-400">{translate($lang, 'date')}</div>

@@ -12,8 +12,8 @@
 | บทบาท | วิธีล็อกอิน | ขอบเขตการทำงาน |
 |---|---|---|
 | **Student** | Google OAuth เท่านั้น (บังคับ `hd=psru.ac.th`) | ส่งคำร้อง + แนบหลักฐาน + ติดตามสถานะ |
-| **Staff** | Email + Password (Argon2) เท่านั้น | จัดการ Student Roster เท่านั้น — ห้ามแตะ Request |
-| **Admin** | Email + Password (Argon2) เท่านั้น | จัดการ Request ทั้งหมด + สถิติ + บันทึก + กิจกรรม |
+| **Staff** | Staff Code + Password (Argon2) เท่านั้น | จัดการ Student Roster เท่านั้น — ห้ามแตะ Request |
+| **Admin** | Staff Code + Password (Argon2) เท่านั้น | จัดการ Request ทั้งหมด + สถิติ + บันทึก + กิจกรรม |
 
 ### 1.2 ข้อจำกัดสิทธิ์ (MUST)
 - **Staff ห้ามเข้าถึง Request API ทุกกรณี** — `GET /api/requests`, `GET /api/requests/:id` ต้องคืน 403 เมื่อ role=staff
@@ -90,7 +90,7 @@ revision_required
 ## 4. Authentication & Session
 
 - Student: Google OAuth (hd=psru.ac.th) — email ต้องตรง `students.email`, status ต้อง active
-- Staff/Admin: email+password → Argon2 (`verifyStaffPassword`) — password hash ใน `staff.password_hash`
+- Staff/Admin: staffCode+password → Argon2 (`verifyStaffByCode`) — password hash ใน `staff.password_hash`; staff email ไม่ใช่ identity ใน V1
 - Session: custom cookie `ua_session`, TTL 7 วัน, polymorphic student/staff, lazy delete เมื่อหมดอายุ
 - `oauthStates` (in-memory) ต้องมี eviction ของ state หมดอายุ
 

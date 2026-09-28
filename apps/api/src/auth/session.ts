@@ -6,19 +6,30 @@ import { randomUUID } from "crypto";
 export const SESSION_COOKIE = "ua_session";
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-export interface SessionUser {
+interface SessionUserBase {
   id: string;
   name: string;
-  email: string;
-  role: "student" | "staff" | "admin";
-  faculty?: string | null;
-  studentId?: string | null;
-  phone?: string | null;
   avatarUrl?: string | null;
-  admissionYear?: number | null;
-  kind?: "main" | "emergency" | null;
   provider: "google" | "password";
 }
+
+export type SessionUser = SessionUserBase & (
+  | {
+      role: "student";
+      studentId: string;
+      email: string;
+      phone: string | null;
+      faculty: string | null;
+      admissionYear: number | null;
+      provider: "google";
+    }
+  | {
+      role: "staff" | "admin";
+      staffCode: string;
+      kind: "main" | "emergency";
+      provider: "password";
+    }
+);
 
 export function parseCookies(header?: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -52,16 +63,44 @@ export function clearSessionCookieString(): string {
 
 type SetHeader = Record<string, string | string[] | number | undefined>;
 
+/**
+ * Append a Set-Cookie value instead of replacing it.
+ *
+ * A single response may need several cookies at once (e.g. creating a login
+ * session while clearing a temporary OAuth bind cookie), and Set-Cookie is the
+ * one header that cannot be comma-joined — it must be sent as separate lines.
+ */
+export function appendSetCookie(setHeaders: SetHeader, cookie: string): void {
+  const current = setHeaders["Set-Cookie"];
+  if (!current) setHeaders["Set-Cookie"] = [cookie];
+  else if (Array.isArray(current)) current.push(cookie);
+  else setHeaders["Set-Cookie"] = [String(current), cookie];
+}
+
+/** Minimal surface of the Drizzle executor needed by session writes. */
+export type SessionWriteExecutor = Pick<typeof db, "insert">;
+
+/**
+ * Insert a login session and (unless deferred) set its cookie.
+ *
+ * `executor` lets the insert join an existing transaction so a session is never
+ * created for work that later rolls back. When it is a transaction, pass
+ * `deferCookie: true` and call appendSetCookie yourself only after COMMIT —
+ * otherwise a rollback would still leave a Set-Cookie for a session row that
+ * does not exist.
+ */
 export async function createSessionFor(
   setHeaders: SetHeader,
   userId: string,
-  role: SessionUser["role"],
-  provider: SessionUser["provider"],
+  role: "student" | "staff" | "admin",
+  provider: "google" | "password",
+  executor: SessionWriteExecutor = db,
+  deferCookie = false,
 ): Promise<string> {
   const sid = randomUUID();
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await db.insert(sessions).values({ id: sid, userId, authMethod: provider, role, expiresAt });
-  setHeaders["Set-Cookie"] = sessionCookieString(sid);
+  await executor.insert(sessions).values({ id: sid, userId, authMethod: provider, role, expiresAt });
+  if (!deferCookie) appendSetCookie(setHeaders, sessionCookieString(sid));
   return sid;
 }
 
@@ -86,7 +125,11 @@ export async function getSession(headers: Record<string, unknown>): Promise<Sess
       .limit(1);
     const s = stu[0];
     if (!s) return null;
-    if (s.status !== "active") {
+    // A soft-deleted student is no longer an account holder. Roster soft delete
+    // already revokes live sessions in the same transaction, but this is the
+    // invariant itself: any code path that sets deleted_at (a future bulk
+    // import, a manual fix) must not leave a usable session behind.
+    if (s.deletedAt !== null || s.status !== "active") {
       await db.delete(sessions).where(eq(sessions.id, sid)).catch(() => {});
       return null;
     }
@@ -114,12 +157,9 @@ export async function getSession(headers: Record<string, unknown>): Promise<Sess
   return {
     id: st.id,
     name: st.fullName,
-    email: st.email,
     role: st.role === "admin" ? "admin" : "staff",
-    faculty: null,
-    studentId: null,
-    phone: null,
     avatarUrl: st.avatarUrl ?? null,
+    staffCode: st.staffCode,
     kind: st.kind,
     provider: "password",
   };

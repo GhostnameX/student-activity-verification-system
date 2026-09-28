@@ -28,8 +28,47 @@ export async function getGoogleSignInUrl(redirect?: string): Promise<string> {
 }
 
 export async function signOut(): Promise<void> {
-  await fetch(`${API_BASE}/api/auth/signout`, {
-    method: "POST",
-    credentials: "include",
-  }).catch(() => undefined);
+	await fetch(`${API_BASE}/api/auth/signout`, {
+		method: "POST",
+		credentials: "include",
+	}).catch(() => undefined);
+}
+
+export interface BindSessionStatus {
+	valid: boolean;
+	expiresAt?: string;
+}
+
+/**
+ * Whether the temporary OAuth bind cookie is still usable. The response never
+ * contains the Google email or a studentId — only this flag and an expiry.
+ */
+export async function getBindSessionStatus(): Promise<BindSessionStatus> {
+	try {
+		const res = await fetch(`${API_BASE}/api/auth/google/bind/session`, {
+			credentials: "include",
+		});
+		if (!res.ok) return { valid: false };
+		return (await res.json()) as BindSessionStatus;
+	} catch {
+		return { valid: false };
+	}
+}
+
+/**
+ * Link the Google identity held server-side to a student record. The body
+ * carries only what the user typed: the email is never sent from the client.
+ */
+export async function bindStudentAccount(studentId: string, phone: string) {
+	const res = await fetch(`${API_BASE}/api/auth/google/bind`, {
+		method: "POST",
+		credentials: "include",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ studentId, phone }),
+	});
+	const data = await res.json().catch(() => null);
+	if (!res.ok) {
+		return { user: null as SessionUser | null, error: (data as { error?: string })?.error ?? "bind_failed" };
+	}
+	return { user: (data as { user: SessionUser }).user, error: null as string | null };
 }

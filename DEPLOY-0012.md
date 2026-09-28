@@ -1,5 +1,10 @@
 # DEPLOY-0012 — Staff code login + staff management (prod)
 
+> Historical note: `0012` used the then-required `staff.email` only to backfill
+> `staff_code`. Current V1 identity is `staff_code`; `0018_remove_staff_email`
+> removes the obsolete column after compatible code is deployed. Do not edit or
+> replay `0012` to perform that cleanup.
+
 > **STATUS: PLANNED — ยังไม่รัน prod ใดๆ**
 > รอ Vee review + กด confirm ผ่าน SQL Editor ทีละ STEP ก่อนรันจริง
 >

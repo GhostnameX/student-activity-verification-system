@@ -5,7 +5,6 @@ import { hash, verify } from "@node-rs/argon2";
 
 export interface StaffMember {
   id: string;
-  email: string;
   staffCode: string;
   role: "student" | "staff" | "admin";
   fullName: string;
@@ -36,26 +35,25 @@ export function verifyPassword(passwordHash: string, plain: string): Promise<boo
 }
 
 export async function ensureStaff(opts: {
-  email: string;
-  staffCode?: string;
+  staffCode: string;
   fullName: string;
   role: StaffRole;
   password: string;
   kind?: StaffKind;
 }) {
-  const existing = await db.select().from(staff).where(eq(staff.email, opts.email));
+  const code = opts.staffCode.trim().toLowerCase();
+  if (!code) throw new Error("staffCode is required");
+
+  const existing = await db.select().from(staff).where(eq(staff.staffCode, code));
   if (existing.length > 0) {
     return { user: existing[0], inserted: false };
   }
 
   const passwordHash = await hashPassword(opts.password);
-  const code = (opts.staffCode ?? opts.email).trim().toLowerCase();
-
   const [user] = await db
     .insert(staff)
     .values({
       id: crypto.randomUUID(),
-      email: opts.email,
       staffCode: code,
       passwordHash,
       role: opts.role,

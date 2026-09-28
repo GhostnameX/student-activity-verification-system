@@ -50,15 +50,16 @@ bun install
 
 ### 2. Configure environment
 
-Copy `.env.example` and fill in real values in each workspace:
+Copy `.env.example` for local development. Database URLs must remain local:
 
 | File | Contents |
 |------|----------|
-| `packages/db/.env` | `DATABASE_URL` (Supabase pooler) |
-| `apps/api/.env` | `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `WEB_ORIGIN`, `API_PORT`, `PUBLIC_API_URL`, `PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
+| `packages/db/.env` | `DATABASE_URL` for `127.0.0.1:8520/ua_dev` |
+| `apps/api/.env` | Local `DATABASE_URL`, auth/app settings, and `PUBLIC_SUPABASE_URL` |
+| `apps/api/.env.test.local` | `TEST_DATABASE_URL` for `127.0.0.1:8520/ua_roster_test` |
 | `apps/web/.env` | `PUBLIC_API_URL`, `PUBLIC_APP_URL`, `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY` |
 
-> ⚠️ Never commit `.env` files. They are gitignored.
+Production `DATABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured in Render only. Explicit local storage maintenance may use the gitignored `apps/api/.env.storage-prod.local`; it is never auto-loaded. Never commit `.env` files.
 
 ### 3. Run migrations & seed
 
@@ -83,11 +84,17 @@ bun run dev
 | `bun run dev` | Start API + web dev servers |
 | `bun run build` | Build all packages |
 | `bun run build:web` | Build web (for Vercel) |
+| `bun run test:db-guard` | Run pure DB target guard unit tests (always run first) |
+| `bun run test:roster` | Run roster integration tests through the isolated DB wrapper |
 | `bun run check` | svelte-check (in `apps/web`) |
 | `bun run db:generate` | Generate Drizzle migration |
 | `bun run db:migrate` | Apply migrations |
 | `bun run db:seed` | Seed database |
 | `bun run db:studio` | Open Drizzle Studio |
+
+### Database safety
+
+Do not run plain `bun test` or `bun test --cwd apps/api`. Bun test discovery can import database-backed modules. Integration tests read `TEST_DATABASE_URL` only and refuse any target except loopback `ua_roster_test`. Normal local processes refuse remote databases unless `NODE_ENV=production` or the operator explicitly sets `ALLOW_REMOTE_DATABASE=1`; test runners refuse remote databases in every mode.
 
 ## Security
 

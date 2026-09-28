@@ -113,6 +113,27 @@
       "when": 1797350400000,
       "tag": "0015_attachment_upload_ownership",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1797436800000,
+      "tag": "0016_roster_soft_delete_import_bind",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1797523200000,
+      "tag": "0017_oauth_bind_attempt_limit",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1797609600000,
+      "tag": "0018_remove_staff_email",
+      "breakpoints": true
     }
   ]
 }

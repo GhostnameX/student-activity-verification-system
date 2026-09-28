@@ -21,6 +21,7 @@ import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { getSession } from "./auth/session";
 import { hashPassword, verifyPassword } from "@ua/db/auth-helpers";
+import { roster } from "./roster";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
 const SUPABASE_URL = process.env.PUBLIC_SUPABASE_URL || "";
@@ -210,6 +211,7 @@ export const app = new Elysia()
     }),
   )
   .use(auth)
+  .use(roster)
   .get("/health", () => ({ status: "ok", ts: Date.now() }))
 
   // ===== Activities =====
@@ -1885,7 +1887,6 @@ export const app = new Elysia()
     const rows = await db
       .select({
         id: staff.id,
-        email: staff.email,
         staffCode: staff.staffCode,
         fullName: staff.fullName,
         role: staff.role,
@@ -1939,7 +1940,6 @@ export const app = new Elysia()
         .insert(staff)
         .values({
           id: randomUUID(),
-          email: (body.email ?? "").trim().toLowerCase(),
           staffCode,
           passwordHash,
           role,
@@ -1949,7 +1949,6 @@ export const app = new Elysia()
         })
         .returning({
           id: staff.id,
-          email: staff.email,
           staffCode: staff.staffCode,
           fullName: staff.fullName,
           role: staff.role,
@@ -1968,7 +1967,6 @@ export const app = new Elysia()
     },
     {
       body: t.Object({
-        email: t.Optional(t.String()),
         staffCode: t.String(),
         fullName: t.String(),
         password: t.String(),
@@ -2091,7 +2089,6 @@ export const app = new Elysia()
         .where(eq(staff.id, params.id))
         .returning({
           id: staff.id,
-          email: staff.email,
           staffCode: staff.staffCode,
           fullName: staff.fullName,
           role: staff.role,
@@ -2102,7 +2099,6 @@ export const app = new Elysia()
     },
     {
       body: t.Object({
-        email: t.Optional(t.String()),
         staffCode: t.Optional(t.String()),
         fullName: t.Optional(t.String()),
         password: t.Optional(t.String()),

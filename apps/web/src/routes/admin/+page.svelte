@@ -63,7 +63,6 @@
 
 	function emptyStaffForm() {
 		return {
-			email: '',
 			staffCode: '',
 			fullName: '',
 			password: '',
@@ -265,7 +264,6 @@
 
 	function openEditStaff(s: StaffMember) {
 		staffForm = {
-			email: s.email,
 			staffCode: s.staffCode,
 			fullName: s.fullName,
 			password: '',
@@ -289,7 +287,6 @@
 		staffMsg = '';
 		try {
 			const payload: StaffInput = {
-				email: staffForm.email?.trim() || undefined,
 				staffCode: staffForm.staffCode.trim(),
 				fullName: staffForm.fullName.trim(),
 				role: staffForm.role,

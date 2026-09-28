@@ -9,18 +9,27 @@ export function avatarUrl(storagePath: string): string {
 	return `${SUPABASE_URL}/storage/v1/object/public/avatars/${storagePath}`;
 }
 
-export interface SessionUser {
+interface SessionUserBase {
   id: string;
   name: string;
-  email: string;
-  role: string;
-  faculty?: string | null;
-  studentId?: string | null;
-  phone?: string | null;
   avatarUrl?: string | null;
-  admissionYear?: number | null;
-  kind?: "main" | "emergency" | null;
 }
+
+export type SessionUser = SessionUserBase & (
+  | {
+      role: "student";
+      studentId: string;
+      email: string;
+      phone: string | null;
+      faculty: string | null;
+      admissionYear: number | null;
+    }
+  | {
+      role: "staff" | "admin";
+      staffCode: string;
+      kind: "main" | "emergency";
+    }
+);
 
 export interface Activity {
   id: string;
@@ -312,7 +321,6 @@ export async function getAuditLogs(): Promise<AuditLogItem[]> {
 
 export interface StaffMember {
   id: string;
-  email: string;
   staffCode: string;
   fullName: string;
   role: "staff" | "admin";
@@ -323,7 +331,6 @@ export interface StaffMember {
 }
 
 export interface StaffInput {
-  email?: string;
   staffCode: string;
   fullName: string;
   password?: string;

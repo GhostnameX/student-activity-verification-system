@@ -8,6 +8,7 @@ import {
   uniqueIndex,
   boolean,
   jsonb,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -58,7 +59,6 @@ export const staff = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
-    email: text("email").notNull(),
     staffCode: text("staff_code").notNull(),
     passwordHash: text("password_hash").notNull(),
     role: roleEnum("role").notNull(), // 'admin' | 'staff' (student not used)
@@ -74,7 +74,6 @@ export const staff = pgTable(
       .notNull(),
   },
   (t) => [
-    uniqueIndex("staff_email_unique").on(t.email),
     uniqueIndex("staff_code_unique").on(t.staffCode),
   ],
 );
@@ -283,6 +282,7 @@ export const importBatches = pgTable("import_batches", {
   fileName: text("file_name").notNull(),
   totalRows: integer("total_rows").notNull().default(0),
   importedRows: integer("imported_rows").notNull().default(0),
+  status: text("status").notNull().default("completed"),
   importedBy: text("imported_by").references(() => staff.id, {
     onDelete: "set null",
   }),
@@ -290,6 +290,65 @@ export const importBatches = pgTable("import_batches", {
     .default(sql`now()`)
     .notNull(),
 });
+
+// Per-row snapshot of one import batch so a batch can be rolled back to its exact
+// prior state: 'inserted' rows have before_data = NULL, 'updated' rows keep the
+// pre-import row. student_id is deliberately NOT a foreign key — rolling back an
+// 'inserted' row must keep the snapshot for audit after the student row is gone.
+export const importBatchItems = pgTable(
+  "import_batch_items",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    batchId: text("batch_id")
+      .notNull()
+      .references(() => importBatches.id, { onDelete: "cascade" }),
+    studentId: text("student_id").notNull(),
+    action: text("action").notNull(), // 'inserted' | 'updated'
+    beforeData: jsonb("before_data"),
+    afterData: jsonb("after_data").notNull(),
+    createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("import_batch_items_batch_student_uidx").on(t.batchId, t.studentId),
+    check("import_batch_items_action_check", sql`${t.action} in ('inserted','updated')`),
+  ],
+);
+
+// Short-lived, one-time record of a completed Google OAuth exchange whose email
+// is not bound to any student yet. Holds the OAuth identity server-side during
+// first-login binding: the client only ever holds the raw cookie token, and the
+// email is never treated as client-supplied input. token_hash is a hash of the
+// bearer token, not the token itself.
+export const oauthBindSessions = pgTable(
+  "oauth_bind_sessions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    tokenHash: text("token_hash").notNull(),
+    email: text("email").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    // Failed bind attempts made with this session's token. A wrong studentId is
+    // retryable, so the counter is what stops enumeration: once it reaches
+    // BIND_MAX_ATTEMPTS the session is invalidated via used_at. Kept in Postgres
+    // (not process memory) so the cap holds across instances and restarts.
+    attempts: integer("attempts")
+      .default(0)
+      .notNull(),
+    createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("oauth_bind_sessions_token_hash_uidx").on(t.tokenHash),
+    index("oauth_bind_sessions_expires_at_idx").on(t.expiresAt),
+  ],
+);
 
 export const students = pgTable(
   "students",
@@ -308,6 +367,13 @@ export const students = pgTable(
     importBatchId: text("import_batch_id").references(() => importBatches.id, {
       onDelete: "set null",
     }),
+    // Soft delete only. Separate from `status`: a deleted student keeps its
+    // academic status, and restore must not change either field implicitly.
+    deletedAt: timestamp("deleted_at"),
+    // When a Google OAuth email was bound to this student. Not a verification
+    // timestamp — the OAuth provider is the verifier, and there is no phone/OTP
+    // verification in V1, so no *_verified_at columns exist.
+    emailBoundAt: timestamp("email_bound_at"),
     createdAt: timestamp("created_at")
       .default(sql`now()`)
       .notNull(),

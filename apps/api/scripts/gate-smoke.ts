@@ -65,10 +65,10 @@ async function inspectPaintedRequestNumber(pdfBytes: Uint8Array): Promise<{ text
   return { text, coverBeforeText: coverAt >= 0 && coverAt < (field.index ?? -1) };
 }
 
-// refuse unless DATABASE_URL is local postgres targeting ua_dev; never shared/remote/prod.
+// Refuse unless the selected URL is local Postgres targeting the expected DB.
 // returns a SANITIZED reason (host/database only — never leaks user/password or full URL).
-function assertLocalDevDb(url: string | undefined): string | null {
-  if (!url) return "DATABASE_URL not set";
+function assertLocalDb(url: string | undefined, expectedDatabase: string): string | null {
+  if (!url) return "database URL not set";
   let u: URL;
   try { u = new URL(url); } catch { return "DATABASE_URL is not a valid URL"; }
   const proto = u.protocol.toLowerCase().replace(":", "");
@@ -78,7 +78,7 @@ function assertLocalDevDb(url: string | undefined): string | null {
   if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") return `host '${host}' is not 127.0.0.1/localhost (remote/production refused)`;
   let dbName = "";
   try { dbName = decodeURIComponent(u.pathname.replace(/^\//, "")); } catch { /* keep '' */ }
-  if (dbName !== "ua_dev") return `database '${dbName || "(none)"}' is not 'ua_dev'`;
+  if (dbName !== expectedDatabase) return `database '${dbName || "(none)"}' is not '${expectedDatabase}'`;
   if (url.toLowerCase().includes("supabase") || url.toLowerCase().includes("pooler")) return "supabase/pooler-like URL detected (production refused)";
   return null;
 }
@@ -309,19 +309,46 @@ async function main(): Promise<number> {
 
   console.log(`=== GATE SMOKE TEST RUN ${testRun.slice(0, 8)} ===`);
 
-  // hard requirement: this script may only run against the local ua_dev DB.
-  // abort before touching the database when DATABASE_URL is missing/non-local.
+  const integrationMode = process.env.ROSTER_TEST === "1";
+  const expectedDatabase = integrationMode ? "ua_roster_test" : "ua_dev";
+  const selectedUrl = integrationMode ? process.env.TEST_DATABASE_URL : process.env.DATABASE_URL;
+
+  // Abort before touching the database when the selected URL is missing/non-local.
   if (process.env.GATE_SMOKE_EXCLUSIVE_DB !== "1") {
-    console.error("ABORT gate-smoke: set GATE_SMOKE_EXCLUSIVE_DB=1 (this script must only run against the local ua_dev database)");
+    console.error("ABORT gate-smoke: set GATE_SMOKE_EXCLUSIVE_DB=1");
     return 2;
   }
-  const guardReason = assertLocalDevDb(process.env.DATABASE_URL);
+  const guardReason = assertLocalDb(selectedUrl, expectedDatabase);
   if (guardReason) {
     console.error("ABORT gate-smoke:", guardReason);
     return 2;
   }
+  const identity = await pool.query<{
+    database: string;
+    serverAddress: string | null;
+    serverPort: number | null;
+  }>(`
+    select
+      current_database() as database,
+      host(inet_server_addr()) as "serverAddress",
+      inet_server_port() as "serverPort"
+  `);
+  const actual = identity.rows[0];
+  if (
+    !actual ||
+    actual.database !== expectedDatabase ||
+    actual.serverAddress === null ||
+    !new Set(["127.0.0.1", "::1"]).has(actual.serverAddress) ||
+    Number(actual.serverPort) !== 8520
+  ) {
+    const display = actual
+      ? `${actual.serverAddress ?? "unknown"}:${actual.serverPort ?? "unknown"}/${actual.database}`
+      : "unknown";
+    console.error(`ABORT gate-smoke: actual database is ${display}`);
+    return 2;
+  }
   const simulateCrash = process.env.GATE_SMOKE_SIMULATE_CRASH === "1";
-  console.warn("GATE-SMOKE WARNING: run this only while no other process is using ua_dev — counters are restored to their pre-run values");
+  console.warn(`GATE-SMOKE target confirmed: 127.0.0.1:8520/${expectedDatabase}; counters will be restored`);
 
   const cleanupErrors: string[] = [];
   let crashExpected = "";
@@ -350,7 +377,7 @@ async function main(): Promise<number> {
         email: `gate-crash-${cr}@smoke.local`,
       });
       created.students.push(sid);
-      const crashStaff = await ensureStaff({ email: `gate-crash-${cr}@smoke.local`, fullName: "Gate Crash", role: "staff", password: PASSWORD, staffCode: `gate-crash-${cr}` });
+      const crashStaff = await ensureStaff({ fullName: "Gate Crash", role: "staff", password: PASSWORD, staffCode: `gate-crash-${cr}` });
       created.staff.push(crashStaff.user.id);
       const crashAct = await db.insert(activities).values({
         title: `Gate Crash Activity ${cr}`,
@@ -389,8 +416,10 @@ async function main(): Promise<number> {
   const activeB = await addStudent(`${prefix}B`, `gate-b-${prefix}@smoke.local`, "active");
   const inactiveC = await addStudent(`${prefix}C`, `gate-c-${prefix}@smoke.local`, "graduated");
 
-  const adminStaff = await ensureStaff({ email: `gate-admin-${prefix}@smoke.local`, fullName: "Gate Admin", role: "admin", password: PASSWORD, staffCode: `gate-admin-${prefix}` });
-  const plainStaff = await ensureStaff({ email: `gate-staff-${prefix}@smoke.local`, fullName: "Gate Staff", role: "staff", password: PASSWORD, staffCode: `gate-staff-${prefix}` });
+  const adminStaff = await ensureStaff({ fullName: "Gate Admin", role: "admin", password: PASSWORD, staffCode: `gate-admin-${prefix}` });
+  const plainStaff = await ensureStaff({ fullName: "Gate Staff", role: "staff", password: PASSWORD, staffCode: `gate-staff-${prefix}` });
+  const sameAdmin = await ensureStaff({ fullName: "Ignored Duplicate", role: "admin", password: "Different123!", staffCode: `  GATE-ADMIN-${prefix.toUpperCase()}  ` });
+  record("setup-ensure-staff-idempotent", sameAdmin.inserted === false && sameAdmin.user.id === adminStaff.user.id, `inserted=${sameAdmin.inserted}`);
   created.staff.push(adminStaff.user.id, plainStaff.user.id);
 
   console.log("Setup done. Test users:", { activeA: activeA.studentId, activeB: activeB.studentId, inactiveC: inactiveC.studentId });
@@ -466,6 +495,8 @@ async function main(): Promise<number> {
   cookieStaff = extractSessionCookie(loginStaffRes);
   created.sessions.push(cookieAdmin, cookieStaff);
   record("3c-staff-admin-login", loginAdmin.status === 200 && loginStaffRes.status === 200 && cookieAdmin !== "" && cookieStaff !== "", `admin=${loginAdmin.status} staff=${loginStaffRes.status}`);
+  const staffMe = await api("/api/me", { cookie: `ua_session=${cookieStaff}` });
+  record("3c-staff-session-identity", staffMe.status === 200 && staffMe.json?.user?.staffCode === plainStaff.user.staffCode && !("email" in (staffMe.json?.user ?? {})), `status=${staffMe.status} code=${staffMe.json?.user?.staffCode}`);
 
   // --- 3d. staff request API → 403 ---
   const staffList = await api("/api/requests", { cookie: `ua_session=${cookieStaff}` });
@@ -873,7 +904,15 @@ async function main(): Promise<number> {
     body: { staffCode: newCode, fullName: "Gate Created Staff", role: "staff", kind: "emergency", password: "Created123!" },
   });
   created.staff.push(createStaffRes.json?.id);
-  record("9-staff-create", createStaffRes.status === 200 && createStaffRes.json?.staffCode === newCode && createStaffRes.json?.kind === "emergency", `status=${createStaffRes.status} code=${createStaffRes.json?.staffCode}`);
+  record("9-staff-create", createStaffRes.status === 200 && createStaffRes.json?.staffCode === newCode && createStaffRes.json?.kind === "emergency" && !("email" in (createStaffRes.json ?? {})), `status=${createStaffRes.status} code=${createStaffRes.json?.staffCode}`);
+
+  const secondCode = `gate-created-2-${prefix}`;
+  const secondStaffRes = await api("/api/admin/staff", {
+    method: "POST", cookie: `ua_session=${cookieAdmin}`,
+    body: { staffCode: secondCode, fullName: "Second Email-Free Staff", role: "staff", password: "Created123!" },
+  });
+  created.staff.push(secondStaffRes.json?.id);
+  record("9-staff-create-multiple-without-email", secondStaffRes.status === 200 && secondStaffRes.json?.staffCode === secondCode, `status=${secondStaffRes.status}`);
 
   // dup staffCode rejected
   const dupStaffRes = await api("/api/admin/staff", {
@@ -894,7 +933,7 @@ async function main(): Promise<number> {
     const newStaffLogin = await api("/api/auth/password/signin", { method: "POST", body: { staffCode: newCode, password: "Created123!" } });
     const nsCookie = newStaffLogin.cookie;
     if (nsCookie) created.sessions.push(nsCookie);
-    record("9-staff-new-login", newStaffLogin.status === 200 && nsCookie !== "" && newStaffLogin.json?.user?.role === "staff", `status=${newStaffLogin.status} role=${newStaffLogin.json?.user?.role}`);
+    record("9-staff-new-login", newStaffLogin.status === 200 && nsCookie !== "" && newStaffLogin.json?.user?.role === "staff" && newStaffLogin.json?.user?.staffCode === newCode && !("email" in (newStaffLogin.json?.user ?? {})), `status=${newStaffLogin.status} role=${newStaffLogin.json?.user?.role}`);
   }
 
   // admin cannot disable self

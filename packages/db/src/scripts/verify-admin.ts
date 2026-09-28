@@ -3,18 +3,18 @@ import { staff } from "../schema";
 import { eq } from "drizzle-orm";
 import { verify } from "@node-rs/argon2";
 
-const EMAIL = process.env.SEED_ADMIN_EMAIL || "weean2547@gmail.com";
+const STAFF_CODE = (process.env.SEED_ADMIN_STAFF_CODE || "admin-main").trim().toLowerCase();
 const PASSWORD = process.env.SEED_ADMIN_PASSWORD || "";
 
 async function verifyAdmin() {
   const conditions: string[] = [];
   const failures: string[] = [];
 
-  const [row] = await db.select().from(staff).where(eq(staff.email, EMAIL));
+  const [row] = await db.select().from(staff).where(eq(staff.staffCode, STAFF_CODE));
   if (row) {
-    conditions.push(`staff row exists for ${EMAIL}`);
+    conditions.push(`staff row exists for ${STAFF_CODE}`);
   } else {
-    failures.push(`NO staff row for ${EMAIL}`);
+    failures.push(`NO staff row for ${STAFF_CODE}`);
   }
 
   if (row?.passwordHash) {

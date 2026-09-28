@@ -99,7 +99,7 @@ bun install
 
 ### 4.2 ตั้งค่า Environment Variables
 
-คัดลอก `.env.example` ไปยังที่ต่าง ๆ 3 จุด:
+คัดลอก `.env.example` สำหรับพัฒนาในเครื่อง โดยค่าเริ่มต้นของฐานข้อมูลต้องเป็น local เท่านั้น:
 
 ```bash
 cp .env.example .env                    # root (ค่าที่ใช้ร่วมกัน)
@@ -111,8 +111,14 @@ cp .env.example apps/web/.env           # Web
 กรอกค่าที่จำเป็น:
 
 ```env
-# ฐานข้อมูล (Supabase pooler)
-DATABASE_URL=postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+# ฐานข้อมูลสำหรับพัฒนาในเครื่อง
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:8520/ua_dev
+
+# ใช้เฉพาะ apps/api/.env.test.local
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:8520/ua_roster_test
+
+# เปิดสิทธิ์ remote maintenance ในเครื่องแบบ explicit เท่านั้น; ปกติให้เว้นว่าง
+ALLOW_REMOTE_DATABASE=
 
 # Better Auth
 BETTER_AUTH_SECRET=<random-32-char-string>
@@ -120,7 +126,6 @@ BETTER_AUTH_URL=http://localhost:3000
 
 # Supabase
 PUBLIC_SUPABASE_URL=https://[project-ref].supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
 PUBLIC_SUPABASE_ANON_KEY=eyJ...
 
 # อีเมล (ไม่ใส่ = ปิดฟีเจอร์ส่งอีเมล)
@@ -138,6 +143,10 @@ WEB_ORIGIN=http://localhost:5173
 # API
 API_PORT=3000
 ```
+
+`DATABASE_URL` และ `SUPABASE_SERVICE_ROLE_KEY` ของ production ต้องตั้งใน Render เท่านั้น หากมีงานดูแล Storage จากเครื่องที่ได้รับอนุมัติชัดเจน ให้เก็บ service-role key ใน `apps/api/.env.storage-prod.local` ซึ่งถูก gitignore และระบบจะไม่โหลดอัตโนมัติ
+
+ก่อน integration test ทุกครั้งให้รัน `bun run test:db-guard` และรัน roster tests ผ่าน `bun run test:roster` เท่านั้น ห้ามใช้ `bun test` หรือ `bun test --cwd apps/api` แบบ auto-discovery เพราะ wrapper จะเป็นผู้ตั้ง `ROSTER_TEST=1` และฐานข้อมูลจะอ่านเฉพาะ `TEST_DATABASE_URL` ที่เป็น loopback `ua_roster_test`
 
 ### 4.3 Seed ฐานข้อมูล
 
@@ -170,14 +179,11 @@ bun run dev:api    # รัน API
 bun run dev:web    # รัน web (ต้องแยกเทอร์มินัล)
 ```
 
-### 4.5 บัญชีทดสอบ
+### 4.5 ตัวตนสำหรับเข้าสู่ระบบ
 
-| อีเมล | รหัสผ่าน | บทบาท |
-|-------|----------|--------|
-| `student@uni.ac.th` | `student123` | นักศึกษา |
-| `staff@uni.ac.th` | `staff123` | เจ้าหน้าที่ |
-| `admin@uni.ac.th` | `admin123` | ผู้ดูแลระบบ |
-| `weean2547@gmail.com` | `test@123` | ผู้ดูแลระบบ (เจ้าของ) |
+- นักศึกษาเข้าสู่ระบบด้วย Google และ email ที่ผูกกับ roster
+- เจ้าหน้าที่และผู้ดูแลระบบเข้าสู่ระบบด้วย `staffCode` และรหัสผ่าน Argon2
+- credential สำหรับ development ต้องมาจาก local environment หรือ test fixture เท่านั้น
 
 ---
 

@@ -38,7 +38,7 @@
 			goto('/auth/signin');
 			return;
 		}
-		phone = $user?.phone ?? '';
+		phone = $user.role === 'student' ? $user.phone ?? '' : '';
 		name = $user.name;
 	});
 
@@ -48,7 +48,7 @@
 		errorMsg = '';
 		try {
 			const res = await updateMe({ phone });
-			user.set({ ...($user as NonNullable<typeof $user>), phone: res.phone ?? null });
+			if ($user?.role === 'student') user.set({ ...$user, phone: res.phone ?? null });
 			successMsg =
 				res.phone === null ? translate($lang, 'phoneCleared') : translate($lang, 'phoneSaved');
 		} catch (e) {
@@ -259,7 +259,7 @@
 							>
 								{translate($lang, $user.role === 'admin' ? 'admin' : isStaff ? 'staff' : 'student')}
 							</span>
-							{#if $user.kind}
+							{#if $user.role !== 'student'}
 								<span
 									class={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
 										$user.kind === 'emergency'
@@ -270,17 +270,19 @@
 									{translate($lang, $user.kind === 'emergency' ? 'emergency' : 'mainAccount')}
 								</span>
 							{/if}
-							{#if $user.faculty}
+							{#if $user.role === 'student' && $user.faculty}
 								<span class="inline-flex rounded-full bg-ink-50 px-3 py-1 text-xs font-medium text-ink-500">
 									{$user.faculty}
 								</span>
 							{/if}
 						</div>
-						<p class="mt-1.5 truncate text-sm text-ink-500">{$user.email}</p>
+						<p class="mt-1.5 truncate text-sm text-ink-500">
+							{$user.role === 'student' ? $user.email : $user.staffCode}
+						</p>
 					</div>
 				</div>
 
-				{#if !isStaff && $user.studentId}
+				{#if $user.role === 'student' && $user.studentId}
 					<div class="grid grid-cols-1 gap-2 rounded-2xl bg-ink-50/60 px-4 py-3 text-sm sm:grid-cols-3">
 						<div>
 							<span class="text-ink-400">{translate($lang, 'studentId')}: </span>

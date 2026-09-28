@@ -19,6 +19,10 @@
     "seed": "bun src/seed.ts",
     "cleanup:sessions": "bun src/scripts/cleanup-sessions.ts",
     "verify:admin": "bun src/scripts/verify-admin.ts",
+    "test:db-guard": "bun test ./src/assert-db-target.test.ts",
+    "testdb:roster-setup": "bun src/scripts/roster-testdb.ts setup",
+    "testdb:roster-fingerprint": "bun src/scripts/roster-testdb.ts fingerprint",
+    "testdb:roster-teardown": "bun src/scripts/roster-testdb.ts teardown",
     "build": "echo \"db: no build step\""
   },
   "dependencies": {

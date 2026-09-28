@@ -1,12 +1,15 @@
 # Checklist — Auth Redesign (groundwork 0007–0010)
 
+> เอกสารนี้เป็นประวัติการ deploy รุ่น 0007–0010 ตั้งแต่ 0012 เป็นต้นมา
+> staff/admin login ด้วย `staffCode`; email ด้านล่างไม่ใช่ runtime contract ปัจจุบัน
+
 Vee: ใช้ไฟล์นี้เป็นตัวเช็ค ขีด ✓ ตามลำดับก่อนกด deploy เท่านั้น
 
 ---
 
 ## Phase 0 — ก่อนทำอะไร (environment)
 
-- [ ] `SEED_ADMIN_PASSWORD` ตั้งแล้วใน env ที่จะรัน seed (ไม่ใช่ไฟล์ใน git)
+- [ ] `SEED_ADMIN_STAFF_CODE` และ `SEED_ADMIN_PASSWORD` ตั้งแล้วใน env ที่จะรัน seed (ไม่ใช่ไฟล์ใน git)
 - [ ] `GOOGLE_CLIENT_ID` (Web application) มีอยู่แล้ว และ OAuth consent screen เสร็จ
 - [ ] Google Console → APIs & Services → OAuth 2.0 Client IDs:
       - Authorized JavaScript origins: `https://www.kingplapow.com`
@@ -24,9 +27,9 @@ Vee: ใช้ไฟล์นี้เป็นตัวเช็ค ขีด �
 ## Phase 2 — Seed + VERIFY GATE (ก่อน 0008 เสมอ)
 
 - [ ] `cd packages/db && bun install` (ดึง `@node-rs/argon2`)
-- [ ] รัน `bun run seed` โดยมี `SEED_ADMIN_PASSWORD` ใน env (ผ่าน `.env` ของ `packages/db` หรือ inline)
+- [ ] รัน `bun run seed` โดยมี `SEED_ADMIN_STAFF_CODE` และ `SEED_ADMIN_PASSWORD` ใน env
 - [ ] รัน `bun run verify:admin` → output ต้องเป็น **`VERIFY GATE PASSED`** ทั้ง 4 เงื่อนไข
-      1. `staff` row มี `weean2547@gmail.com`
+      1. `staff` row มี staffCode ที่กำหนด
       2. `password_hash` ไม่ NULL
       3. `hash_len >= 87` + prefix `$argon2id$`
       4. argon2 `verify(PASSWORD)` roundtrip = true
@@ -44,7 +47,7 @@ Vee: ใช้ไฟล์นี้เป็นตัวเช็ค ขีด �
 ## Phase 4 — Deploy โค้ด auth ใหม่ (งาน *after* deliverable ทั้ง 5)
 
 - [ ] โค้ด auth ใหม่ (password สำหรับ staff/admin + Google สำหรับ student) deploy แล้ว
-- [ ] ล็อกอิน `weean2547@gmail.com` ผ่าน `/api/auth/password` จริงบน production
+- [ ] ล็อกอินด้วย staffCode ผ่าน `/api/auth/password/signin` จริงบน production
 - [ ] นั่งรอ **≥ 48–72 ชม.** โดยไม่มี error ใหม่ใน logs (postgres / edge)
 - [ ] ลอง flow สำคัญบน live site: สร้างคำร้อง, approve, approve-with-attachment, deny
 

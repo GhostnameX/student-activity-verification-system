@@ -480,6 +480,106 @@ export async function bulkRestoreRosterStudents(studentIds: string[]): Promise<B
   });
 }
 
+export type RosterImportClassification = "new" | "unchanged" | "update" | "conflict" | "invalid";
+
+export interface RosterImportStudent {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  major: string;
+  groupName: string;
+  level: string;
+  admissionYear: number;
+  status: StudentStatus;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface RosterImportSnapshot extends RosterImportStudent {
+  deletedAt: string | null;
+  emailBoundAt: string | null;
+  updatedAt: string;
+}
+
+export interface RosterImportRow {
+  rowNumber: number;
+  studentId: string | null;
+  classification: RosterImportClassification;
+  current: RosterImportSnapshot | null;
+  proposed: Partial<RosterImportStudent> | null;
+  changedFields: Array<keyof RosterImportStudent>;
+  warnings: string[];
+  errors: string[];
+}
+
+export interface RosterImportSummary {
+  total: number;
+  valid: number;
+  new: number;
+  updates: number;
+  unchanged: number;
+  conflicts: number;
+  invalid: number;
+}
+
+export interface RosterImportPreview {
+  batchId: string;
+  fileName: string;
+  status: "validated" | "invalid";
+  limits: { maxFileBytes: number; maxRows: number; maxWorksheets: number };
+  ignoredHeaders: string[];
+  summary: RosterImportSummary;
+  rows: RosterImportRow[];
+}
+
+export interface RosterImportCommitResult {
+  kind: "ok";
+  batchId: string;
+  created: number;
+  updated: number;
+  unchanged: number;
+}
+
+export class RosterImportApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    readonly details: Record<string, unknown>,
+  ) {
+    super(code);
+  }
+}
+
+async function rosterImportResponse<T>(response: Response): Promise<T> {
+  const data = await response.json().catch(() => null) as Record<string, unknown> | null;
+  if (!response.ok) {
+    const code = typeof data?.error === "string" ? data.error : `request_failed_${response.status}`;
+    throw new RosterImportApiError(response.status, code, data ?? {});
+  }
+  return data as T;
+}
+
+export async function previewRosterImport(file: File): Promise<RosterImportPreview> {
+  const formData = new FormData();
+  formData.set("file", file);
+  const response = await fetch(`${API_BASE}/api/roster/import/preview`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  return rosterImportResponse<RosterImportPreview>(response);
+}
+
+export async function commitRosterImport(batchId: string): Promise<RosterImportCommitResult> {
+  const response = await fetch(`${API_BASE}/api/roster/import/${encodeURIComponent(batchId)}/commit`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  return rosterImportResponse<RosterImportCommitResult>(response);
+}
+
 export interface StatsResponse {
   total: number;
   pending: number;

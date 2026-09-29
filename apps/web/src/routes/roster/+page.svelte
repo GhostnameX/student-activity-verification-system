@@ -4,6 +4,7 @@
 	import { lang } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
 	import { translate, type TKey } from '$lib/i18n';
+	import ImportRosterDialog from '$lib/components/ImportRosterDialog.svelte';
 	import {
 		bulkDeleteRosterStudents,
 		bulkRestoreRosterStudents,
@@ -28,6 +29,7 @@
 		RotateCcw,
 		Search,
 		Trash2,
+		Upload,
 		UserPlus,
 		UsersRound,
 		X,
@@ -99,6 +101,7 @@
 	let bulkBusy = $state(false);
 	let bulkResult: (BulkRosterResult & { operation: 'delete' | 'restore' }) | null = $state(null);
 	let bulkError = $state('');
+	let importOpen = $state(false);
 	let requestId = 0;
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -409,14 +412,20 @@
 			</h1>
 			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'rosterSubtitle')}</p>
 		</div>
-		<button
-			type="button"
-			onclick={openCreate}
-			class="flex min-h-10 items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700"
-		>
-			<UserPlus size={17} />
-			{translate($lang, 'addStudent')}
-		</button>
+		<div class="flex flex-wrap gap-2">
+			<button type="button" onclick={() => (importOpen = true)} class="flex min-h-10 items-center gap-2 rounded-lg border border-brand-200 bg-surface px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">
+				<Upload size={17} />
+				{translate($lang, 'importRoster')}
+			</button>
+			<button
+				type="button"
+				onclick={openCreate}
+				class="flex min-h-10 items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700"
+			>
+				<UserPlus size={17} />
+				{translate($lang, 'addStudent')}
+			</button>
+		</div>
 	</header>
 
 	<section class="border-y border-ink-100 bg-surface px-0 py-4 sm:px-4" aria-label={translate($lang, 'filters')}>
@@ -730,6 +739,15 @@
 		</form>
 	</div>
 {/if}
+
+<ImportRosterDialog
+	open={importOpen}
+	onclose={() => (importOpen = false)}
+	oncommitted={async () => {
+		clearSelection();
+		await loadRoster();
+	}}
+/>
 
 {#if deleteTarget}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="alertdialog" aria-modal="true">

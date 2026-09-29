@@ -39,7 +39,6 @@ const { app } = await import("../src/app");
 const { getSession } = await import("../src/auth/session");
 const { db, pool } = await import("@ua/db/client");
 const {
-  activities,
   attachmentUploads,
   auditLogs,
   notifications,
@@ -128,7 +127,7 @@ async function makeSession(userId: string, role: "student" | "staff" | "admin"):
 
 const STAFF_ID = "p3-staff";
 const ADMIN_ID = "p3-admin";
-const ACTIVITY_ID = "p3-activity";
+const LEGACY_ACTIVITY_ID = "p3-roster-fixture";
 let staffCookie = "";
 let adminCookie = "";
 let studentCookie = "";
@@ -240,15 +239,21 @@ beforeAll(async () => {
       request_attachment_revisions, attachment_uploads, notifications, activities CASCADE
   `);
 
-  await db.insert(activities).values({
-    id: ACTIVITY_ID,
-    title: "กิจกรรมทดสอบ Phase 3",
-    titleEn: "Phase 3 test activity",
-    type: "อบรม",
-    organizer: "คณะวิศวกรรม",
-    date: new Date("2026-09-01T00:00:00Z"),
-    location: "ห้องทดสอบ",
-  });
+  // The deployed database still retains the legacy NOT NULL activity_id
+  // column on requests. Keep this compatibility fixture in raw SQL without
+  // reintroducing the removed Activities subsystem to the application schema.
+  await db.execute(sql`
+    INSERT INTO activities (id, title, title_en, type, organizer, date, location)
+    VALUES (
+      ${LEGACY_ACTIVITY_ID},
+      'Roster integration fixture',
+      'Roster integration fixture',
+      'test',
+      'test',
+      '2026-09-01T00:00:00Z',
+      'test'
+    )
+  `);
 
   await db.insert(staff).values([
     {
@@ -296,6 +301,8 @@ describe("roster authorization", () => {
       ["PATCH", "/api/roster/students/6501000001", { firstName: "hacked" }],
       ["DELETE", "/api/roster/students/6501000001", undefined],
       ["POST", "/api/roster/students/6501000001/restore", undefined],
+      ["POST", "/api/roster/students/bulk-delete", { studentIds: ["6501000001"] }],
+      ["POST", "/api/roster/students/bulk-restore", { studentIds: ["6501000005"] }],
     ];
     for (const [method, path, body] of cases) {
       const res = await api(method, path, { cookie: studentCookie, body });
@@ -305,9 +312,37 @@ describe("roster authorization", () => {
   });
 
   test("no session is rejected with 401", async () => {
-    const res = await api("GET", "/api/roster/students");
-    expect(res.status).toBe(401);
-    expect(res.body.error).toBe("unauthorized");
+    const cases: Array<[string, string, unknown?]> = [
+      ["GET", "/api/roster/students", undefined],
+      ["POST", "/api/roster/students/bulk-delete", { studentIds: ["6501000001"] }],
+      ["POST", "/api/roster/students/bulk-restore", { studentIds: ["6501000005"] }],
+    ];
+    for (const [method, path, body] of cases) {
+      const res = await api(method, path, { body });
+      expect({ path, status: res.status, error: res.body.error }).toEqual({
+        path,
+        status: 401,
+        error: "unauthorized",
+      });
+    }
+  });
+
+  test("staff and admin have equal bulk permissions", async () => {
+    for (const cookie of [staffCookie, adminCookie]) {
+      const remove = await api("POST", "/api/roster/students/bulk-delete", {
+        cookie,
+        body: { studentIds: ["6501000005"] },
+      });
+      expect(remove.status).toBe(200);
+      expect(remove.body.conflicted).toEqual([{ studentId: "6501000005", reason: "already_deleted" }]);
+
+      const restore = await api("POST", "/api/roster/students/bulk-restore", {
+        cookie,
+        body: { studentIds: ["6501000001"] },
+      });
+      expect(restore.status).toBe(200);
+      expect(restore.body.conflicted).toEqual([{ studentId: "6501000001", reason: "already_active" }]);
+    }
   });
 });
 
@@ -649,7 +684,10 @@ describe("DELETE /api/roster/students/:id", () => {
   test("soft deletes a student with history without touching dependent rows", async () => {
     const studentId = await createStudent(staffCookie, { status: "active" });
 
-    await db.insert(requests).values({ id: `p3-req-${studentId}`, studentId, activityId: ACTIVITY_ID, status: "approved" });
+    await db.execute(sql`
+      INSERT INTO requests (id, student_id, activity_id, status)
+      VALUES (${`p3-req-${studentId}`}, ${studentId}, ${LEGACY_ACTIVITY_ID}, 'approved')
+    `);
     await db.insert(requestAttachments).values({ id: `p3-att-${studentId}`, requestId: `p3-req-${studentId}`, fileName: "proof.pdf", storagePath: `uploads/${studentId}/proof.pdf` });
     await db.insert(requestAttachmentRevisions).values({
       id: `p3-rev-${studentId}`,
@@ -819,7 +857,182 @@ describe("POST /api/roster/students/:id/restore", () => {
   });
 });
 
-// --- 8. login behaviour around soft delete ----------------------------------
+// --- 8. bulk delete / restore -----------------------------------------------
+
+describe("bulk roster mutations", () => {
+  test("bulk deletes 2+ bound or unbound students, revokes sessions, and audits each row", async () => {
+    const first = await createStudent(staffCookie, { status: "active", email: null });
+    const second = await createStudent(staffCookie, {
+      status: "withdrawn",
+      email: `bound.${randomUUID()}@psru.ac.th`,
+    });
+    await db
+      .update(students)
+      .set({ emailBoundAt: new Date("2026-09-20T00:00:00Z") })
+      .where(eq(students.studentId, second));
+    const firstSession = await makeSession(first, "student");
+    const secondSession = await makeSession(second, "student");
+
+    const result = await api("POST", "/api/roster/students/bulk-delete", {
+      cookie: staffCookie,
+      body: { studentIds: [first, second] },
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      requested: [first, second],
+      succeeded: [first, second],
+      conflicted: [],
+      failed: [],
+    });
+    for (const [studentId, expectedStatus] of [[first, "active"], [second, "withdrawn"]] as const) {
+      const [row] = await db.select().from(students).where(eq(students.studentId, studentId));
+      expect(row.deletedAt).not.toBeNull();
+      expect(row.status).toBe(expectedStatus);
+      const audit = (await auditRows(studentId)).filter((entry) => entry.action === "student_soft_delete");
+      expect(audit).toHaveLength(1);
+      expect(audit[0].actorStaffId).toBe(STAFF_ID);
+      expect(audit[0].metadata.bulk).toBe(true);
+      expect(audit[0].metadata.revokedSessions).toBe(1);
+    }
+    expect(await countRows(sessions, eq(sessions.id, firstSession))).toBe(0);
+    expect(await countRows(sessions, eq(sessions.id, secondSession))).toBe(0);
+  });
+
+  test("bulk restores 2+ students without changing academic status and reports repeats", async () => {
+    const first = await createStudent(staffCookie, { status: "graduated" });
+    const second = await createStudent(staffCookie, {
+      status: "withdrawn",
+      email: `restore.bound.${randomUUID()}@psru.ac.th`,
+    });
+    const boundAt = new Date("2026-09-21T00:00:00Z");
+    await db.update(students).set({ emailBoundAt: boundAt }).where(eq(students.studentId, second));
+    const removed = await api("POST", "/api/roster/students/bulk-delete", {
+      cookie: adminCookie,
+      body: { studentIds: [first, second] },
+    });
+    expect(removed.body.succeeded).toEqual([first, second]);
+
+    const restored = await api("POST", "/api/roster/students/bulk-restore", {
+      cookie: adminCookie,
+      body: { studentIds: [first, second] },
+    });
+    expect(restored.status).toBe(200);
+    expect(restored.body).toEqual({
+      requested: [first, second],
+      succeeded: [first, second],
+      conflicted: [],
+      failed: [],
+    });
+    for (const [studentId, expectedStatus] of [[first, "graduated"], [second, "withdrawn"]] as const) {
+      const [row] = await db.select().from(students).where(eq(students.studentId, studentId));
+      expect(row.deletedAt).toBeNull();
+      expect(row.status).toBe(expectedStatus);
+      if (studentId === second) expect(row.emailBoundAt).toEqual(boundAt);
+      const audit = (await auditRows(studentId)).filter((entry) => entry.action === "student_restore");
+      expect(audit).toHaveLength(1);
+      expect(audit[0].actorStaffId).toBe(ADMIN_ID);
+      expect(audit[0].metadata).toMatchObject({ bulk: true, status: expectedStatus });
+    }
+
+    const repeated = await api("POST", "/api/roster/students/bulk-restore", {
+      cookie: staffCookie,
+      body: { studentIds: [first, second] },
+    });
+    expect(repeated.status).toBe(200);
+    expect(repeated.body.succeeded).toEqual([]);
+    expect(repeated.body.conflicted).toEqual([
+      { studentId: first, reason: "already_active" },
+      { studentId: second, reason: "already_active" },
+    ]);
+  });
+
+  test("reports mixed state, duplicate IDs, nonexistent IDs, and repeated delete explicitly", async () => {
+    const active = await createStudent(staffCookie);
+    const deleted = await createStudent(staffCookie);
+    await api("DELETE", `/api/roster/students/${deleted}`, { cookie: staffCookie });
+    const missing = "6599999999";
+    const requested = [active, deleted, missing, active];
+
+    const result = await api("POST", "/api/roster/students/bulk-delete", {
+      cookie: staffCookie,
+      body: { studentIds: requested },
+    });
+    expect(result.status).toBe(200);
+    expect(result.body.requested).toEqual(requested);
+    expect(result.body.succeeded).toEqual([active]);
+    expect(result.body.conflicted).toEqual([
+      { studentId: active, reason: "duplicate_id" },
+      { studentId: deleted, reason: "already_deleted" },
+    ]);
+    expect(result.body.failed).toEqual([{ studentId: missing, reason: "student_not_found" }]);
+
+    const repeated = await api("POST", "/api/roster/students/bulk-delete", {
+      cookie: staffCookie,
+      body: { studentIds: requested },
+    });
+    expect(repeated.status).toBe(200);
+    expect(repeated.body.succeeded).toEqual([]);
+    expect(repeated.body.conflicted).toEqual([
+      { studentId: active, reason: "duplicate_id" },
+      { studentId: active, reason: "already_deleted" },
+      { studentId: deleted, reason: "already_deleted" },
+    ]);
+    expect(repeated.body.failed).toEqual([{ studentId: missing, reason: "student_not_found" }]);
+  });
+
+  test("rolls back rows, session revocation, and audits when one audit insert fails", async () => {
+    const first = await createStudent(staffCookie);
+    const second = await createStudent(staffCookie);
+    const firstSession = await makeSession(first, "student");
+    const secondSession = await makeSession(second, "student");
+
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION roster_test_fail_bulk_audit()
+      RETURNS trigger AS $$
+      BEGIN
+        IF NEW.target_id = '${second}' AND NEW.action = 'student_soft_delete' THEN
+          RAISE EXCEPTION 'forced bulk audit failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER roster_test_fail_bulk_audit_trigger
+      BEFORE INSERT ON audit_logs
+      FOR EACH ROW EXECUTE FUNCTION roster_test_fail_bulk_audit();
+    `);
+
+    try {
+      const result = await api("POST", "/api/roster/students/bulk-delete", {
+        cookie: staffCookie,
+        body: { studentIds: [first, second] },
+      });
+      expect(result.status).toBe(500);
+      expect(result.body).toEqual({
+        requested: [first, second],
+        succeeded: [],
+        conflicted: [],
+        failed: [
+          { studentId: first, reason: "transaction_failed" },
+          { studentId: second, reason: "transaction_failed" },
+        ],
+      });
+
+      for (const studentId of [first, second]) {
+        const [row] = await db.select().from(students).where(eq(students.studentId, studentId));
+        expect(row.deletedAt).toBeNull();
+        expect((await auditRows(studentId)).filter((entry) => entry.action === "student_soft_delete")).toHaveLength(0);
+      }
+      expect(await countRows(sessions, eq(sessions.id, firstSession))).toBe(1);
+      expect(await countRows(sessions, eq(sessions.id, secondSession))).toBe(1);
+    } finally {
+      await pool.query("DROP TRIGGER IF EXISTS roster_test_fail_bulk_audit_trigger ON audit_logs");
+      await pool.query("DROP FUNCTION IF EXISTS roster_test_fail_bulk_audit()");
+    }
+  });
+});
+
+// --- 9. login behaviour around soft delete ----------------------------------
 
 describe("OAuth bind cookie integration", () => {
   test("unbound callback emits separate state-clear and bind cookies that round-trip", async () => {

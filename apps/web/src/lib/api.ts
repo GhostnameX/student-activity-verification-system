@@ -456,6 +456,30 @@ export async function restoreRosterStudent(studentId: string): Promise<RosterRec
   });
 }
 
+export type BulkRosterConflictReason = "duplicate_id" | "already_deleted" | "already_active";
+export type BulkRosterFailureReason = "student_not_found" | "transaction_failed";
+
+export interface BulkRosterResult {
+  requested: string[];
+  succeeded: string[];
+  conflicted: Array<{ studentId: string; reason: BulkRosterConflictReason }>;
+  failed: Array<{ studentId: string; reason: BulkRosterFailureReason }>;
+}
+
+export async function bulkDeleteRosterStudents(studentIds: string[]): Promise<BulkRosterResult> {
+  return apiFetch("/api/roster/students/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ studentIds }),
+  });
+}
+
+export async function bulkRestoreRosterStudents(studentIds: string[]): Promise<BulkRosterResult> {
+  return apiFetch("/api/roster/students/bulk-restore", {
+    method: "POST",
+    body: JSON.stringify({ studentIds }),
+  });
+}
+
 export interface StatsResponse {
   total: number;
   pending: number;

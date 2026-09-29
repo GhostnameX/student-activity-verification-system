@@ -31,35 +31,6 @@ export type SessionUser = SessionUserBase & (
     }
 );
 
-export interface Activity {
-  id: string;
-  title: string;
-  titleEn: string;
-  type: string;
-  organizer: string;
-  date: string;
-  location: string;
-  description?: string | null;
-  descriptionEn?: string | null;
-  submissionDeadline?: string | null;
-  isActive?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export type ActivityInput = {
-  title: string;
-  titleEn: string;
-  type: string;
-  organizer: string;
-  date: string;
-  location: string;
-  description?: string | null;
-  descriptionEn?: string | null;
-  submissionDeadline?: string | null;
-  isActive?: boolean;
-};
-
 export type RequestStatus = "pending" | "approved" | "rejected" | "revision_required";
 
 export type AttachmentRevisionState = "unchanged" | "needs_revision" | "resubmitted" | "approved";
@@ -81,19 +52,11 @@ export interface RequestItem {
   status: RequestStatus;
   note?: string | null;
   rejectionReason?: string | null;
-  activityName?: string | null;
   requestSequence?: number | null;
   requestYear?: number | null;
   requestNumber?: string | null;
   submittedAt: string;
   reviewedAt?: string | null;
-  activity: {
-    id: string;
-    title: string;
-    titleEn: string;
-    type: string;
-    date: string;
-  } | null;
   student?: {
     id: string;
     name: string;
@@ -194,31 +157,6 @@ export async function changePassword(body: {
   });
 }
 
-export async function getActivities(includeInactive = false): Promise<Activity[]> {
-  return apiFetch(`/api/activities${includeInactive ? "?includeInactive=true" : ""}`);
-}
-
-export async function createActivity(body: ActivityInput): Promise<Activity> {
-  return apiFetch("/api/activities", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-export async function updateActivity(
-  id: string,
-  body: Partial<ActivityInput>,
-): Promise<Activity> {
-  return apiFetch(`/api/activities/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(body),
-  });
-}
-
-export async function deleteActivity(id: string): Promise<Activity> {
-  return apiFetch(`/api/activities/${id}`, { method: "DELETE" });
-}
-
 export async function getRequests(): Promise<RequestItem[]> {
   return apiFetch("/api/requests");
 }
@@ -247,7 +185,6 @@ export interface AttachmentInput {
 }
 
 export async function createRequest(body: {
-  activityId?: string;
   note?: string;
   attachments?: AttachmentInput[];
 }): Promise<{ id: string; status: string; requestNumber?: string | null }> {
@@ -524,15 +461,6 @@ export interface StatsResponse {
   pending: number;
   approved: number;
   rejected: number;
-  byActivity: {
-    id: string;
-    title: string;
-    titleEn: string;
-    total: number;
-    pending: number;
-    approved: number;
-    rejected: number;
-  }[];
   byFaculty: {
     faculty: string;
     total: number;

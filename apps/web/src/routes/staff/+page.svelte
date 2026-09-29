@@ -110,12 +110,10 @@
 		}
 	}
 
-	function activityTitle(r: RequestItem) {
-		if (r.activityName) return r.activityName;
-		if (r.activity) {
-			return $lang === 'th' ? r.activity.title : r.activity.titleEn;
-		}
-		return translate($lang, 'activity');
+	function requestTitle(r: RequestItem) {
+		return r.requestNumber
+			? `${translate($lang, 'requestNumber')}: ${r.requestNumber}`
+			: translate($lang, 'allRequests');
 	}
 
 	function statusClass(status: string) {
@@ -239,7 +237,6 @@
 			<table class="w-full text-left text-sm">
 				<thead class="border-b border-ink-100 bg-ink-50/70 text-xs font-semibold uppercase tracking-wide text-ink-500">
 					<tr>
-						<th class="px-5 py-3.5">{translate($lang, 'activity')}</th>
 						<th class="px-5 py-3.5">{translate($lang, 'student')}</th>
 						<th class="hidden px-5 py-3.5 md:table-cell">{translate($lang, 'faculty')}</th>
 						<th class="hidden px-5 py-3.5 lg:table-cell">{translate($lang, 'date')}</th>
@@ -253,9 +250,6 @@
 							class="cursor-pointer border-b border-ink-50 transition last:border-0 hover:bg-ink-50/50 {removingId === r.id ? (removingStatus === 'approved' ? 'row-out-approve' : 'row-out-reject') : ''}"
 							onclick={() => openDetail(r.id)}
 						>
-							<td class="px-5 py-4 font-medium text-ink-900">
-								{activityTitle(r)}
-							</td>
 							<td class="px-5 py-4">
 								<div class="font-medium text-ink-800">{r.student?.name}</div>
 								<div class="text-xs text-ink-400">{r.student?.email}</div>
@@ -264,7 +258,7 @@
 								{r.student?.faculty ?? '-'}
 							</td>
 							<td class="hidden px-5 py-4 text-ink-600 lg:table-cell">
-								{new Date(r.activity?.date ?? r.submittedAt).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
+								{new Date(r.submittedAt).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
 							</td>
 							<td class="px-5 py-4">
 								<span
@@ -334,7 +328,7 @@
 					<div class="mb-4 flex items-start justify-between gap-3">
 						<div>
 							<h3 class="text-lg font-bold text-ink-900">
-								{activityTitle(detail)}
+								{requestTitle(detail)}
 							</h3>
 							<span
 								class={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusClass(detail.status)}`}

@@ -4,7 +4,6 @@ import { auth } from "./auth";
 import { generateCertificatePDFForEmail } from "./certificate";
 import {
   requests,
-  activities,
   requestAttachments,
   requestAttachmentRevisions,
   attachmentUploads,
@@ -126,7 +125,6 @@ function requestNumberLabel(sequence: number | null, year: number | null): strin
 async function sendStatusEmail(opts: {
   to: string;
   studentName: string;
-  activityTitle: string;
   status: "approved" | "rejected";
   reason?: string | null;
   attachments?: Array<{ filename: string; content: string }>;
@@ -139,8 +137,8 @@ async function sendStatusEmail(opts: {
     ? "คำร้องของคุณได้รับการอนุมัติ"
     : "คำร้องของคุณถูกไม่อนุมัติ";
   const body = opts.status === "approved"
-    ? `สวัสดี คุณ${opts.studentName} คำร้องเข้าร่วม "${opts.activityTitle}" ของคุณได้รับการอนุมัติแล้ว\nกรุณาตรวจสอบใบรับรองที่แนบมาด้วย`
-    : `สวัสดี คุณ${opts.studentName} คำร้องเข้าร่วม "${opts.activityTitle}" ของคุณถูกไม่อนุมัติ${opts.reason ? `\nเหตุผล: ${opts.reason}` : ""}`;
+    ? `สวัสดี คุณ${opts.studentName} คำร้องของคุณได้รับการอนุมัติแล้ว\nกรุณาตรวจสอบใบรับรองที่แนบมาด้วย`
+    : `สวัสดี คุณ${opts.studentName} คำร้องของคุณถูกไม่อนุมัติ${opts.reason ? `\nเหตุผล: ${opts.reason}` : ""}`;
   try {
     const payload: Record<string, unknown> = {
       from: EMAIL_FROM,
@@ -212,193 +210,7 @@ export const app = new Elysia()
   )
   .use(auth)
   .use(roster)
-  .get("/health", () => ({ status: "ok", ts: Date.now() }))
-
-  // ===== Activities =====
-  .get("/api/activities", async ({ query, headers, set }) => {
-    let includeInactive = (query as any).includeInactive === "true";
-    if (includeInactive) {
-      const user = await getSession(headers);
-      if (!user) {
-        set.status = 401;
-        return { error: "unauthorized" };
-      }
-      if (user.role !== "admin") {
-        set.status = 403;
-        return { error: "admin_only" };
-      }
-    }
-    const where = includeInactive
-      ? undefined
-      : eq(activities.isActive, true);
-    const list = await db
-      .select()
-      .from(activities)
-      .where(where)
-      .orderBy(desc(activities.date));
-    return list;
-  })
-
-  .post(
-    "/api/activities",
-    async ({ body, headers, set }) => {
-      const user = await getSession(headers);
-      if (!user) {
-        set.status = 401;
-        return { error: "unauthorized" };
-      }
-      const role = user.role;
-      if (role !== "admin") {
-        set.status = 403;
-        return { error: "admin_only" };
-      }
-
-      const [created] = await db
-        .insert(activities)
-        .values({
-          title: body.title,
-          titleEn: body.titleEn,
-          type: body.type,
-          organizer: body.organizer,
-          date: new Date(body.date),
-          location: body.location,
-          description: body.description ?? null,
-          descriptionEn: body.descriptionEn ?? null,
-          submissionDeadline: body.submissionDeadline
-            ? new Date(body.submissionDeadline)
-            : null,
-          isActive: body.isActive ?? true,
-        })
-        .returning();
-      await writeAuditLog({
-        actorStaffId: user.id,
-        action: "activity_create",
-        targetType: "activity",
-        targetId: created.id,
-        metadata: { title: created.title },
-      });
-      return created;
-    },
-    {
-      body: t.Object({
-        title: t.String(),
-        titleEn: t.String(),
-        type: t.String(),
-        organizer: t.String(),
-        date: t.String(),
-        location: t.String(),
-        description: t.Optional(t.String()),
-        descriptionEn: t.Optional(t.String()),
-        submissionDeadline: t.Optional(t.String()),
-        isActive: t.Optional(t.Boolean()),
-      }),
-    },
-  )
-
-  .patch(
-    "/api/activities/:id",
-    async ({ params, body, headers, set }) => {
-      const user = await getSession(headers);
-      if (!user) {
-        set.status = 401;
-        return { error: "unauthorized" };
-      }
-      const role = user.role;
-      if (role !== "admin") {
-        set.status = 403;
-        return { error: "admin_only" };
-      }
-
-      const existing = await db
-        .select({ id: activities.id })
-        .from(activities)
-        .where(eq(activities.id, params.id));
-      if (existing.length === 0) {
-        set.status = 404;
-        return { error: "not_found" };
-      }
-
-      const [updated] = await db
-        .update(activities)
-        .set({
-          title: body.title,
-          titleEn: body.titleEn,
-          type: body.type,
-          organizer: body.organizer,
-          date: body.date ? new Date(body.date) : undefined,
-          location: body.location,
-          description: body.description,
-          descriptionEn: body.descriptionEn,
-          submissionDeadline: body.submissionDeadline
-            ? new Date(body.submissionDeadline)
-            : body.submissionDeadline === null
-              ? null
-              : undefined,
-          isActive: body.isActive,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(activities.id, params.id))
-        .returning();
-      await writeAuditLog({
-        actorStaffId: user.id,
-        action: "activity_update",
-        targetType: "activity",
-        targetId: params.id,
-        metadata: { title: updated.title },
-      });
-      return updated;
-    },
-    {
-      body: t.Object({
-        title: t.Optional(t.String()),
-        titleEn: t.Optional(t.String()),
-        type: t.Optional(t.String()),
-        organizer: t.Optional(t.String()),
-        date: t.Optional(t.String()),
-        location: t.Optional(t.String()),
-        description: t.Optional(t.Nullable(t.String())),
-        descriptionEn: t.Optional(t.Nullable(t.String())),
-        submissionDeadline: t.Optional(t.Nullable(t.String())),
-        isActive: t.Optional(t.Boolean()),
-      }),
-    },
-  )
-
-  .delete("/api/activities/:id", async ({ params, headers, set }) => {
-    const user = await getSession(headers);
-    if (!user) {
-      set.status = 401;
-      return { error: "unauthorized" };
-    }
-    const role = user.role;
-    if (role !== "admin") {
-      set.status = 403;
-      return { error: "admin_only" };
-    }
-
-    const existing = await db
-      .select({ id: activities.id })
-      .from(activities)
-      .where(eq(activities.id, params.id));
-    if (existing.length === 0) {
-      set.status = 404;
-      return { error: "not_found" };
-    }
-
-    const [deleted] = await db
-      .update(activities)
-      .set({ isActive: false, updatedAt: sql`now()` })
-      .where(eq(activities.id, params.id))
-      .returning();
-    await writeAuditLog({
-      actorStaffId: user.id,
-      action: "activity_delete",
-      targetType: "activity",
-      targetId: params.id,
-      metadata: { title: deleted.title },
-    });
-    return deleted;
-  })
+.get("/health", () => ({ status: "ok", ts: Date.now() }))
 
   // ===== Upload (via server-side service_role) =====
   .post(
@@ -626,21 +438,12 @@ export const app = new Elysia()
           status: requests.status,
           note: requests.note,
           rejectionReason: requests.rejectionReason,
-          activityName: requests.activityName,
           requestSequence: requests.requestSequence,
           requestYear: requests.requestYear,
           submittedAt: requests.submittedAt,
           reviewedAt: requests.reviewedAt,
-          activity: {
-            id: activities.id,
-            title: activities.title,
-            titleEn: activities.titleEn,
-            type: activities.type,
-            date: activities.date,
-          },
         })
         .from(requests)
-        .leftJoin(activities, eq(requests.activityId, activities.id))
         .where(where)
         .orderBy(desc(requests.submittedAt));
       return list.map((r) => ({
@@ -660,18 +463,10 @@ export const app = new Elysia()
         status: requests.status,
         note: requests.note,
         rejectionReason: requests.rejectionReason,
-        activityName: requests.activityName,
         requestSequence: requests.requestSequence,
         requestYear: requests.requestYear,
         submittedAt: requests.submittedAt,
         reviewedAt: requests.reviewedAt,
-        activity: {
-          id: activities.id,
-          title: activities.title,
-          titleEn: activities.titleEn,
-          type: activities.type,
-          date: activities.date,
-        },
         student: {
           id: students.studentId,
           name: sql`${students.firstName} || ' ' || ${students.lastName}`,
@@ -681,7 +476,6 @@ export const app = new Elysia()
         },
       })
       .from(requests)
-      .leftJoin(activities, eq(requests.activityId, activities.id))
       .innerJoin(students, eq(requests.studentId, students.studentId))
       .where(statusWhere)
       .orderBy(desc(requests.submittedAt));
@@ -704,22 +498,10 @@ export const app = new Elysia()
         id: requests.id,
         status: requests.status,
         note: requests.note,
-        activityName: requests.activityName,
         requestSequence: requests.requestSequence,
         requestYear: requests.requestYear,
         submittedAt: requests.submittedAt,
         reviewedAt: requests.reviewedAt,
-        activity: {
-          id: activities.id,
-          title: activities.title,
-          titleEn: activities.titleEn,
-          type: activities.type,
-          date: activities.date,
-          location: activities.location,
-          organizer: activities.organizer,
-          description: activities.description,
-          descriptionEn: activities.descriptionEn,
-        },
         student: {
           id: students.studentId,
           name: sql`${students.firstName} || ' ' || ${students.lastName}`,
@@ -729,7 +511,6 @@ export const app = new Elysia()
         },
       })
       .from(requests)
-      .leftJoin(activities, eq(requests.activityId, activities.id))
       .innerJoin(students, eq(requests.studentId, students.studentId))
       .where(eq(requests.id, params.id));
 
@@ -828,7 +609,6 @@ export const app = new Elysia()
             .insert(requests)
             .values({
               studentId: user.id,
-              activityId: body.activityId ?? null,
               status: "pending",
               note: body.note ?? null,
               requestSequence: counter.lastNumber,
@@ -899,7 +679,6 @@ export const app = new Elysia()
     },
     {
       body: t.Object({
-        activityId: t.Optional(t.String()),
         note: t.Optional(t.String()),
         attachments: t.Optional(
           t.Array(
@@ -946,7 +725,6 @@ export const app = new Elysia()
       const [updated] = await db
         .update(requests)
         .set({
-          activityId: body.activityId ?? req.activityId,
           note: body.note ?? req.note,
           updatedAt: sql`now()`,
         })
@@ -956,7 +734,6 @@ export const app = new Elysia()
     },
     {
       body: t.Object({
-        activityId: t.Optional(t.String()),
         note: t.Optional(t.String()),
       }),
     },
@@ -1031,7 +808,6 @@ export const app = new Elysia()
         .select({
           id: requests.id,
           studentId: requests.studentId,
-          activityName: requests.activityName,
           requestSequence: requests.requestSequence,
           requestYear: requests.requestYear,
           certificateNumber: requests.certificateNumber,
@@ -1069,22 +845,17 @@ export const app = new Elysia()
         studentFaculty: students.major,
         studentCode: students.studentId,
         studentPhone: students.phone,
-        activityTitle: activities.title,
-        activityTitleEn: activities.titleEn,
-        activityName: requests.activityName,
       })
       .from(requests)
       .innerJoin(students, eq(requests.studentId, students.studentId))
-      .leftJoin(activities, eq(requests.activityId, activities.id))
       .where(eq(requests.id, params.id));
 
     if (detail.length > 0) {
       const d = detail[0];
-      const displayTitle = d.activityName ?? d.activityTitle ?? "กิจกรรม";
       await notifyUser({
         studentId: d.studentId,
         title: "คำร้องได้รับการอนุมัติ",
-        body: `คำร้องเข้าร่วม "${displayTitle}" ของคุณได้รับการอนุมัติแล้ว`,
+        body: "คำร้องของคุณได้รับการอนุมัติแล้ว",
         requestId: params.id,
       });
       await writeAuditLog({
@@ -1094,7 +865,6 @@ export const app = new Elysia()
         targetId: params.id,
         metadata: {
           status: "approved",
-          activityName: d.activityName ?? null,
           requestNumber: requestNumberLabel(approved.requestSequence, approved.requestYear),
           certificateNumber: approved.requestNumber,
           certificateYear: approved.certificateYear,
@@ -1133,7 +903,6 @@ export const app = new Elysia()
         await sendStatusEmail({
           to: d.studentEmail,
           studentName: d.studentName,
-          activityTitle: displayTitle,
           status: "approved",
           attachments: attachment ? [attachment] : undefined,
         });
@@ -1192,22 +961,17 @@ export const app = new Elysia()
           studentId: requests.studentId,
           studentName: sql<string>`${students.firstName} || ' ' || ${students.lastName}`,
           studentEmail: students.email,
-          activityTitle: activities.title,
-          activityTitleEn: activities.titleEn,
-          activityName: requests.activityName,
         })
         .from(requests)
         .innerJoin(students, eq(requests.studentId, students.studentId))
-        .leftJoin(activities, eq(requests.activityId, activities.id))
         .where(eq(requests.id, params.id));
 
       if (detail.length > 0) {
         const d = detail[0];
-        const displayTitle = d.activityName ?? d.activityTitle ?? "กิจกรรม";
         await notifyUser({
           studentId: d.studentId,
           title: "คำร้องถูกไม่อนุมัติ",
-          body: `คำร้องเข้าร่วม "${displayTitle}" ของคุณถูกไม่อนุมัติ${body.reason ? `\nเหตุผล: ${body.reason}` : ""}`,
+          body: `คำร้องของคุณถูกไม่อนุมัติ${body.reason ? `\nเหตุผล: ${body.reason}` : ""}`,
           requestId: params.id,
         });
         await writeAuditLog({
@@ -1215,13 +979,12 @@ export const app = new Elysia()
           action: "reject",
           targetType: "request",
           targetId: params.id,
-          metadata: { status: "rejected", reason: body.reason ?? null, activityName: d.activityName ?? null },
+          metadata: { status: "rejected", reason: body.reason ?? null },
         });
         if (d.studentEmail) {
           await sendStatusEmail({
             to: d.studentEmail,
             studentName: d.studentName,
-            activityTitle: displayTitle,
             status: "rejected",
             reason: body.reason,
           });
@@ -2126,34 +1889,17 @@ export const app = new Elysia()
       .select({
         id: requests.id,
         status: requests.status,
-        activityId: requests.activityId,
-        activityTitle: activities.title,
-        activityTitleEn: activities.titleEn,
         faculty: students.major,
       })
       .from(requests)
-      .leftJoin(activities, eq(requests.activityId, activities.id))
       .innerJoin(students, eq(requests.studentId, students.studentId));
 
     const countBy = (status?: string) =>
       status ? all.filter((r) => r.status === status).length : all.length;
 
-    const byActivityMap = new Map<string | null, { title: string; titleEn: string; total: number; pending: number; approved: number; rejected: number }>();
     const byFacultyMap = new Map<string, { faculty: string; total: number; pending: number; approved: number; rejected: number }>();
 
     for (const r of all) {
-      const a = byActivityMap.get(r.activityId) ?? {
-        id: r.activityId ?? "",
-        title: r.activityTitle ?? "ไม่ระบุกิจกรรม",
-        titleEn: r.activityTitleEn ?? "Unspecified activity",
-        total: 0, pending: 0, approved: 0, rejected: 0,
-      };
-      a.total++;
-      if (r.status === "pending") a.pending++;
-      else if (r.status === "approved") a.approved++;
-      else a.rejected++;
-      byActivityMap.set(r.activityId, a);
-
       const f = r.faculty ?? "ไม่ระบุ";
       const b = byFacultyMap.get(f) ?? { faculty: f, total: 0, pending: 0, approved: 0, rejected: 0 };
       b.total++;
@@ -2168,7 +1914,6 @@ export const app = new Elysia()
       pending: countBy("pending"),
       approved: countBy("approved"),
       rejected: countBy("rejected"),
-      byActivity: [...byActivityMap.values()],
       byFaculty: [...byFacultyMap.values()],
     };
   })

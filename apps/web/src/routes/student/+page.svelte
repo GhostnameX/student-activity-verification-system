@@ -215,12 +215,10 @@
 		return 'bg-ink-100 text-ink-600 ring-1 ring-ink-200';
 	}
 
-	function activityTitle(r: RequestItem) {
-		if (r.activityName) return r.activityName;
-		if (r.activity) {
-			return $lang === 'th' ? r.activity.title : r.activity.titleEn;
-		}
-		return translate($lang, 'activity');
+	function requestTitle(r: RequestItem) {
+		return r.requestNumber
+			? `${translate($lang, 'requestNumber')}: ${r.requestNumber}`
+			: translate($lang, 'myRequests');
 	}
 
 	function statusLabel(r: RequestItem) {
@@ -430,12 +428,12 @@
 								<div class="flex items-center gap-2">
 									<FileText size={16} class="shrink-0 text-brand-500" />
 									<p class="truncate font-semibold text-ink-900">
-										{activityTitle(r)}
+										{requestTitle(r)}
 									</p>
 								</div>
 								<p class="mt-1.5 flex items-center gap-1.5 text-sm text-ink-500">
 									<CalendarDays size={14} />
-									{new Date(r.activity?.date ?? r.submittedAt).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
+									{new Date(r.submittedAt).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
 								</p>
 								{#if r.requestNumber}
 									<p class="mt-1.5 text-sm text-ink-600">
@@ -516,7 +514,7 @@
 				<div class="mb-4 flex items-start justify-between gap-3">
 					<div>
 						<h3 class="text-lg font-bold text-ink-900">
-							{activityTitle(detail)}
+							{requestTitle(detail)}
 						</h3>
 						<span
 							class={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusClass(detail.status)}`}

@@ -38,11 +38,13 @@ const mode = process.argv[2] ?? "roster";
 const command =
   mode === "roster"
     ? [process.execPath, "test", "./scripts/roster-crud.integration.test.ts"]
+    : mode === "roster-import"
+      ? [process.execPath, "test", "./scripts/roster-import.integration.test.ts"]
     : mode === "gate-smoke"
       ? [process.execPath, "./scripts/gate-smoke.ts"]
       : null;
 if (!command) {
-  throw new Error(`[test-db] unknown mode "${mode}" (expected roster | gate-smoke)`);
+  throw new Error(`[test-db] unknown mode "${mode}" (expected roster | roster-import | gate-smoke)`);
 }
 
 const child = Bun.spawn(

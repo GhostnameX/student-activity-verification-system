@@ -633,7 +633,7 @@
 			<div class="py-12 text-center text-sm text-ink-500">{translate($lang, 'noResults')}</div>
 		{:else}
 			{#each rows as student (student.studentId)}
-				<article class={`rounded-lg border p-4 ${student.deletedAt ? 'border-red-200 bg-red-50/40' : 'border-ink-100 bg-surface'}`}>
+				<article class={`min-w-0 rounded-lg border p-4 ${student.deletedAt ? 'border-red-200 bg-red-50/40' : 'border-ink-100 bg-surface'}`}>
 					<div class="flex items-start justify-between gap-3">
 						<div class="flex min-w-0 items-start gap-3">
 							<input

@@ -1,6 +1,6 @@
 # ข้อกำหนดระบบ (Source of Truth)
 
-> เอกสารฉบับนี้เป็น **Source of Truth** ของ repo ระบบคำร้องขอตรวจสอบกิจกรรมนักศึกษา (University Student Activity Verification Request System)
+> เอกสารฉบับนี้เป็น **Source of Truth** ของ repo ระบบพิจารณาคำร้องขอฝึกประสบการณ์วิชาชีพ (Professional Experience Training Request Review System)
 > การตัดสินใจ/การแก้ไขข้อกำหนดทุกครั้ง ต้องบันทึกไว้ที่นี่ก่อนลงมือ implement
 > ระเบียบเรียงตามความสำคัญ: ข้อกำหนดบังคับ (MUST) > ข้อกำหนดควรทำ (SHOULD) > หมายเหตุการออกแบบ (Note)
 

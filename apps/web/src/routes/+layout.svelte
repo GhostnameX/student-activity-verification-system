@@ -129,13 +129,13 @@
 <div class="flex min-h-screen flex-col bg-ink-50">
 	<header class="sticky top-0 z-40 border-b border-ink-100 bg-surface/90 backdrop-blur">
 		<div class="mx-auto flex h-16 max-w-[1600px] items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 xl:px-10">
-			<a href="/" class="group flex shrink-0 items-center gap-2.5">
+			<a href="/" class="group flex min-w-0 items-center gap-2.5">
 				<span
-					class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft transition-transform group-hover:scale-105"
+					class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft transition-transform group-hover:scale-105"
 				>
 					<GraduationCap size={22} />
 				</span>
-				<span class="max-sm:hidden text-lg font-bold tracking-tight text-ink-900">
+				<span class="min-w-0 truncate text-lg font-bold tracking-tight text-ink-900 max-sm:hidden">
 					{translate($lang, 'appName')}
 				</span>
 			</a>

@@ -1,7 +1,7 @@
 export const translations = {
   th: {
-    appName: "ระบบคำร้องกิจกรรม",
-    tagline: "ระบบส่งคำร้องขอตรวจสอบกิจกรรมนักศึกษา",
+    appName: "ระบบพิจารณาคำร้องขอฝึกประสบการณ์วิชาชีพ",
+    tagline: "ยื่นและติดตามคำร้องขอฝึกประสบการณ์วิชาชีพ",
     login: "เข้าสู่ระบบ",
     logout: "ออกจากระบบ",
     signingOut: "กำลังออกจากระบบ...",
@@ -304,8 +304,8 @@ export const translations = {
     bindErrorGeneric: "ผูกบัญชีไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
   },
   en: {
-    appName: "Activity Request System",
-    tagline: "University student activity verification request system",
+    appName: "Professional Experience Training Request Review System",
+    tagline: "Submit and track professional experience training requests",
     login: "Login",
     logout: "Logout",
     signingOut: "Signing out...",

@@ -144,7 +144,7 @@ async function sendStatusEmail(opts: {
     const payload: Record<string, unknown> = {
       from: EMAIL_FROM,
       to: [opts.to],
-      subject: `${th} — ระบบคำร้องกิจกรรม`,
+      subject: `${th} — ระบบพิจารณาคำร้องขอฝึกประสบการณ์วิชาชีพ`,
       text: body,
     };
     if (opts.attachments && opts.attachments.length > 0) {

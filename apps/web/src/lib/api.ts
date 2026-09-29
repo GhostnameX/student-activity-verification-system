@@ -405,7 +405,7 @@ export interface RosterStudentInput {
   phone?: string | null;
 }
 
-export async function getRosterStudents(params: {
+export interface RosterQueryParams {
   page?: number;
   pageSize?: number;
   search?: string;
@@ -413,17 +413,41 @@ export async function getRosterStudents(params: {
   includeDeleted?: boolean;
   sort?: RosterSortField;
   order?: "asc" | "desc";
-} = {}): Promise<RosterListResponse> {
+}
+
+function rosterQuery(params: RosterQueryParams, includePagination: boolean): string {
   const q = new URLSearchParams();
-  if (params.page) q.set("page", String(params.page));
-  if (params.pageSize) q.set("pageSize", String(params.pageSize));
+  if (includePagination && params.page) q.set("page", String(params.page));
+  if (includePagination && params.pageSize) q.set("pageSize", String(params.pageSize));
   if (params.search) q.set("search", params.search);
   if (params.status) q.set("status", params.status);
   if (params.includeDeleted) q.set("includeDeleted", "true");
   if (params.sort) q.set("sort", params.sort);
   if (params.order) q.set("order", params.order);
-  const qs = q.toString();
+  return q.toString();
+}
+
+export async function getRosterStudents(params: RosterQueryParams = {}): Promise<RosterListResponse> {
+  const qs = rosterQuery(params, true);
   return apiFetch(`/api/roster/students${qs ? `?${qs}` : ""}`);
+}
+
+export async function exportRosterCsv(
+  params: Omit<RosterQueryParams, "page" | "pageSize"> = {},
+): Promise<{ blob: Blob; filename: string }> {
+  const qs = rosterQuery(params, false);
+  const response = await fetch(`${API_BASE}/api/roster/export.csv${qs ? `?${qs}` : ""}`, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(data?.error ?? `request_failed_${response.status}`);
+  }
+
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const serverName = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  const filename = serverName?.replace(/[\\/:*?"<>|]/g, "") || "student-roster.csv";
+  return { blob: await response.blob(), filename };
 }
 
 export async function createRosterStudent(body: RosterStudentInput): Promise<RosterRecord> {

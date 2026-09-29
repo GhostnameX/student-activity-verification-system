@@ -9,6 +9,7 @@
 		bulkDeleteRosterStudents,
 		bulkRestoreRosterStudents,
 		createRosterStudent,
+		exportRosterCsv,
 		getRosterStudents,
 		restoreRosterStudent,
 		softDeleteRosterStudent,
@@ -24,6 +25,7 @@
 	import {
 		ChevronLeft,
 		ChevronRight,
+		Download,
 		Pencil,
 		RefreshCw,
 		RotateCcw,
@@ -102,6 +104,8 @@
 	let bulkResult: (BulkRosterResult & { operation: 'delete' | 'restore' }) | null = $state(null);
 	let bulkError = $state('');
 	let importOpen = $state(false);
+	let exporting = $state(false);
+	let exportError = $state('');
 	let requestId = 0;
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -193,6 +197,32 @@
 	async function refreshRoster() {
 		clearSelection();
 		await loadRoster();
+	}
+
+	async function exportRoster() {
+		exporting = true;
+		exportError = '';
+		try {
+			const { blob, filename } = await exportRosterCsv({
+				search: search.trim() || undefined,
+				status: statusFilter || undefined,
+				includeDeleted,
+				sort,
+				order,
+			});
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = filename;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			setTimeout(() => URL.revokeObjectURL(url), 0);
+		} catch {
+			exportError = translate($lang, 'exportRosterError');
+		} finally {
+			exporting = false;
+		}
 	}
 
 	function openCreate() {
@@ -413,6 +443,10 @@
 			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'rosterSubtitle')}</p>
 		</div>
 		<div class="flex flex-wrap gap-2">
+			<button type="button" onclick={exportRoster} disabled={exporting} class="flex min-h-10 items-center gap-2 rounded-lg border border-ink-200 bg-surface px-4 py-2 text-sm font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-wait disabled:opacity-60">
+				<Download size={17} />
+				{translate($lang, exporting ? 'exportingRoster' : 'exportRoster')}
+			</button>
 			<button type="button" onclick={() => (importOpen = true)} class="flex min-h-10 items-center gap-2 rounded-lg border border-brand-200 bg-surface px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">
 				<Upload size={17} />
 				{translate($lang, 'importRoster')}
@@ -427,6 +461,9 @@
 			</button>
 		</div>
 	</header>
+	{#if exportError}
+		<div class="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{exportError}</div>
+	{/if}
 
 	<section class="border-y border-ink-100 bg-surface px-0 py-4 sm:px-4" aria-label={translate($lang, 'filters')}>
 		<div class="grid gap-3 md:grid-cols-[minmax(15rem,1fr)_auto_auto] xl:grid-cols-[minmax(18rem,1fr)_12rem_15rem_auto]">

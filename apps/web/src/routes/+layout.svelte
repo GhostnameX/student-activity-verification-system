@@ -363,7 +363,18 @@
 
 	<footer class="border-t border-ink-100 bg-surface py-6">
 		<div class="mx-auto max-w-[1600px] px-6 text-center text-sm text-ink-400 xl:px-10">
-			{translate($lang, 'appName')} &middot; © {new Date().getFullYear()}
+			<p>{translate($lang, 'appName')} &middot; © 2026</p>
+			<p class="mt-1 text-xs text-ink-400/80">
+				Built by
+				<a
+					href="https://github.com/GhostnameX"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="font-medium text-ink-500 transition hover:text-brand-600 hover:underline"
+				>
+					@GhostnameX
+				</a>
+			</p>
 		</div>
 	</footer>
 </div>

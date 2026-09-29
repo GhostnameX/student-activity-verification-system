@@ -311,6 +311,72 @@ describe("roster authorization", () => {
   });
 });
 
+describe("roster statistics authorization", () => {
+  test("staff and admin can read submission stats and the not-submitted roster", async () => {
+    for (const cookie of [staffCookie, adminCookie]) {
+      const stats = await api("GET", "/api/stats/submission", { cookie });
+      expect(stats.status).toBe(200);
+
+      const roster = await api("GET", "/api/roster/not-submitted", { cookie });
+      expect(roster.status).toBe(200);
+    }
+  });
+
+  test("students receive 403 from both roster statistics endpoints", async () => {
+    for (const path of ["/api/stats/submission", "/api/roster/not-submitted"]) {
+      const res = await api("GET", path, { cookie: studentCookie });
+      expect({ path, status: res.status, error: res.body.error }).toEqual({
+        path,
+        status: 403,
+        error: "staff_admin_only",
+      });
+    }
+  });
+
+  test("missing sessions receive 401 from both roster statistics endpoints", async () => {
+    for (const path of ["/api/stats/submission", "/api/roster/not-submitted"]) {
+      const res = await api("GET", path);
+      expect({ path, status: res.status, error: res.body.error }).toEqual({
+        path,
+        status: 401,
+        error: "unauthorized",
+      });
+    }
+  });
+});
+
+describe("roster statistics correctness", () => {
+  test("submission stats exclude soft-deleted students while retaining active status semantics", async () => {
+    const res = await api("GET", "/api/stats/submission", { cookie: staffCookie });
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(3);
+    expect(res.body.submitted).toBe(0);
+    expect(res.body.notSubmitted).toBe(3);
+    expect(res.body.byMajor.reduce((sum: number, row: any) => sum + row.total, 0)).toBe(3);
+  });
+
+  test("not-submitted list excludes soft-deleted students and paginates", async () => {
+    const first = await api("GET", "/api/roster/not-submitted?page=1&pageSize=2", {
+      cookie: staffCookie,
+    });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ total: 3, page: 1, pageSize: 2 });
+    expect(first.body.items).toHaveLength(2);
+
+    const second = await api("GET", "/api/roster/not-submitted?page=2&pageSize=2", {
+      cookie: staffCookie,
+    });
+    expect(second.status).toBe(200);
+    expect(second.body).toMatchObject({ total: 3, page: 2, pageSize: 2 });
+    expect(second.body.items).toHaveLength(1);
+
+    const ids = [...first.body.items, ...second.body.items].map((row: any) => row.studentId);
+    expect(ids).not.toContain("6501000005");
+    expect(ids.sort()).toEqual(["6501000001", "6501000002", "6501000006"]);
+  });
+});
+
 // --- 2. listing -------------------------------------------------------------
 
 describe("GET /api/roster/students", () => {

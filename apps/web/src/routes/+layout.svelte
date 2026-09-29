@@ -12,6 +12,7 @@
 		FileText,
 		Inbox,
 		LayoutDashboard,
+		ClipboardList,
 		Bell,
 		CheckCheck,
 		User,
@@ -107,6 +108,9 @@
 				: null,
 			$user?.role === 'staff' || $user?.role === 'admin'
 				? { href: '/stats', label: translate($lang, 'submissionStats'), icon: LayoutDashboard }
+				: null,
+			$user?.role === 'staff' || $user?.role === 'admin'
+				? { href: '/roster', label: translate($lang, 'rosterManagement'), icon: ClipboardList }
 				: null,
 			$user?.role === 'admin'
 				? { href: '/admin', label: translate($lang, 'dashboard'), icon: LayoutDashboard }

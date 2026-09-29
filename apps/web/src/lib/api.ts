@@ -418,6 +418,107 @@ export async function getNotSubmitted(params: {
   return apiFetch(`/api/roster/not-submitted${qs ? `?${qs}` : ""}`);
 }
 
+export type StudentStatus = "active" | "graduated" | "withdrawn";
+
+export type RosterSortField =
+  | "studentId"
+  | "firstName"
+  | "lastName"
+  | "major"
+  | "status"
+  | "admissionYear"
+  | "createdAt"
+  | "updatedAt";
+
+export interface RosterRecord {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  major: string;
+  groupName: string | null;
+  level: string | null;
+  admissionYear: number;
+  status: StudentStatus;
+  email: string | null;
+  phone: string | null;
+  avatarUrl: string | null;
+  emailBoundAt: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RosterListResponse {
+  total: number;
+  page: number;
+  pageSize: number;
+  items: RosterRecord[];
+}
+
+export interface RosterStudentInput {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  major: string;
+  groupName?: string | null;
+  level?: string | null;
+  admissionYear: number;
+  status?: StudentStatus;
+  email?: string | null;
+  phone?: string | null;
+}
+
+export async function getRosterStudents(params: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  status?: StudentStatus;
+  includeDeleted?: boolean;
+  sort?: RosterSortField;
+  order?: "asc" | "desc";
+} = {}): Promise<RosterListResponse> {
+  const q = new URLSearchParams();
+  if (params.page) q.set("page", String(params.page));
+  if (params.pageSize) q.set("pageSize", String(params.pageSize));
+  if (params.search) q.set("search", params.search);
+  if (params.status) q.set("status", params.status);
+  if (params.includeDeleted) q.set("includeDeleted", "true");
+  if (params.sort) q.set("sort", params.sort);
+  if (params.order) q.set("order", params.order);
+  const qs = q.toString();
+  return apiFetch(`/api/roster/students${qs ? `?${qs}` : ""}`);
+}
+
+export async function createRosterStudent(body: RosterStudentInput): Promise<RosterRecord> {
+  return apiFetch("/api/roster/students", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateRosterStudent(
+  studentId: string,
+  body: Partial<Omit<RosterStudentInput, "studentId">>,
+): Promise<RosterRecord> {
+  return apiFetch(`/api/roster/students/${encodeURIComponent(studentId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function softDeleteRosterStudent(studentId: string): Promise<RosterRecord> {
+  return apiFetch(`/api/roster/students/${encodeURIComponent(studentId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function restoreRosterStudent(studentId: string): Promise<RosterRecord> {
+  return apiFetch(`/api/roster/students/${encodeURIComponent(studentId)}/restore`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export interface StatsResponse {
   total: number;
   pending: number;

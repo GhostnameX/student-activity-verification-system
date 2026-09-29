@@ -2199,7 +2199,12 @@ export const app = new Elysia()
       })
       .from(students)
       .leftJoin(submittedSub, eq(submittedSub.studentId, students.studentId))
-      .where(eq(students.status, "active"))
+      .where(
+        and(
+          eq(students.status, "active"),
+          isNull(students.deletedAt),
+        ),
+      )
       .groupBy(students.major)
       .orderBy(students.major);
 
@@ -2212,6 +2217,7 @@ export const app = new Elysia()
       .where(
         and(
           eq(students.status, "active"),
+          isNull(students.deletedAt),
           sql`${students.groupName} is not null`,
         ),
       )
@@ -2269,6 +2275,7 @@ export const app = new Elysia()
 
       const conds: any[] = [
         eq(students.status, "active"),
+        isNull(students.deletedAt),
         isNull(submittedSub.studentId),
       ];
       if (major) conds.push(eq(students.major, major));

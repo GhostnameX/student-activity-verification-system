@@ -63,17 +63,7 @@ async function api(
   path: string,
   options: { cookie?: string; body?: unknown } = {},
 ): Promise<ApiResult> {
-  const headers: Record<string, string> = {};
-  if (options.cookie) headers.cookie = options.cookie;
-  if (options.body !== undefined) headers["content-type"] = "application/json";
-
-  const response = await app.handle(
-    new Request(`${ORIGIN}${path}`, {
-      method,
-      headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    }),
-  );
+  const response = await rawApi(method, path, options);
   const text = await response.text();
   let body: any = text;
   if (text !== "") {
@@ -84,6 +74,65 @@ async function api(
     }
   }
   return { status: response.status, body, setCookie: response.headers.get("set-cookie") ?? "" };
+}
+
+async function rawApi(
+  method: string,
+  path: string,
+  options: { cookie?: string; body?: unknown } = {},
+): Promise<Response> {
+  const headers: Record<string, string> = {};
+  if (options.cookie) headers.cookie = options.cookie;
+  if (options.body !== undefined) headers["content-type"] = "application/json";
+
+  return app.handle(
+    new Request(`${ORIGIN}${path}`, {
+      method,
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    }),
+  );
+}
+
+function parseCsv(csv: string): string[][] {
+  const text = csv.startsWith("\uFEFF") ? csv.slice(1) : csv;
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted) {
+      if (char === '"' && text[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        field += char;
+      }
+    } else if (char === '"') {
+      quoted = true;
+    } else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (char === "\r" && text[index + 1] === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      index += 1;
+    } else {
+      field += char;
+    }
+  }
+
+  if (field !== "" || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
 }
 
 function cookieValue(setCookie: string, name: string): string | null {
@@ -297,6 +346,7 @@ describe("roster authorization", () => {
   test("a student is rejected with 403 on every roster route", async () => {
     const cases: Array<[string, string, unknown?]> = [
       ["GET", "/api/roster/students", undefined],
+      ["GET", "/api/roster/export.csv", undefined],
       ["POST", "/api/roster/students", { studentId: "x", firstName: "x", lastName: "x", major: "x", admissionYear: 2568 }],
       ["PATCH", "/api/roster/students/6501000001", { firstName: "hacked" }],
       ["DELETE", "/api/roster/students/6501000001", undefined],
@@ -314,6 +364,7 @@ describe("roster authorization", () => {
   test("no session is rejected with 401", async () => {
     const cases: Array<[string, string, unknown?]> = [
       ["GET", "/api/roster/students", undefined],
+      ["GET", "/api/roster/export.csv", undefined],
       ["POST", "/api/roster/students/bulk-delete", { studentIds: ["6501000001"] }],
       ["POST", "/api/roster/students/bulk-restore", { studentIds: ["6501000005"] }],
     ];
@@ -502,6 +553,108 @@ describe("GET /api/roster/students", () => {
     expect(shown.body.total).toBe(6);
     const deleted = shown.body.items.find((s: any) => s.studentId === "6501000005");
     expect(deleted.deletedAt).not.toBeNull();
+  });
+});
+
+describe("GET /api/roster/export.csv", () => {
+  test("exports every active non-deleted roster row with a dated attachment filename", async () => {
+    const response = await rawApi("GET", "/api/roster/export.csv?status=active", { cookie: staffCookie });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+    expect(response.headers.get("content-disposition")).toMatch(
+      /^attachment; filename="student-roster-\d{4}-\d{2}-\d{2}\.csv"$/,
+    );
+    expect(response.headers.get("cache-control")).toBe("no-store");
+
+    const rows = parseCsv(await response.text());
+    expect(rows[0]).toEqual([
+      "studentId", "firstName", "lastName", "major", "groupName", "level",
+      "admissionYear", "status", "email", "phone",
+    ]);
+    expect(rows.slice(1).map((row) => row[0])).toEqual(["6501000001", "6501000002", "6501000006"]);
+    expect(rows.slice(1).every((row) => row[7] === "active")).toBe(true);
+  });
+
+  test("uses the same search, status and sort filters as the roster list", async () => {
+    const bySearch = await rawApi(
+      "GET",
+      "/api/roster/export.csv?search=" + encodeURIComponent("ปิยะ"),
+      { cookie: staffCookie },
+    );
+    expect(parseCsv(await bySearch.text()).slice(1).map((row) => row[0])).toEqual(["6501000003"]);
+
+    const graduated = await rawApi(
+      "GET",
+      "/api/roster/export.csv?status=graduated&sort=admissionYear&order=desc",
+      { cookie: adminCookie },
+    );
+    const graduatedRows = parseCsv(await graduated.text());
+    expect(graduatedRows.slice(1).map((row) => [row[0], row[7]])).toEqual([["6501000003", "graduated"]]);
+  });
+
+  test("includes soft-deleted rows and an explicit deleted column only when requested", async () => {
+    const response = await rawApi("GET", "/api/roster/export.csv?includeDeleted=true", { cookie: staffCookie });
+    const rows = parseCsv(await response.text());
+    expect(rows[0].at(-1)).toBe("deleted");
+    expect(rows).toHaveLength(7);
+    const deleted = rows.find((row) => row[0] === "6501000005");
+    expect(deleted?.at(-1)).toBe("true");
+    expect(rows.find((row) => row[0] === "6501000001")?.at(-1)).toBe("false");
+  });
+
+  test("emits UTF-8 BOM, preserves Thai, escapes CSV, and neutralizes spreadsheet formulas", async () => {
+    const studentId = "formula-export-fixture";
+    await db.insert(students).values({
+      studentId,
+      firstName: "=SUM(1,1)",
+      lastName: "+คำสั่ง",
+      major: "-อันตราย",
+      groupName: "@กลุ่ม",
+      level: "ข้อความ, \"ทดสอบ\"\nบรรทัดใหม่",
+      admissionYear: 2569,
+      status: "active",
+      email: null,
+      phone: null,
+    });
+
+    try {
+      const response = await rawApi(
+        "GET",
+        `/api/roster/export.csv?search=${encodeURIComponent(studentId)}`,
+        { cookie: staffCookie },
+      );
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      expect(Array.from(bytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);
+      const rows = parseCsv(new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes));
+      expect(rows[1]).toEqual([
+        studentId,
+        "'=SUM(1,1)",
+        "'+คำสั่ง",
+        "'-อันตราย",
+        "'@กลุ่ม",
+        "ข้อความ, \"ทดสอบ\"\nบรรทัดใหม่",
+        "2569",
+        "active",
+        "",
+        "",
+      ]);
+    } finally {
+      await db.delete(students).where(eq(students.studentId, studentId));
+    }
+  });
+
+  test("exports no internal, session, OAuth, audit or system metadata fields", async () => {
+    const response = await rawApi("GET", "/api/roster/export.csv", { cookie: staffCookie });
+    const rows = parseCsv(await response.text());
+    expect(rows[0]).toEqual([
+      "studentId", "firstName", "lastName", "major", "groupName", "level",
+      "admissionYear", "status", "email", "phone",
+    ]);
+    for (const forbidden of [
+      "passwordHash", "session", "oauth", "emailBoundAt", "deletedAt", "createdAt", "updatedAt", "audit",
+    ]) {
+      expect(rows[0]).not.toContain(forbidden);
+    }
   });
 });
 

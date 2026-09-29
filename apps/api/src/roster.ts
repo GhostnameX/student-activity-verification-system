@@ -86,6 +86,20 @@ const ROSTER_ITEM_SELECTION = {
   updatedAt: students.updatedAt,
 } as const;
 
+const ROSTER_EXPORT_SELECTION = {
+  studentId: students.studentId,
+  firstName: students.firstName,
+  lastName: students.lastName,
+  major: students.major,
+  groupName: students.groupName,
+  level: students.level,
+  admissionYear: students.admissionYear,
+  status: students.status,
+  email: students.email,
+  phone: students.phone,
+  deletedAt: students.deletedAt,
+} as const;
+
 const ROSTER_AUDIT_ACTIONS = [
   "student_create",
   "student_update",
@@ -149,6 +163,121 @@ function readPositiveInt(
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) return fallback;
   return max === undefined ? parsed : Math.min(parsed, max);
+}
+
+interface RosterQueryPlan {
+  includeDeleted: boolean;
+  where: SQL | undefined;
+  orderBy: SQL[];
+}
+
+type ParsedRosterQuery =
+  | { ok: true; plan: RosterQueryPlan }
+  | { ok: false; error: "invalid_status" };
+
+function buildRosterQueryPlan(query: unknown): ParsedRosterQuery {
+  const params = (query ?? {}) as Record<string, unknown>;
+  const includeDeleted = readQueryFlag(params, "includeDeleted");
+  const search = readQueryValue(params, "search")?.trim() ?? "";
+  const rawStatus = readQueryValue(params, "status")?.trim().toLowerCase() ?? "";
+  const sortField = readQueryValue(params, "sort")?.trim() ?? "";
+  const sortDesc = readQueryValue(params, "order")?.trim().toLowerCase() === "desc";
+
+  if (rawStatus !== "" && !isStudentStatus(rawStatus)) {
+    return { ok: false, error: "invalid_status" };
+  }
+
+  const conditions: SQL[] = [];
+  if (!includeDeleted) conditions.push(isNull(students.deletedAt));
+  if (rawStatus !== "") conditions.push(eq(students.status, rawStatus));
+
+  if (search !== "") {
+    const like = `%${search}%`;
+    // Phones are stored in the canonical 10-digit form, so also match against
+    // a dash-free comparison to keep "081-234" findable.
+    const phoneDigits = search.replace(/[\s-]+/g, "");
+    conditions.push(sql`(
+      ${students.studentId} ILIKE ${like}
+      OR ${students.firstName} ILIKE ${like}
+      OR ${students.lastName} ILIKE ${like}
+      OR ${students.email} ILIKE ${like}
+      OR ${students.phone} ILIKE ${like}
+      OR replace(${students.phone}, '-', '') ILIKE ${`%${phoneDigits}%`}
+    )`);
+  }
+
+  const sortKey: SortableStudentField = isSortableStudentField(sortField) ? sortField : DEFAULT_SORT;
+  const sortColumn = SORTABLE_STUDENT_COLUMNS[sortKey];
+  const orderBy: SQL[] = [sortDesc ? desc(sortColumn) : asc(sortColumn)];
+  if (sortKey !== "studentId") orderBy.push(asc(students.studentId));
+
+  return {
+    ok: true,
+    plan: {
+      includeDeleted,
+      where: conditions.length > 0 ? and(...conditions) : undefined,
+      orderBy,
+    },
+  };
+}
+
+const CSV_FORMULA_PREFIX = /^[=+\-@]/;
+
+interface RosterExportRow {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  major: string;
+  groupName: string | null;
+  level: string | null;
+  admissionYear: number;
+  status: StudentStatus;
+  email: string | null;
+  phone: string | null;
+  deletedAt: Date | null;
+}
+
+function csvCell(value: string | number | null): string {
+  let text = value === null ? "" : String(value);
+  if (CSV_FORMULA_PREFIX.test(text)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function rosterCsv(
+  rows: RosterExportRow[],
+  includeDeleted: boolean,
+): string {
+  const headers = [
+    "studentId",
+    "firstName",
+    "lastName",
+    "major",
+    "groupName",
+    "level",
+    "admissionYear",
+    "status",
+    "email",
+    "phone",
+    ...(includeDeleted ? ["deleted"] : []),
+  ];
+  const lines = [headers.map(csvCell).join(",")];
+  for (const row of rows) {
+    const values: Array<string | number | null> = [
+      row.studentId,
+      row.firstName,
+      row.lastName,
+      row.major,
+      row.groupName,
+      row.level,
+      row.admissionYear,
+      row.status,
+      row.email,
+      row.phone,
+    ];
+    if (includeDeleted) values.push(row.deletedAt === null ? "false" : "true");
+    lines.push(values.map(csvCell).join(","));
+  }
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
 }
 
 // --- field parsing ----------------------------------------------------------
@@ -470,43 +599,12 @@ export const roster = new Elysia()
     const params = (query ?? {}) as Record<string, unknown>;
     const page = readPositiveInt(params, "page", 1);
     const pageSize = readPositiveInt(params, "pageSize", DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const includeDeleted = readQueryFlag(params, "includeDeleted");
-    const search = readQueryValue(params, "search")?.trim() ?? "";
-    const statusFilter = readQueryValue(params, "status")?.trim().toLowerCase() ?? "";
-    const sortField = readQueryValue(params, "sort")?.trim() ?? "";
-    const sortDesc = readQueryValue(params, "order")?.trim().toLowerCase() === "desc";
-
-    if (statusFilter !== "" && !isStudentStatus(statusFilter)) {
+    const parsedQuery = buildRosterQueryPlan(params);
+    if (!parsedQuery.ok) {
       set.status = 400;
-      return { error: "invalid_status" };
+      return { error: parsedQuery.error };
     }
-
-    const conditions: SQL[] = [];
-    if (!includeDeleted) conditions.push(isNull(students.deletedAt));
-    if (statusFilter !== "") conditions.push(eq(students.status, statusFilter));
-
-    if (search !== "") {
-      const like = `%${search}%`;
-      // Phones are stored in the canonical 10-digit form, so also match against
-      // a dash-free comparison to keep "081-234" findable.
-      const phoneDigits = search.replace(/[\s-]+/g, "");
-      conditions.push(sql`(
-        ${students.studentId} ILIKE ${like}
-        OR ${students.firstName} ILIKE ${like}
-        OR ${students.lastName} ILIKE ${like}
-        OR ${students.email} ILIKE ${like}
-        OR ${students.phone} ILIKE ${like}
-        OR replace(${students.phone}, '-', '') ILIKE ${`%${phoneDigits}%`}
-      )`);
-    }
-
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const sortKey: SortableStudentField = isSortableStudentField(sortField) ? sortField : DEFAULT_SORT;
-    const sortColumn = SORTABLE_STUDENT_COLUMNS[sortKey];
-    const orderBy = sortDesc ? [desc(sortColumn)] : [asc(sortColumn)];
-    // Stable pagination: every non-studentId sort needs a tiebreaker.
-    if (sortKey !== "studentId") orderBy.push(asc(students.studentId));
+    const { where, orderBy } = parsedQuery.plan;
 
     const countRows = await db
       .select({ n: sql<number>`count(*)` })
@@ -523,6 +621,45 @@ export const roster = new Elysia()
       .offset((page - 1) * pageSize);
 
     return { total, page, pageSize, items };
+  })
+
+  /**
+   * GET /api/roster/export.csv
+   *
+   * Exports the complete filtered result set on the server. Pagination is
+   * deliberately ignored, while search, status, deleted visibility and the
+   * allow-listed sort match the roster list endpoint exactly.
+   */
+  .get("/api/roster/export.csv", async ({ headers, query, set }) => {
+    const guard = await requireRosterManager(headers);
+    if (!guard.ok) {
+      set.status = guard.status;
+      return { error: guard.error };
+    }
+
+    const parsedQuery = buildRosterQueryPlan(query);
+    if (!parsedQuery.ok) {
+      set.status = 400;
+      return { error: parsedQuery.error };
+    }
+
+    const { includeDeleted, where, orderBy } = parsedQuery.plan;
+    const rows = await db
+      .select(ROSTER_EXPORT_SELECTION)
+      .from(students)
+      .where(where)
+      .orderBy(...orderBy);
+    const filename = `student-roster-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    return new Response(rosterCsv(rows, includeDeleted), {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Type": "text/csv; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
   })
 
   /**

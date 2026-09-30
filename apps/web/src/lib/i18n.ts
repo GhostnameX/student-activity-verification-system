@@ -1,6 +1,7 @@
 export const translations = {
   th: {
     appName: "ระบบพิจารณาคำร้องขอฝึกประสบการณ์วิชาชีพ",
+    navbarAppName: "ระบบคำร้องฝึกประสบการณ์ฯ",
     tagline: "ยื่นและติดตามคำร้องขอฝึกประสบการณ์วิชาชีพ",
     login: "เข้าสู่ระบบ",
     logout: "ออกจากระบบ",
@@ -308,6 +309,7 @@ export const translations = {
   },
   en: {
     appName: "Professional Experience Training Request Review System",
+    navbarAppName: "Training Requests",
     tagline: "Submit and track professional experience training requests",
     login: "Login",
     logout: "Logout",

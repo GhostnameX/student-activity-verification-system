@@ -20,6 +20,7 @@
 		Sun,
 		Menu,
 		X,
+		ChevronDown,
 	} from 'lucide-svelte';
 	import {
 		getNotifications,
@@ -46,6 +47,9 @@
 	let notifications: NotificationItem[] = $state([]);
 	let bellOpen = $state(false);
 	let mobileNavOpen = $state(false);
+	let userMenuOpen = $state(false);
+	let userMenuElement = $state<HTMLDivElement | null>(null);
+	let userMenuButton = $state<HTMLButtonElement | null>(null);
 
 	function isNavActive(href: string) {
 		return page.url.pathname === href || page.url.pathname.startsWith(`${href}/`);
@@ -56,7 +60,24 @@
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') closeMobileNav();
+		if (event.key !== 'Escape') return;
+		closeMobileNav();
+		bellOpen = false;
+		if (userMenuOpen) {
+			userMenuOpen = false;
+			userMenuButton?.focus();
+		}
+	}
+
+	function handleWindowClick(event: MouseEvent) {
+		if (userMenuOpen && userMenuElement && !userMenuElement.contains(event.target as Node)) {
+			userMenuOpen = false;
+		}
+	}
+
+	function toggleUserMenu() {
+		userMenuOpen = !userMenuOpen;
+		if (userMenuOpen) bellOpen = false;
 	}
 
 	$effect(() => {
@@ -77,6 +98,7 @@
 
 	async function openBell() {
 		bellOpen = !bellOpen;
+		if (bellOpen) userMenuOpen = false;
 		if (bellOpen) {
 			await loadNotifications();
 		}
@@ -120,7 +142,7 @@
 	);
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:window onkeydown={handleWindowKeydown} onclick={handleWindowClick} />
 
 <svelte:head>
 	<title>{translate($lang, 'appName')}</title>
@@ -128,37 +150,49 @@
 
 <div class="flex min-h-screen flex-col bg-ink-50">
 	<header class="sticky top-0 z-40 border-b border-ink-100 bg-surface/90 backdrop-blur">
-		<div class="mx-auto flex h-16 max-w-[1600px] items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 xl:px-10">
-			<a href="/" class="group flex min-w-0 items-center gap-2.5">
+		<div class="mx-auto flex h-16 max-w-[1600px] items-center gap-2 px-4 sm:gap-3 sm:px-6 xl:px-10">
+			<a
+				href="/"
+				class="group flex min-w-0 flex-1 items-center gap-2.5 xl:max-w-sm"
+				title={translate($lang, 'appName')}
+				aria-label={translate($lang, 'appName')}
+			>
 				<span
 					class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft transition-transform group-hover:scale-105"
 				>
 					<GraduationCap size={22} />
 				</span>
-				<span class="min-w-0 truncate text-lg font-bold tracking-tight text-ink-900 max-sm:hidden">
-					{translate($lang, 'appName')}
+				<span class="min-w-0 truncate whitespace-nowrap text-base font-bold tracking-tight text-ink-900 max-sm:hidden">
+					{translate($lang, 'navbarAppName')}
 				</span>
 			</a>
 
 			{#if $user}
-				<nav class="hidden items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-1 md:flex">
+				<nav class="hidden shrink-0 items-center gap-0.5 rounded-2xl border border-ink-100 bg-ink-50/60 p-1 xl:flex">
 					{#each nav as item (item.href)}
 						<a
 							href={item.href}
-							class="flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium text-ink-600 transition hover:bg-surface hover:text-ink-900 hover:shadow-soft sm:px-4 md:px-3 lg:px-4"
+							aria-current={isNavActive(item.href) ? 'page' : undefined}
+							class={`flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition hover:bg-surface hover:text-ink-900 hover:shadow-soft ${
+								isNavActive(item.href) ? 'bg-surface text-brand-700 shadow-soft' : 'text-ink-600'
+							}`}
 						>
 							<item.icon size={16} />
-							<span class="hidden md:inline">{item.label}</span>
+							<span>{item.label}</span>
 						</a>
 					{/each}
 				</nav>
 			{/if}
 
-			<div class="flex items-center gap-1.5 sm:gap-2.5">
+			<div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
 				{#if $user}
 					<button
-						onclick={() => (mobileNavOpen = !mobileNavOpen)}
-						class="flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 md:hidden"
+						onclick={() => {
+							mobileNavOpen = !mobileNavOpen;
+							bellOpen = false;
+							userMenuOpen = false;
+						}}
+						class="flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 xl:hidden"
 						aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
 						aria-expanded={mobileNavOpen}
 						aria-controls="mobile-navigation"
@@ -169,14 +203,6 @@
 							<Menu size={18} />
 						{/if}
 					</button>
-					<a
-						href="/auth/signout"
-						class="hidden h-9 w-9 items-center justify-center rounded-xl bg-ink-900 text-ink-50 transition hover:bg-ink-800 md:flex lg:hidden"
-						aria-label={translate($lang, 'logout')}
-						title={translate($lang, 'logout')}
-					>
-						<LogOut size={16} />
-					</a>
 				{/if}
 				{#if $user}
 					<div class="relative">
@@ -266,37 +292,69 @@
 					{/if}
 				</button>
 				{#if $user}
-					<div class="hidden items-center gap-2.5 lg:flex">
-						<a href="/profile" class="shrink-0" title={translate($lang, 'profile')}>
+					<div class="relative hidden sm:block" bind:this={userMenuElement}>
+						<button
+							bind:this={userMenuButton}
+							onclick={toggleUserMenu}
+							class="flex h-10 items-center gap-1 rounded-xl border border-ink-200 bg-surface p-1 pr-1.5 text-ink-700 transition hover:bg-ink-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+							aria-label={`${translate($lang, 'profile')}: ${$user.name}`}
+							aria-haspopup="menu"
+							aria-expanded={userMenuOpen}
+							aria-controls="user-navigation-menu"
+							title={`${$user.name} · ${translate($lang, $user.role as 'student')}`}
+						>
 							{#if $user.avatarUrl}
 								<img
 									src={avatarUrl($user.avatarUrl)}
 									alt={translate($lang, 'avatar')}
-									class="h-9 w-9 rounded-xl border border-ink-100 object-cover"
+									class="h-8 w-8 rounded-lg border border-ink-100 object-cover"
 								/>
 							{:else}
 								<span
-									class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white"
+									class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white"
 								>
 									{$user.name.trim().charAt(0).toUpperCase()}
 								</span>
 							{/if}
-						</a>
-						<div class="text-right">
-							<a href="/profile" class="block text-sm font-semibold leading-tight text-ink-900 hover:text-brand-700">
-								{$user.name}
-							</a>
-							<div class="text-xs capitalize text-ink-400">
-								{translate($lang, $user.role as 'student')}
+							<ChevronDown
+								size={15}
+								class={`transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
+							/>
+						</button>
+
+						{#if userMenuOpen}
+							<div
+								id="user-navigation-menu"
+								role="menu"
+								class="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-ink-100 bg-surface shadow-lift"
+							>
+								<div class="border-b border-ink-100 px-4 py-3">
+									<p class="truncate text-sm font-semibold text-ink-900">{$user.name}</p>
+									<p class="mt-0.5 text-xs capitalize text-ink-400">
+										{translate($lang, $user.role as 'student')}
+									</p>
+								</div>
+								<div class="p-1.5">
+									<a
+										href="/profile"
+										role="menuitem"
+										onclick={() => (userMenuOpen = false)}
+										class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-700 transition hover:bg-ink-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+									>
+										<User size={16} />
+										<span>{translate($lang, 'profile')}</span>
+									</a>
+									<a
+										href="/auth/signout"
+										role="menuitem"
+										class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+									>
+										<LogOut size={16} />
+										<span>{translate($lang, 'logout')}</span>
+									</a>
+								</div>
 							</div>
-						</div>
-						<a
-							href="/auth/signout"
-							class="flex items-center gap-1.5 rounded-xl bg-ink-900 px-2.5 py-2 text-sm font-medium text-ink-50 transition hover:bg-ink-800 sm:px-3.5"
-						>
-							<LogOut size={15} />
-							<span class="hidden xl:inline">{translate($lang, 'logout')}</span>
-						</a>
+						{/if}
 					</div>
 				{:else}
 					<a
@@ -312,7 +370,7 @@
 
 	{#if $user}
 		<button
-			class={`fixed inset-x-0 bottom-0 top-16 z-40 bg-ink-900/30 backdrop-blur-[1px] transition-opacity duration-200 md:hidden ${
+			class={`fixed inset-x-0 bottom-0 top-16 z-40 bg-ink-900/30 backdrop-blur-[1px] transition-opacity duration-200 xl:hidden ${
 				mobileNavOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
 			}`}
 			onclick={closeMobileNav}
@@ -321,7 +379,7 @@
 		></button>
 		<aside
 			id="mobile-navigation"
-			class={`fixed bottom-0 left-0 top-16 z-50 flex w-[min(82vw,20rem)] flex-col border-r border-ink-100 bg-surface shadow-lift transition-transform duration-200 ease-out md:hidden ${
+			class={`fixed bottom-0 left-0 top-16 z-50 flex w-[min(82vw,20rem)] flex-col border-r border-ink-100 bg-surface shadow-lift transition-transform duration-200 ease-out xl:hidden ${
 				mobileNavOpen ? 'translate-x-0' : '-translate-x-full'
 			}`}
 			aria-label="Mobile navigation"

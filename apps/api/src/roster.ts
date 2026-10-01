@@ -524,6 +524,13 @@ export const roster = new Elysia()
       return { error: "student_id_immutable" };
     }
 
+    // An unbound roster email decides which Google account may claim the row,
+    // so only admins may change it (audit P-4).
+    if (Object.prototype.hasOwnProperty.call(input, "email") && guard.manager.role !== "admin") {
+      set.status = 403;
+      return { error: "email_admin_only" };
+    }
+
     const [current] = await db.select().from(students).where(eq(students.studentId, studentId)).limit(1);
     if (!current) {
       set.status = 404;

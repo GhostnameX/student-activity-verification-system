@@ -582,7 +582,7 @@ describe("PATCH /api/roster/students/:id", () => {
 
   test("refuses to touch an email that is bound to a Google account", async () => {
     const res = await api("PATCH", "/api/roster/students/6501000006", {
-      cookie: staffCookie,
+      cookie: adminCookie,
       body: { email: "hijack@psru.ac.th" },
     });
     expect(res.status).toBe(409);
@@ -591,24 +591,52 @@ describe("PATCH /api/roster/students/:id", () => {
     // Even resending the identical bound value is rejected, so a client cannot
     // silently write to a field it does not own.
     const same = await api("PATCH", "/api/roster/students/6501000006", {
-      cookie: staffCookie,
+      cookie: adminCookie,
       body: { email: "bound@psru.ac.th" },
     });
     expect(same.status).toBe(409);
   });
 
-  test("allows email changes while unbound and blocks a collision", async () => {
+  test("staff cannot change an email (403) but can change other fields (audit P-4)", async () => {
+    const studentId = await createStudent(staffCookie, { email: "keep@psru.ac.th" });
+
+    const denied = await api("PATCH", `/api/roster/students/${studentId}`, {
+      cookie: staffCookie,
+      body: { email: "staff-set@psru.ac.th" },
+    });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error).toBe("email_admin_only");
+
+    // A mixed body is refused as a whole: nothing is written.
+    const mixed = await api("PATCH", `/api/roster/students/${studentId}`, {
+      cookie: staffCookie,
+      body: { email: "staff-set@psru.ac.th", lastName: "ไม่ควรเปลี่ยน" },
+    });
+    expect(mixed.status).toBe(403);
+    const [row] = await db.select().from(students).where(eq(students.studentId, studentId));
+    expect(row.email).toBe("keep@psru.ac.th");
+    expect(row.lastName).toBe("ระบบ");
+
+    const other = await api("PATCH", `/api/roster/students/${studentId}`, {
+      cookie: staffCookie,
+      body: { lastName: "แก้โดยสตาฟ" },
+    });
+    expect(other.status).toBe(200);
+    expect(other.body.lastName).toBe("แก้โดยสตาฟ");
+  });
+
+  test("allows admin email changes while unbound and blocks a collision", async () => {
     const studentId = await createStudent(staffCookie);
 
     const ok = await api("PATCH", `/api/roster/students/${studentId}`, {
-      cookie: staffCookie,
+      cookie: adminCookie,
       body: { email: "free@psru.ac.th" },
     });
     expect(ok.status).toBe(200);
     expect(ok.body.email).toBe("free@psru.ac.th");
 
     const collision = await api("PATCH", `/api/roster/students/${studentId}`, {
-      cookie: staffCookie,
+      cookie: adminCookie,
       body: { email: "one@psru.ac.th" },
     });
     expect(collision.status).toBe(409);
@@ -622,6 +650,54 @@ describe("PATCH /api/roster/students/:id", () => {
     });
     expect(res.status).toBe(404);
     expect(res.body.error).toBe("student_not_found");
+  });
+});
+
+// --- 4b. reject guard (audit S-1, S-2) --------------------------------------
+
+describe("POST /api/requests/:id/reject", () => {
+  async function seedRequest(status: "pending" | "approved", note: string | null): Promise<string> {
+    const studentId = await createStudent(staffCookie);
+    const id = `p3-rej-${studentId}`;
+    await db.insert(requests).values({ id, studentId, status, note });
+    return id;
+  }
+
+  test("refuses an already approved request and leaves it approved", async () => {
+    const id = await seedRequest("approved", "หมายเหตุนักศึกษา");
+
+    const res = await api("POST", `/api/requests/${id}/reject`, {
+      cookie: adminCookie,
+      body: { reason: "too late" },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("already_reviewed");
+
+    const [row] = await db.select().from(requests).where(eq(requests.id, id));
+    expect(row.status).toBe("approved");
+    expect(row.rejectionReason).toBeNull();
+    expect(row.note).toBe("หมายเหตุนักศึกษา");
+  });
+
+  test("rejecting writes rejection_reason and keeps the student's note", async () => {
+    const withReason = await seedRequest("pending", "หมายเหตุนักศึกษา");
+    const ok = await api("POST", `/api/requests/${withReason}/reject`, {
+      cookie: adminCookie,
+      body: { reason: "เอกสารไม่ครบ" },
+    });
+    expect(ok.status).toBe(200);
+    const [rejected] = await db.select().from(requests).where(eq(requests.id, withReason));
+    expect(rejected.status).toBe("rejected");
+    expect(rejected.rejectionReason).toBe("เอกสารไม่ครบ");
+    expect(rejected.note).toBe("หมายเหตุนักศึกษา");
+
+    // No reason given: the note must not be nulled out either.
+    const noReason = await seedRequest("pending", "อีกหนึ่งหมายเหตุ");
+    const ok2 = await api("POST", `/api/requests/${noReason}/reject`, { cookie: adminCookie, body: {} });
+    expect(ok2.status).toBe(200);
+    const [rejected2] = await db.select().from(requests).where(eq(requests.id, noReason));
+    expect(rejected2.status).toBe("rejected");
+    expect(rejected2.note).toBe("อีกหนึ่งหมายเหตุ");
   });
 });
 

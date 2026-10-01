@@ -213,6 +213,7 @@
 			duplicate_student_id: 'duplicateStudentId',
 			duplicate_email: 'duplicateEmail',
 			email_readonly_bound: 'boundEmailHint',
+			email_admin_only: 'emailAdminOnlyHint',
 			student_already_deleted: 'studentAlreadyDeleted',
 			not_deleted: 'studentNotDeleted',
 		};
@@ -545,8 +546,9 @@
 					<input bind:value={form.level} class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm" />
 				</label>
 				<label class="text-sm font-medium text-ink-700">{translate($lang, 'email')} <span class="font-normal text-ink-400">({translate($lang, 'optionalField')})</span>
-					<input bind:value={form.email} type="email" disabled={Boolean(editing?.emailBoundAt)} class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm disabled:cursor-not-allowed disabled:text-ink-500" />
-					{#if editing?.emailBoundAt}<span class="mt-1 block text-xs text-brand-600">{translate($lang, 'boundEmailHint')}</span>{/if}
+					<input bind:value={form.email} type="email" disabled={Boolean(editing?.emailBoundAt) || (editing !== null && $user?.role !== 'admin')} class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm disabled:cursor-not-allowed disabled:text-ink-500" />
+					{#if editing?.emailBoundAt}<span class="mt-1 block text-xs text-brand-600">{translate($lang, 'boundEmailHint')}</span>
+					{:else if editing && $user?.role !== 'admin'}<span class="mt-1 block text-xs text-brand-600">{translate($lang, 'emailAdminOnlyHint')}</span>{/if}
 				</label>
 				<label class="text-sm font-medium text-ink-700">{translate($lang, 'phone')} <span class="font-normal text-ink-400">({translate($lang, 'optionalField')})</span>
 					<input bind:value={form.phone} type="tel" class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm" />

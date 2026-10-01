@@ -461,9 +461,9 @@
 						</div>
 					</button>
 
-					{#if r.status === 'rejected' && r.note}
+					{#if r.status === 'rejected' && r.rejectionReason}
 						<p class="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-							{translate($lang, 'reason')}: {r.note}
+							{translate($lang, 'reason')}: {r.rejectionReason}
 						</p>
 					{/if}
 

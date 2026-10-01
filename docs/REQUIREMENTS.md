@@ -21,6 +21,7 @@
   - **ต้องคืน 403 เมื่อ role=staff**: `POST /api/requests/:id/approve`, `/reject`, `/request-revision`, `/resubmit`, และ endpoint แก้ไข/อัปโหลดอื่นของ request ทั้งหมด
   - `POST /api/requests/:id/staff-check` ต้องคืน 403 เมื่อ role=student หรือ admin (แยกบทบาทชัดเจน)
 - **Student ห้ามเข้าถึง Roster API** — roster all endpoints ต้อง 403 เมื่อ role=student
+- **แก้ `email` นักศึกษาผ่าน `PATCH /api/roster/students/:id` ได้เฉพาะ Admin** — staff ที่ส่งฟิลด์ `email` มาต้องได้ 403 `email_admin_only` (ฟิลด์อื่น staff แก้ได้เหมือนเดิม; email ที่ bind แล้วยังคง 409 `email_readonly_bound`) — ดู Decisions Log 2026-10-02 (audit P-4)
 - **Upload ไฟล์ ได้เฉพาะ Student** — `POST /api/upload` ต้อง 403 เมื่อ role ไม่ใช่ student
 - **`includeInactive` ของ activities เฉพาะ Admin** — student/staff เห็นเฉพาะ activities ที่ active
 - นักศึกษาที่ `status != 'active'` (graduated/withdrawn) **ห้ามล็อกอินและห้ามมี session** — ต้องถูก block ทั้งตอน OAuth callback และตอน `getSession`
@@ -160,4 +161,6 @@ revision_required
 | 2026-10-01 | D4: Student เห็นแจ้งเตือน+เวลาตรวจ, Admin เห็น badge ผู้ตรวจ/เวลา |
 | 2026-10-01 | D6/D7: "ยื่นแล้ว" = active ที่มีคำร้อง ≥1 (ทุกสถานะ/ทุกปี) นับคน ผ่าน helper เดียว; Admin+Staff เห็นรายชื่อ/กราฟ |
 | 2026-10-02 | PDF แสดงเลขคำร้องไม่มีปี (ชื่อไฟล์แนบยังมีปี) — เปลี่ยนเฉพาะข้อความที่วาดมุมขวาบน ไม่เปลี่ยนการออกเลข/`request_year`/`requestNumberLabel` ที่หน้าเว็บ |
+| 2026-10-02 | audit S-1/S-2/S-5: `reject` ใช้ `UPDATE … WHERE status='pending' RETURNING` (ไม่ได้แถว → 400 `already_reviewed`), เขียนเหตุผลลง `rejection_reason` เท่านั้น ไม่แตะ `note` ของนักศึกษา; audit/notification/email เป็น best-effort หลัง commit แบบเดียวกับ approve (ไม่ทำให้คำขอล้ม) — web อ่านเหตุผลจาก `rejectionReason` |
+| 2026-10-02 | audit P-4: แก้ email นักศึกษาผ่าน roster PATCH ได้เฉพาะ admin (staff → 403 `email_admin_only`) |
 | 2026-10-01 | D8/D9: PDF ใช้ `submitted_at` (ยื่นครั้งแรก) แทนเวลาอนุมัติ; ชื่อ `(ชื่อ นามสกุล)` ใต้เส้นลายเซ็น ไม่มีคำนำหน้า |

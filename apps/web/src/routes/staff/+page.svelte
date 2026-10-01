@@ -297,8 +297,8 @@
 										<span class="text-xs text-ink-400">{translate($lang, 'readOnly')}</span>
 									{/if}
 								{:else}
-									{#if r.status === 'rejected' && (r.rejectionReason || r.note)}
-										<span class="text-xs text-red-600">{r.rejectionReason ?? r.note}</span>
+									{#if r.status === 'rejected' && r.rejectionReason}
+										<span class="text-xs text-red-600">{r.rejectionReason}</span>
 									{/if}
 								{/if}
 							</td>
@@ -442,9 +442,9 @@
 								</button>
 							</div>
 						{/if}
-					{:else if detail.status === 'rejected' && (detail.rejectionReason || detail.note)}
+					{:else if detail.status === 'rejected' && detail.rejectionReason}
 						<div class="border-t border-ink-100 pt-4 text-sm text-red-600">
-							{translate($lang, 'reason')}: {detail.rejectionReason ?? detail.note}
+							{translate($lang, 'reason')}: {detail.rejectionReason}
 						</div>
 					{/if}
 				{/if}

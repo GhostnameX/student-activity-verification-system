@@ -929,17 +929,16 @@ export const app = new Elysia()
         .update(requests)
         .set({
           status: "rejected",
-          note: body.reason ?? null,
           rejectionReason: body.reason ?? null,
           reviewedById: user.id,
           reviewedAt: sql`now()`,
           updatedAt: sql`now()`,
         })
-        .where(eq(requests.id, params.id))
+        .where(and(eq(requests.id, params.id), eq(requests.status, "pending")))
         .returning();
       if (!updated) {
-        set.status = 404;
-        return { error: "not_found" };
+        set.status = 400;
+        return { error: "already_reviewed" };
       }
 
       const detail = await db
@@ -954,25 +953,31 @@ export const app = new Elysia()
 
       if (detail.length > 0) {
         const d = detail[0];
-        await notifyUser({
-          studentId: d.studentId,
-          title: "คำร้องถูกไม่อนุมัติ",
-          body: `คำร้องของคุณถูกไม่อนุมัติ${body.reason ? `\nเหตุผล: ${body.reason}` : ""}`,
-          requestId: params.id,
-        });
-        await writeAuditLog({
-          actorStaffId: user.id,
-          action: "reject",
-          targetType: "request",
-          targetId: params.id,
-          metadata: { status: "rejected", reason: body.reason ?? null },
-        });
+        // best-effort หลัง commit เหมือน approve: สถานะ rejected ถูกบันทึกแล้ว ความล้มเหลวตรงนี้ต้องไม่ทำให้คำขอพัง
+        await Promise.all([
+          notifyUser({
+            studentId: d.studentId,
+            title: "คำร้องถูกไม่อนุมัติ",
+            body: `คำร้องของคุณถูกไม่อนุมัติ${body.reason ? `\nเหตุผล: ${body.reason}` : ""}`,
+            requestId: params.id,
+          }),
+          writeAuditLog({
+            actorStaffId: user.id,
+            action: "reject",
+            targetType: "request",
+            targetId: params.id,
+            metadata: { status: "rejected", reason: body.reason ?? null },
+          }),
+        ]).catch((e) => console.log(`[reject] notify/audit failed: ${e}`));
         if (d.studentEmail) {
-          await sendStatusEmail({
-            to: d.studentEmail,
-            studentName: d.studentName,
-            status: "rejected",
-            reason: body.reason,
+          const to = d.studentEmail;
+          setImmediate(() => {
+            sendStatusEmail({
+              to,
+              studentName: d.studentName,
+              status: "rejected",
+              reason: body.reason,
+            }).catch((e) => console.log(`[email] send failed: ${e}`));
           });
         }
       }

@@ -31,6 +31,7 @@
 		UserPlus,
 		KeyRound,
 		Power,
+		RotateCcw,
 	} from 'lucide-svelte';
 
 	let requests: RequestItem[] = $state([]);
@@ -86,6 +87,7 @@
 	function statusClass(status: string) {
 		if (status === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
 		if (status === 'rejected') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
+		if (status === 'revision_required') return 'bg-orange-50 text-orange-700 ring-1 ring-orange-200';
 		return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
 	}
 
@@ -101,6 +103,12 @@
 			value: stats?.pending ?? 0,
 			icon: Clock,
 			classes: 'from-amber-400 to-amber-600',
+		},
+		{
+			label: 'totalRevision',
+			value: stats?.revisionRequired ?? 0,
+			icon: RotateCcw,
+			classes: 'from-orange-400 to-orange-600',
 		},
 		{
 			label: 'totalApproved',
@@ -247,7 +255,7 @@
 			{translate($lang, 'submitting')}
 		</div>
 	{:else if activeTab === 'stats'}
-		<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+		<div class="grid grid-cols-2 gap-4 lg:grid-cols-5">
 			{#each statCards as s (s.label)}
 				<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
 					<div
@@ -277,6 +285,7 @@
 									<th class="px-3 py-2">{translate($lang, 'faculty')}</th>
 									<th class="px-3 py-2 text-right">{translate($lang, 'totalRequests')}</th>
 									<th class="px-3 py-2 text-right">{translate($lang, 'totalPending')}</th>
+									<th class="px-3 py-2 text-right">{translate($lang, 'totalRevision')}</th>
 									<th class="px-3 py-2 text-right">{translate($lang, 'totalApproved')}</th>
 									<th class="px-3 py-2 text-right">{translate($lang, 'totalRejected')}</th>
 								</tr>
@@ -287,6 +296,7 @@
 										<td class="px-3 py-2.5 font-medium text-ink-900">{f.faculty}</td>
 										<td class="px-3 py-2.5 text-right text-ink-700">{f.total}</td>
 										<td class="px-3 py-2.5 text-right text-amber-600">{f.pending}</td>
+										<td class="px-3 py-2.5 text-right text-orange-600">{f.revisionRequired}</td>
 										<td class="px-3 py-2.5 text-right text-green-600">{f.approved}</td>
 										<td class="px-3 py-2.5 text-right text-red-600">{f.rejected}</td>
 									</tr>
@@ -326,7 +336,7 @@
 								<span
 									class={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusClass(r.status)}`}
 								>
-									{translate($lang, r.status as 'pending')}
+									{r.status === 'revision_required' ? translate($lang, 'revisionRequired') : translate($lang, r.status)}
 								</span>
 							</td>
 						</tr>

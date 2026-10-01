@@ -78,32 +78,6 @@ export const staff = pgTable(
   ],
 );
 
-export const activities = pgTable(
-  "activities",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => crypto.randomUUID()),
-    title: text("title").notNull(),
-    titleEn: text("title_en").notNull(),
-    type: text("type").notNull(),
-    organizer: text("organizer").notNull(),
-    date: timestamp("date").notNull(),
-    location: text("location").notNull(),
-    description: text("description"),
-    descriptionEn: text("description_en"),
-    submissionDeadline: timestamp("submission_deadline"),
-    isActive: boolean("is_active").default(true).notNull(),
-    createdAt: timestamp("created_at")
-      .default(sql`now()`)
-      .notNull(),
-    updatedAt: timestamp("updated_at")
-      .default(sql`now()`)
-      .notNull(),
-  },
-  (t) => [index("activities_date_idx").on(t.date)],
-);
-
 export const requests = pgTable(
   "requests",
   {
@@ -113,11 +87,9 @@ export const requests = pgTable(
     studentId: text("student_id")
       .notNull()
       .references(() => students.studentId, { onDelete: "cascade" }),
-    activityId: text("activity_id").references(() => activities.id),
     status: requestStatusEnum("status").default("pending").notNull(),
     note: text("note"),
     rejectionReason: text("rejection_reason"),
-    activityName: text("activity_name"),
     requestSequence: integer("request_sequence"),
     requestYear: integer("request_year"),
     certificateNumber: integer("certificate_number"),
@@ -134,7 +106,6 @@ export const requests = pgTable(
   (t) => [
     index("requests_student_idx").on(t.studentId),
     index("requests_status_idx").on(t.status),
-    index("requests_activity_idx").on(t.activityId),
     uniqueIndex("requests_cert_number_uidx")
       .on(t.certificateYear, t.certificateNumber)
       .where(sql`${t.certificateNumber} is not null`),
@@ -347,6 +318,28 @@ export const oauthBindSessions = pgTable(
   (t) => [
     uniqueIndex("oauth_bind_sessions_token_hash_uidx").on(t.tokenHash),
     index("oauth_bind_sessions_expires_at_idx").on(t.expiresAt),
+  ],
+);
+
+// Short-lived Google OAuth CSRF state. Only a SHA-256 hash is persisted; the
+// raw state stays in the browser's HttpOnly cookie and Google's callback URL.
+export const oauthLoginStates = pgTable(
+  "oauth_login_states",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    stateHash: text("state_hash").notNull(),
+    redirectPath: text("redirect_path"),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: timestamp("created_at")
+      .default(sql`now()`)
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("oauth_login_states_state_hash_uidx").on(t.stateHash),
+    index("oauth_login_states_expires_at_idx").on(t.expiresAt),
   ],
 );
 

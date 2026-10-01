@@ -12,6 +12,7 @@
 		FileText,
 		Inbox,
 		LayoutDashboard,
+		ClipboardList,
 		Bell,
 		CheckCheck,
 		User,
@@ -108,6 +109,9 @@
 			$user?.role === 'staff' || $user?.role === 'admin'
 				? { href: '/stats', label: translate($lang, 'submissionStats'), icon: LayoutDashboard }
 				: null,
+			$user?.role === 'staff' || $user?.role === 'admin'
+				? { href: '/roster', label: translate($lang, 'rosterManagement'), icon: ClipboardList }
+				: null,
 			$user?.role === 'admin'
 				? { href: '/admin', label: translate($lang, 'dashboard'), icon: LayoutDashboard }
 				: null,
@@ -125,13 +129,13 @@
 <div class="flex min-h-screen flex-col bg-ink-50">
 	<header class="sticky top-0 z-40 border-b border-ink-100 bg-surface/90 backdrop-blur">
 		<div class="mx-auto flex h-16 max-w-[1600px] items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 xl:px-10">
-			<a href="/" class="group flex shrink-0 items-center gap-2.5">
+			<a href="/" class="group flex min-w-0 items-center gap-2.5">
 				<span
-					class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft transition-transform group-hover:scale-105"
+					class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft transition-transform group-hover:scale-105"
 				>
 					<GraduationCap size={22} />
 				</span>
-				<span class="max-sm:hidden text-lg font-bold tracking-tight text-ink-900">
+				<span class="min-w-0 truncate text-lg font-bold tracking-tight text-ink-900 max-sm:hidden">
 					{translate($lang, 'appName')}
 				</span>
 			</a>
@@ -359,7 +363,18 @@
 
 	<footer class="border-t border-ink-100 bg-surface py-6">
 		<div class="mx-auto max-w-[1600px] px-6 text-center text-sm text-ink-400 xl:px-10">
-			{translate($lang, 'appName')} &middot; © {new Date().getFullYear()}
+			<div>{translate($lang, 'appName')} &middot; © {new Date().getFullYear()}</div>
+			<div class="mt-1 text-xs text-ink-300">
+				Built by
+				<a
+					href="https://github.com/GhostnameX"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="transition hover:text-ink-500 hover:underline"
+				>
+					@GhostnameX
+				</a>
+			</div>
 		</div>
 	</footer>
 </div>

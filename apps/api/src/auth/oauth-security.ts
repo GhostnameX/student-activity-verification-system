@@ -1,7 +1,18 @@
-export interface OAuthStateEntry {
-  redirect?: string;
-  expires: number;
+import { createHash } from "node:crypto";
+
+export interface ConsumedOAuthState {
+  redirectPath: string | null;
 }
+
+export type OAuthStateConsumer = (
+  stateHash: string,
+  now: Date,
+) => Promise<ConsumedOAuthState | null>;
+
+export type OAuthStateBindingFailure =
+  | "missing_query_state"
+  | "missing_cookie_state"
+  | "cookie_mismatch";
 
 export const OAUTH_STATE_COOKIE = "ua_oauth_state";
 export const OAUTH_STATE_TTL_SECONDS = 10 * 60;
@@ -23,20 +34,28 @@ export function normalizeOAuthRedirectPath(raw: string | undefined, webOrigin: s
   }
 }
 
-export function consumeOAuthState(
-  states: Map<string, OAuthStateEntry>,
+export function hashOAuthState(state: string): string {
+  return createHash("sha256").update(state, "utf8").digest("hex");
+}
+
+export function oauthStateBindingFailure(
   state: string | undefined,
   cookieState: string | undefined,
-  now = Date.now(),
-): OAuthStateEntry | null {
-  if (!state || !cookieState || state !== cookieState) return null;
+): OAuthStateBindingFailure | null {
+  if (!state) return "missing_query_state";
+  if (!cookieState) return "missing_cookie_state";
+  if (state !== cookieState) return "cookie_mismatch";
+  return null;
+}
 
-  const saved = states.get(state);
-  if (!saved) return null;
-
-  states.delete(state);
-  if (saved.expires <= now) return null;
-  return saved;
+export async function consumeOAuthState(
+  state: string | undefined,
+  cookieState: string | undefined,
+  consumeByHash: OAuthStateConsumer,
+  now = new Date(),
+): Promise<ConsumedOAuthState | null> {
+  if (oauthStateBindingFailure(state, cookieState)) return null;
+  return consumeByHash(hashOAuthState(state as string), now);
 }
 
 export function oauthStateCookieString(state: string, secure: boolean): string {

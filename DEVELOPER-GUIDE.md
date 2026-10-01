@@ -1,4 +1,4 @@
-# Developer Guide — University Activity Requests
+# Developer Guide — Professional Experience Training Request Review System
 
 > A comprehensive guide for developers joining this project. Covers architecture, setup, database, API, frontend, deployment, and common tasks.
 
@@ -27,7 +27,7 @@
 
 ## 1. Project Overview
 
-**Student Activity Verification System** — a Thai university web application for managing student activity participation requests.
+**Professional Experience Training Request Review System** — a Thai university web application for managing professional experience training requests.
 
 ### User Roles
 

@@ -15,7 +15,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "crypto";
-import { count, eq, sql } from "drizzle-orm";
+import { count, eq, inArray, sql } from "drizzle-orm";
 
 const TEST_DATABASE = "ua_roster_test";
 const TEST_DATABASE_PORT = 8520;
@@ -37,12 +37,14 @@ process.env.WEB_ORIGIN = ORIGIN;
 
 const { app } = await import("../src/app");
 const { getSession } = await import("../src/auth/session");
+const { createPostgresOAuthStateStore } = await import("../src/auth/oauth-state-store");
+const { hashOAuthState } = await import("../src/auth/oauth-security");
 const { db, pool } = await import("@ua/db/client");
 const {
-  activities,
   attachmentUploads,
   auditLogs,
   notifications,
+  oauthLoginStates,
   requestAttachmentRevisions,
   requestAttachments,
   requests,
@@ -116,10 +118,10 @@ async function makeSession(userId: string, role: "student" | "staff" | "admin"):
 
 const STAFF_ID = "p3-staff";
 const ADMIN_ID = "p3-admin";
-const ACTIVITY_ID = "p3-activity";
 let staffCookie = "";
 let adminCookie = "";
 let studentCookie = "";
+const oauthStateHashes: string[] = [];
 
 /**
  * Read-only dataset for the list/search/filter/sort tests. Never mutated by any
@@ -224,18 +226,8 @@ beforeAll(async () => {
 
   await db.execute(sql`
     TRUNCATE students, staff, sessions, audit_logs, requests, request_attachments,
-      request_attachment_revisions, attachment_uploads, notifications, activities CASCADE
+      request_attachment_revisions, attachment_uploads, notifications CASCADE
   `);
-
-  await db.insert(activities).values({
-    id: ACTIVITY_ID,
-    title: "กิจกรรมทดสอบ Phase 3",
-    titleEn: "Phase 3 test activity",
-    type: "อบรม",
-    organizer: "คณะวิศวกรรม",
-    date: new Date("2026-09-01T00:00:00Z"),
-    location: "ห้องทดสอบ",
-  });
 
   await db.insert(staff).values([
     {
@@ -262,6 +254,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (oauthStateHashes.length > 0) {
+    await db.delete(oauthLoginStates).where(inArray(oauthLoginStates.stateHash, oauthStateHashes));
+  }
   await pool.end();
 });
 
@@ -295,6 +290,72 @@ describe("roster authorization", () => {
     const res = await api("GET", "/api/roster/students");
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("unauthorized");
+  });
+});
+
+describe("roster statistics authorization", () => {
+  test("staff and admin can read submission stats and the not-submitted roster", async () => {
+    for (const cookie of [staffCookie, adminCookie]) {
+      const stats = await api("GET", "/api/stats/submission", { cookie });
+      expect(stats.status).toBe(200);
+
+      const roster = await api("GET", "/api/roster/not-submitted", { cookie });
+      expect(roster.status).toBe(200);
+    }
+  });
+
+  test("students receive 403 from both roster statistics endpoints", async () => {
+    for (const path of ["/api/stats/submission", "/api/roster/not-submitted"]) {
+      const res = await api("GET", path, { cookie: studentCookie });
+      expect({ path, status: res.status, error: res.body.error }).toEqual({
+        path,
+        status: 403,
+        error: "staff_admin_only",
+      });
+    }
+  });
+
+  test("missing sessions receive 401 from both roster statistics endpoints", async () => {
+    for (const path of ["/api/stats/submission", "/api/roster/not-submitted"]) {
+      const res = await api("GET", path);
+      expect({ path, status: res.status, error: res.body.error }).toEqual({
+        path,
+        status: 401,
+        error: "unauthorized",
+      });
+    }
+  });
+});
+
+describe("roster statistics correctness", () => {
+  test("submission stats exclude soft-deleted students while retaining active status semantics", async () => {
+    const res = await api("GET", "/api/stats/submission", { cookie: staffCookie });
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(3);
+    expect(res.body.submitted).toBe(0);
+    expect(res.body.notSubmitted).toBe(3);
+    expect(res.body.byMajor.reduce((sum: number, row: any) => sum + row.total, 0)).toBe(3);
+  });
+
+  test("not-submitted list excludes soft-deleted students and paginates", async () => {
+    const first = await api("GET", "/api/roster/not-submitted?page=1&pageSize=2", {
+      cookie: staffCookie,
+    });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ total: 3, page: 1, pageSize: 2 });
+    expect(first.body.items).toHaveLength(2);
+
+    const second = await api("GET", "/api/roster/not-submitted?page=2&pageSize=2", {
+      cookie: staffCookie,
+    });
+    expect(second.status).toBe(200);
+    expect(second.body).toMatchObject({ total: 3, page: 2, pageSize: 2 });
+    expect(second.body.items).toHaveLength(1);
+
+    const ids = [...first.body.items, ...second.body.items].map((row: any) => row.studentId);
+    expect(ids).not.toContain("6501000005");
+    expect(ids.sort()).toEqual(["6501000001", "6501000002", "6501000006"]);
   });
 });
 
@@ -570,7 +631,7 @@ describe("DELETE /api/roster/students/:id", () => {
   test("soft deletes a student with history without touching dependent rows", async () => {
     const studentId = await createStudent(staffCookie, { status: "active" });
 
-    await db.insert(requests).values({ id: `p3-req-${studentId}`, studentId, activityId: ACTIVITY_ID, status: "approved" });
+    await db.insert(requests).values({ id: `p3-req-${studentId}`, studentId, status: "approved" });
     await db.insert(requestAttachments).values({ id: `p3-att-${studentId}`, requestId: `p3-req-${studentId}`, fileName: "proof.pdf", storagePath: `uploads/${studentId}/proof.pdf` });
     await db.insert(requestAttachmentRevisions).values({
       id: `p3-rev-${studentId}`,
@@ -790,5 +851,66 @@ describe("OAuth login with roster state", () => {
     expect(result.status).toBe(302);
     expect(result.location).not.toContain("error=");
     expect(result.sessionId).not.toBeNull();
+  });
+});
+
+describe("durable OAuth login state", () => {
+  test("survives store recreation, persists only a hash, and consumes exactly once", async () => {
+    const state = `oauth-state-${randomUUID()}`;
+    const stateHash = hashOAuthState(state);
+    oauthStateHashes.push(stateHash);
+
+    const issuingProcess = createPostgresOAuthStateStore(db);
+    await issuingProcess.create({
+      state,
+      redirectPath: "/student",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const persisted = await db
+      .select()
+      .from(oauthLoginStates)
+      .where(eq(oauthLoginStates.stateHash, stateHash));
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.stateHash).toBe(stateHash);
+    expect(persisted[0]?.stateHash).not.toBe(state);
+
+    const restartedProcess = createPostgresOAuthStateStore(db);
+    expect(await restartedProcess.consumeByHash(stateHash, new Date())).toEqual({
+      redirectPath: "/student",
+    });
+    expect(await restartedProcess.consumeByHash(stateHash, new Date())).toBeNull();
+  });
+
+  test("rejects expired, used, and missing rows", async () => {
+    const store = createPostgresOAuthStateStore(db);
+    const expiredState = `oauth-expired-${randomUUID()}`;
+    const expiredHash = hashOAuthState(expiredState);
+    oauthStateHashes.push(expiredHash);
+    await store.create({
+      state: expiredState,
+      expiresAt: new Date(Date.now() - 1),
+    });
+
+    expect(await store.consumeByHash(expiredHash, new Date())).toBeNull();
+    expect(await store.consumeByHash(hashOAuthState(`missing-${randomUUID()}`), new Date())).toBeNull();
+  });
+
+  test("cleans up expired and old used rows after the retention window", async () => {
+    const store = createPostgresOAuthStateStore(db);
+    const state = `oauth-cleanup-${randomUUID()}`;
+    const stateHash = hashOAuthState(state);
+    oauthStateHashes.push(stateHash);
+    await store.create({
+      state,
+      expiresAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+    });
+
+    await store.cleanup(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const remaining = await db
+      .select({ stateHash: oauthLoginStates.stateHash })
+      .from(oauthLoginStates)
+      .where(eq(oauthLoginStates.stateHash, stateHash));
+    expect(remaining).toHaveLength(0);
   });
 });

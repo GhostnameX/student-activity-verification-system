@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   clearOAuthStateCookieString,
   consumeOAuthState,
+  hashOAuthState,
   matchesGoogleHostedDomain,
   normalizeOAuthRedirectPath,
+  oauthStateBindingFailure,
   oauthStateCookieString,
-  type OAuthStateEntry,
 } from "../src/auth/oauth-security";
 
 describe("Google hosted-domain enforcement", () => {
@@ -18,27 +19,42 @@ describe("Google hosted-domain enforcement", () => {
 });
 
 describe("OAuth state consumption", () => {
-  const validEntry = (): OAuthStateEntry => ({ redirect: "/student", expires: 2_000 });
-
-  test("rejects missing, unknown, and expired states", () => {
-    expect(consumeOAuthState(new Map(), undefined, undefined, 1_000)).toBeNull();
-    expect(consumeOAuthState(new Map(), "unknown", "unknown", 1_000)).toBeNull();
-
-    const expired = new Map([["expired", { expires: 1_000 }]]);
-    expect(consumeOAuthState(expired, "expired", "expired", 1_000)).toBeNull();
-    expect(expired.has("expired")).toBe(false);
+  test("hashes state deterministically without retaining the raw value", () => {
+    const hash = hashOAuthState("state-id");
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(hash).toBe(hashOAuthState("state-id"));
+    expect(hash).not.toContain("state-id");
   });
 
-  test("rejects a state issued to a different browser without consuming it", () => {
-    const states = new Map([["valid", validEntry()]]);
-    expect(consumeOAuthState(states, "valid", "different", 1_000)).toBeNull();
-    expect(states.has("valid")).toBe(true);
+  test("rejects missing and mismatched browser state before calling the DB consumer", async () => {
+    let calls = 0;
+    const consumer = async () => {
+      calls += 1;
+      return { redirectPath: "/student" };
+    };
+    expect(await consumeOAuthState(undefined, undefined, consumer)).toBeNull();
+    expect(await consumeOAuthState("valid", undefined, consumer)).toBeNull();
+    expect(await consumeOAuthState("valid", "different", consumer)).toBeNull();
+    expect(calls).toBe(0);
   });
 
-  test("accepts a valid state exactly once", () => {
-    const states = new Map([["valid", validEntry()]]);
-    expect(consumeOAuthState(states, "valid", "valid", 1_000)).toEqual(validEntry());
-    expect(consumeOAuthState(states, "valid", "valid", 1_000)).toBeNull();
+  test("passes only the state hash and current time to the DB consumer", async () => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    let receivedHash = "";
+    const consumed = await consumeOAuthState("valid", "valid", async (stateHash, receivedNow) => {
+      receivedHash = stateHash;
+      expect(receivedNow).toEqual(now);
+      return { redirectPath: "/student" };
+    }, now);
+    expect(receivedHash).toBe(hashOAuthState("valid"));
+    expect(consumed).toEqual({ redirectPath: "/student" });
+  });
+
+  test("returns sanitized binding failure categories", () => {
+    expect(oauthStateBindingFailure(undefined, undefined)).toBe("missing_query_state");
+    expect(oauthStateBindingFailure("state", undefined)).toBe("missing_cookie_state");
+    expect(oauthStateBindingFailure("state", "other")).toBe("cookie_mismatch");
+    expect(oauthStateBindingFailure("state", "state")).toBeNull();
   });
 });
 

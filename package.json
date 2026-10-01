@@ -22,7 +22,7 @@
     "db:studio": "bun run --filter @ua/db studio"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
-    "typescript": "^5.7.2"
+    "@types/node": "26.6.3",
+    "typescript": "7.0.2"
   }
 }

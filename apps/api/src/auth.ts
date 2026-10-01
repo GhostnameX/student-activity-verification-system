@@ -16,11 +16,15 @@ import {
   consumeOAuthState,
   matchesGoogleHostedDomain,
   normalizeOAuthRedirectPath,
+  oauthStateBindingFailure,
   oauthStateCookieString,
   OAUTH_STATE_COOKIE,
   OAUTH_STATE_TTL_SECONDS,
-  type OAuthStateEntry,
 } from "./auth/oauth-security";
+import {
+  oauthStateStore,
+  type OAuthStateStore,
+} from "./auth/oauth-state-store";
 import {
   BIND_COOKIE,
   BIND_ERRORS,
@@ -65,14 +69,7 @@ export const bindRateLimiter = new BindRateLimiter({
   maxEntries: 10_000,
 });
 
-const oauthStates = new Map<string, OAuthStateEntry>();
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of oauthStates) {
-    if (v.expires < now) oauthStates.delete(k);
-  }
-}, 60_000);
+const OAUTH_STATE_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 async function resolveGoogleProfile(code: string): Promise<{ email: string; name: string } | null> {
   if (DEV_BYPASS) {
@@ -117,7 +114,8 @@ async function resolveGoogleProfile(code: string): Promise<{ email: string; name
   }
 }
 
-export const auth = new Elysia()
+export function createAuth(stateStore: OAuthStateStore = oauthStateStore) {
+  return new Elysia()
   .post(
     "/api/auth/password/signin",
     async ({ body, set, request, server }) => {
@@ -178,7 +176,24 @@ export const auth = new Elysia()
       typeof query.redirect === "string" ? query.redirect : undefined,
       WEB_ORIGIN,
     );
-    oauthStates.set(state, { redirect, expires: Date.now() + OAUTH_STATE_TTL_SECONDS * 1000 });
+    const now = new Date();
+    try {
+      await stateStore.create({
+        state,
+        redirectPath: redirect,
+        expiresAt: new Date(now.getTime() + OAUTH_STATE_TTL_SECONDS * 1000),
+      });
+    } catch {
+      console.error("[auth] oauth_state_store_failed");
+      set.status = 500;
+      return { error: "oauth_state_unavailable" };
+    }
+    try {
+      await stateStore.cleanup(new Date(now.getTime() - OAUTH_STATE_RETENTION_MS));
+    } catch {
+      // Cleanup is best-effort and never blocks a newly persisted login flow.
+      console.warn("[auth] oauth_state_cleanup_failed");
+    }
     set.headers["Set-Cookie"] = oauthStateCookieString(state, SECURE_COOKIES);
     const params = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
@@ -206,9 +221,30 @@ export const auth = new Elysia()
 
     let redirectTo = WEB_ORIGIN;
     if (!DEV_BYPASS) {
-      const saved = consumeOAuthState(oauthStates, state, cookieState);
-      if (!saved) return fail("invalid_state");
-      if (saved.redirect) redirectTo = new URL(saved.redirect, `${new URL(WEB_ORIGIN).origin}/`).toString();
+      const bindingFailure = oauthStateBindingFailure(state, cookieState);
+      if (bindingFailure) {
+        console.warn(`[auth] invalid_state reason=${bindingFailure}`);
+        return fail("invalid_state");
+      }
+
+      let saved;
+      try {
+        saved = await consumeOAuthState(
+          state,
+          cookieState,
+          (stateHash, now) => stateStore.consumeByHash(stateHash, now),
+        );
+      } catch {
+        console.error("[auth] invalid_state reason=store_error");
+        return fail("invalid_state");
+      }
+      if (!saved) {
+        console.warn("[auth] invalid_state reason=missing_used_or_expired");
+        return fail("invalid_state");
+      }
+      if (saved.redirectPath) {
+        redirectTo = new URL(saved.redirectPath, `${new URL(WEB_ORIGIN).origin}/`).toString();
+      }
     }
     if (!code) return fail("missing_code");
 
@@ -433,3 +469,6 @@ export const auth = new Elysia()
     await destroySession(set.headers, headers);
     return { ok: true };
   });
+}
+
+export const auth = createAuth();

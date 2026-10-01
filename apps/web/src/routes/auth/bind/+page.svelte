@@ -19,8 +19,9 @@
 
 	const rolePath = { student: '/student', staff: '/stats', admin: '/admin' } as const;
 
-	const errorKey: Record<string, 'bindErrorInvalidStudent' | 'bindErrorInvalidPhone' | 'bindErrorEmailBound' | 'bindErrorRateLimited' | 'bindErrorSessionInvalid'> = {
+	const errorKey: Record<string, 'bindErrorInvalidStudent' | 'bindErrorEmailMismatch' | 'bindErrorInvalidPhone' | 'bindErrorEmailBound' | 'bindErrorRateLimited' | 'bindErrorSessionInvalid'> = {
 		invalid_student: 'bindErrorInvalidStudent',
+		email_student_mismatch: 'bindErrorEmailMismatch',
 		invalid_phone: 'bindErrorInvalidPhone',
 		email_already_bound: 'bindErrorEmailBound',
 		too_many_attempts: 'bindErrorRateLimited',
@@ -49,7 +50,7 @@
 				const code = error ?? "bind_failed";
 				// A dead bind session can never succeed, so stop showing the form.
 				if (code === "bind_session_invalid" || code === "too_many_attempts") phase = 'expired';
-				errorMsg = translate($lang, errorKey[code] ?? 'bindErrorGeneric');
+				errorMsg = translate($lang, errorKey[code] ?? 'bindErrorGeneric').replace('{id}', studentId.trim() || ($lang === 'th' ? '<รหัส>' : '<ID>'));
 				return;
 			}
 			phase = 'linked';

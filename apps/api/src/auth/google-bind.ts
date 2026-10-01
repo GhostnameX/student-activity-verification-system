@@ -23,6 +23,7 @@ export const BIND_ERRORS = {
   tooManyAttempts: "too_many_attempts",
   invalidPhone: "invalid_phone",
   invalidStudent: "invalid_student",
+  emailStudentMismatch: "email_student_mismatch",
   emailAlreadyBound: "email_already_bound",
   failed: "bind_failed",
 } as const;
@@ -65,6 +66,27 @@ export function clearOauthBindCookieString(secure: boolean): string {
   ];
   if (secure) parts.push("Secure");
   return parts.join("; ");
+}
+
+// --- email <-> student id --------------------------------------------------
+
+/** Student mailboxes are `<studentId>@psru.ac.th`; any other local-part is not a student. */
+export const BIND_EMAIL_DOMAIN = "psru.ac.th";
+
+/**
+ * True only when `email` is exactly `<studentId>@psru.ac.th`. Case and surrounding
+ * whitespace are ignored; everything else is compared character for character, so
+ * a staff/teacher mailbox (e.g. `somchai.k@psru.ac.th`) can never match a student.
+ * The domain is checked here rather than trusting the Google `hd` claim alone.
+ */
+export function emailMatchesStudentId(email: string, studentId: string): boolean {
+  const normalizedEmail = email.trim().toLowerCase();
+  const id = studentId.trim().toLowerCase();
+  if (id === "") return false;
+  const parts = normalizedEmail.split("@");
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts;
+  return domain === BIND_EMAIL_DOMAIN && local === id;
 }
 
 // --- phone -----------------------------------------------------------------

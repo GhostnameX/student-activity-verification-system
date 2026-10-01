@@ -44,6 +44,7 @@ const {
   attachmentUploads,
   auditLogs,
   notifications,
+  oauthBindSessions,
   oauthLoginStates,
   requestAttachmentRevisions,
   requestAttachments,
@@ -988,5 +989,92 @@ describe("durable OAuth login state", () => {
       .from(oauthLoginStates)
       .where(eq(oauthLoginStates.stateHash, stateHash));
     expect(remaining).toHaveLength(0);
+  });
+});
+
+describe("first-login bind requires <studentId>@psru.ac.th (audit P-1)", () => {
+  /** Dev-bypass Google login for an email that is in no roster row -> bind cookie. */
+  async function startBind(email: string): Promise<string> {
+    const result = await app.handle(await bindStart(email));
+    const cookie = cookieValue(result.headers.get("set-cookie") ?? "", "ua_oauth_bind");
+    expect(result.headers.get("location")).toContain("/auth/bind");
+    expect(cookie).not.toBeNull();
+    return `ua_oauth_bind=${cookie}`;
+  }
+
+  async function bindStart(email: string): Promise<Request> {
+    process.env.DEV_GOOGLE_EMAIL = email;
+    const start = await app.handle(new Request(`${ORIGIN}/api/auth/google/url`));
+    const body = (await start.json()) as { redirectUrl: string };
+    expect(body.redirectUrl).toContain("code=dev");
+    return new Request(`${ORIGIN}/api/auth/google/callback?code=dev`);
+  }
+
+  async function bind(cookie: string, studentId: string) {
+    return api("POST", "/api/auth/google/bind", { cookie, body: { studentId, phone: "0812345678" } });
+  }
+
+  async function studentRow(studentId: string) {
+    const [row] = await db.select().from(students).where(eq(students.studentId, studentId));
+    return row;
+  }
+
+  test("matching email and student id binds", async () => {
+    const studentId = await createStudent(staffCookie);
+    const cookie = await startBind(`${studentId}@psru.ac.th`);
+    const result = await bind(cookie, studentId);
+    expect(result.status).toBe(200);
+    expect(result.body.user.studentId).toBe(studentId);
+    expect((await studentRow(studentId)).email).toBe(`${studentId}@psru.ac.th`);
+  });
+
+  test("case and whitespace differences still bind", async () => {
+    const studentId = await createStudent(staffCookie);
+    const cookie = await startBind(`${studentId}@PSRU.ac.th`);
+    const result = await bind(cookie, `  ${studentId}  `);
+    expect(result.status).toBe(200);
+    expect((await studentRow(studentId)).email).toBe(`${studentId}@psru.ac.th`);
+  });
+
+  test("another student's id is rejected with 403 and nothing is bound", async () => {
+    const mine = await createStudent(staffCookie);
+    const victim = await createStudent(staffCookie);
+    const cookie = await startBind(`${mine}@psru.ac.th`);
+    const result = await bind(cookie, victim);
+    expect(result.status).toBe(403);
+    expect(result.body.error).toBe("email_student_mismatch");
+    expect((await studentRow(victim)).email).toBeNull();
+  });
+
+  test("a non-student psru.ac.th mailbox can never bind to any student", async () => {
+    const victim = await createStudent(staffCookie);
+    const cookie = await startBind("somchai.k@psru.ac.th");
+    const result = await bind(cookie, victim);
+    expect(result.status).toBe(403);
+    expect(result.body.error).toBe("email_student_mismatch");
+    expect((await studentRow(victim)).email).toBeNull();
+  });
+
+  test("a mismatch counts as a failed attempt and exhausts the bind session", async () => {
+    const victim = await createStudent(staffCookie);
+    const cookie = await startBind("teacher.x@psru.ac.th");
+    expect((await bind(cookie, victim)).status).toBe(403);
+    expect((await bind(cookie, victim)).status).toBe(403);
+    const third = await bind(cookie, victim);
+    expect(third.status).toBe(429);
+    expect(third.body.error).toBe("too_many_attempts");
+    // Even the right-looking request is dead now.
+    expect((await bind(cookie, victim)).status).toBe(401);
+    expect((await studentRow(victim)).email).toBeNull();
+    const rows = await db.select().from(oauthBindSessions).where(eq(oauthBindSessions.email, "teacher.x@psru.ac.th"));
+    expect(rows.every((r) => r.usedAt !== null && r.attempts >= 3)).toBe(true);
+  });
+
+  test("the mismatch answer does not depend on whether the student exists", async () => {
+    const cookieA = await startBind("teacher.y@psru.ac.th");
+    const real = await bind(cookieA, await createStudent(staffCookie));
+    const cookieB = await startBind("teacher.z@psru.ac.th");
+    const missing = await bind(cookieB, "9999999999");
+    expect([real.status, real.body.error]).toEqual([missing.status, missing.body.error]);
   });
 });

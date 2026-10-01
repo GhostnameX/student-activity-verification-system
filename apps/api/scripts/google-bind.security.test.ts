@@ -6,6 +6,7 @@ import {
   BIND_TTL_SECONDS,
   BindRateLimiter,
   clearOauthBindCookieString,
+  emailMatchesStudentId,
   generateBindToken,
   hashBindToken,
   isBindSessionUsable,
@@ -179,5 +180,44 @@ describe("bind error codes", () => {
     // One code covers not-found / inactive / soft-deleted so the response body
     // cannot be used to tell which it was.
     expect(BIND_ERRORS.invalidStudent).toBe("invalid_student");
+  });
+});
+
+describe("email <-> student id match", () => {
+  test("<studentId>@psru.ac.th matches its own student id", () => {
+    expect(emailMatchesStudentId("6712602001@psru.ac.th", "6712602001")).toBe(true);
+  });
+
+  test("another student's id does not match", () => {
+    expect(emailMatchesStudentId("6712602001@psru.ac.th", "6712602002")).toBe(false);
+    expect(emailMatchesStudentId("6712602001@psru.ac.th", "671260200")).toBe(false);
+    expect(emailMatchesStudentId("6712602001@psru.ac.th", "67126020011")).toBe(false);
+  });
+
+  test("a non-student mailbox never matches", () => {
+    expect(emailMatchesStudentId("somchai.k@psru.ac.th", "6712602001")).toBe(false);
+    expect(emailMatchesStudentId("6712602001+x@psru.ac.th", "6712602001")).toBe(false);
+  });
+
+  test("case and surrounding whitespace are ignored", () => {
+    expect(emailMatchesStudentId("  6712602001@PSRU.AC.TH ", " 6712602001 ")).toBe(true);
+    expect(emailMatchesStudentId("B6712602001@psru.ac.th", "b6712602001")).toBe(true);
+  });
+
+  test("the domain is checked, not only the local part", () => {
+    expect(emailMatchesStudentId("6712602001@gmail.com", "6712602001")).toBe(false);
+    expect(emailMatchesStudentId("6712602001@psru.ac.th.evil.com", "6712602001")).toBe(false);
+    expect(emailMatchesStudentId("6712602001@mail.psru.ac.th", "6712602001")).toBe(false);
+  });
+
+  test("malformed input never matches", () => {
+    expect(emailMatchesStudentId("6712602001", "6712602001")).toBe(false);
+    expect(emailMatchesStudentId("a@b@psru.ac.th", "a@b")).toBe(false);
+    expect(emailMatchesStudentId("@psru.ac.th", "")).toBe(false);
+    expect(emailMatchesStudentId("6712602001@psru.ac.th", "   ")).toBe(false);
+  });
+
+  test("the mismatch error code is stable for the web client", () => {
+    expect(BIND_ERRORS.emailStudentMismatch).toBe("email_student_mismatch");
   });
 });

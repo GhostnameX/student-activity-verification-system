@@ -94,6 +94,7 @@ revision_required
 ## 4. Authentication & Session
 
 - Student: Google OAuth (hd=psru.ac.th) — email ต้องตรง `students.email`, status ต้อง active
+- **First-login bind** (อีเมลที่ยังไม่อยู่ใน roster, ผ่าน `/api/auth/google/bind`): อีเมลนักศึกษา PSRU คือ `<รหัสนักศึกษา>@psru.ac.th` — ผูกได้เฉพาะเมื่อโดเมนของอีเมล = `psru.ac.th` (ตรวจเองไม่พึ่ง `hd`) และ local-part ตรงกับ `studentId` ที่กรอกทุกตัวอักษร (ไม่สนตัวพิมพ์เล็ก/ใหญ่และช่องว่างหัวท้าย) ไม่ตรง → 403 `email_student_mismatch` และนับเป็น failed attempt (สูงสุด 3 ครั้ง/bind session) บัญชี `@psru.ac.th` ที่ไม่ใช่รหัสนักศึกษา (อาจารย์/เจ้าหน้าที่) ผูกกับนักศึกษาไม่ได้ทุกกรณี; เช็กนี้ทำก่อนค้นนักศึกษา คำตอบจึงไม่บอกว่ารหัสนั้นมีใน roster หรือไม่
 - Staff/Admin: staffCode+password → Argon2 (`verifyStaffByCode`) — password hash ใน `staff.password_hash`; staff email ไม่ใช่ identity ใน V1
 - Session: custom cookie `ua_session`, TTL 7 วัน, polymorphic student/staff, lazy delete เมื่อหมดอายุ
 - `oauthStates` (in-memory) ต้องมี eviction ของ state หมดอายุ
@@ -165,4 +166,5 @@ revision_required
 | 2026-10-02 | audit S-1/S-2/S-5: `reject` ใช้ `UPDATE … WHERE status='pending' RETURNING` (ไม่ได้แถว → 400 `already_reviewed`), เขียนเหตุผลลง `rejection_reason` เท่านั้น ไม่แตะ `note` ของนักศึกษา; audit/notification/email เป็น best-effort หลัง commit แบบเดียวกับ approve (ไม่ทำให้คำขอล้ม) — web อ่านเหตุผลจาก `rejectionReason` |
 | 2026-10-02 | audit P-4: แก้ email นักศึกษาผ่าน roster PATCH ได้เฉพาะ admin (staff → 403 `email_admin_only`) |
 | 2026-10-01 | D8/D9: PDF ใช้ `submitted_at` (ยื่นครั้งแรก) แทนเวลาอนุมัติ; ชื่อ `(ชื่อ นามสกุล)` ใต้เส้นลายเซ็น ไม่มีคำนำหน้า |
+| 2026-10-02 | Audit P-1: bind flow ต้องให้ local-part ของอีเมล = รหัสนักศึกษา และโดเมน = psru.ac.th (ผู้กำหนดงานยืนยันรูปแบบ `<รหัส>@psru.ac.th`) — 403 `email_student_mismatch` |
 | 2026-10-02 | ผู้กำหนดงานยืนยัน 2026-10-02: เวลายื่นอยู่บรรทัดวันที่ของช่องผู้ตรวจสอบ (ไม่ใช่ใต้ช่องนักศึกษา); วันที่ด้านบนมาจาก `reviewed_at`; ยกเลิกบรรทัด "ยื่นคำร้องเมื่อ" ใต้ลายเซ็นนักศึกษา และเส้นประกลับตำแหน่งเดิม (แก้ D8) |

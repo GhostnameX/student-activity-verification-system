@@ -13,6 +13,7 @@
     "dev:round2": "bun scripts/with-dev-round2.ts",
     "test:roster": "bun scripts/with-test-db.ts",
     "test:requests": "bun scripts/with-test-db.ts requests",
+    "test:stats": "bun scripts/with-test-db.ts stats",
     "test:gate-smoke": "bun scripts/with-test-db.ts gate-smoke",
     "storage:private-request-attachments": "bun scripts/configure-private-request-attachments.ts"
   },

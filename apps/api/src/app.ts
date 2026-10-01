@@ -15,13 +15,14 @@ import {
   staff,
 } from "@ua/db/schema";
 import { db } from "@ua/db/client";
-import { eq, and, desc, sql, isNull, count, countDistinct, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, count, inArray } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { getSession } from "./auth/session";
 import { sessionPlugin } from "./session-plugin";
 import { hashPassword, verifyPassword } from "@ua/db/auth-helpers";
 import { roster } from "./roster";
+import { getSubmissionStats, listSubmissionStudents, type SubmissionState } from "./submission";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
 const SUPABASE_URL = process.env.PUBLIC_SUPABASE_URL || "";
@@ -184,6 +185,37 @@ async function notifyUser(opts: {
     body: opts.body,
     requestId: opts.requestId ?? null,
   }).catch((e) => console.log(`[notify] insert failed: ${e}`));
+}
+
+const submissionListQuery = {
+  query: t.Object({
+    major: t.Optional(t.String()),
+    group: t.Optional(t.String()),
+    search: t.Optional(t.String()),
+    page: t.Optional(t.String()),
+    pageSize: t.Optional(t.String()),
+  }),
+};
+
+function submissionListHandler(state: SubmissionState) {
+  return async ({ user, query, set }: { user: any; query: Record<string, string | undefined>; set: any }) => {
+    if (!user) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    if (user.role !== "admin" && user.role !== "staff") {
+      set.status = 403;
+      return { error: "staff_admin_only" };
+    }
+    return listSubmissionStudents({
+      state,
+      major: query.major?.trim() || undefined,
+      group: query.group?.trim() || undefined,
+      search: query.search?.trim() || undefined,
+      page: Math.max(1, Number(query.page) || 1),
+      pageSize: Math.min(100, Math.max(1, Number(query.pageSize) || 50)),
+    });
+  };
 }
 
 export const app = new Elysia()
@@ -1975,20 +2007,26 @@ export const app = new Elysia()
         .groupBy(sql`COALESCE(${students.major}, 'ไม่ระบุ')`, requests.status),
     ]);
 
-    let total = 0, pending = 0, approved = 0, rejected = 0;
+    // total = pending + revisionRequired + approved + rejected (every status has its own field)
+    let total = 0, pending = 0, revisionRequired = 0, approved = 0, rejected = 0;
     for (const r of statusRows) {
       total += r.n;
       if (r.status === "pending") pending = r.n;
+      else if (r.status === "revision_required") revisionRequired = r.n;
       else if (r.status === "approved") approved = r.n;
       else if (r.status === "rejected") rejected = r.n;
     }
 
-    const byFacultyMap = new Map<string, { faculty: string; total: number; pending: number; approved: number; rejected: number }>();
+    const byFacultyMap = new Map<
+      string,
+      { faculty: string; total: number; pending: number; revisionRequired: number; approved: number; rejected: number }
+    >();
     for (const r of facultyRows) {
       const f = r.faculty;
-      const b = byFacultyMap.get(f) ?? { faculty: f, total: 0, pending: 0, approved: 0, rejected: 0 };
+      const b = byFacultyMap.get(f) ?? { faculty: f, total: 0, pending: 0, revisionRequired: 0, approved: 0, rejected: 0 };
       b.total += r.n;
       if (r.status === "pending") b.pending += r.n;
+      else if (r.status === "revision_required") b.revisionRequired += r.n;
       else if (r.status === "approved") b.approved += r.n;
       else if (r.status === "rejected") b.rejected += r.n;
       byFacultyMap.set(f, b);
@@ -1997,6 +2035,7 @@ export const app = new Elysia()
     return {
       total,
       pending,
+      revisionRequired,
       approved,
       rejected,
       byFaculty: [...byFacultyMap.values()],
@@ -2015,135 +2054,12 @@ export const app = new Elysia()
       return { error: "staff_admin_only" };
     }
 
-    const submittedSub = db
-      .selectDistinct({ studentId: requests.studentId })
-      .from(requests)
-      .as("submitted_students");
-
-    const perMajor = await db
-      .select({
-        major: students.major,
-        total: count(students.studentId).mapWith(Number),
-        submitted: countDistinct(submittedSub.studentId).mapWith(Number),
-      })
-      .from(students)
-      .leftJoin(submittedSub, eq(submittedSub.studentId, students.studentId))
-      .where(
-        and(
-          eq(students.status, "active"),
-          isNull(students.deletedAt),
-        ),
-      )
-      .groupBy(students.major)
-      .orderBy(students.major);
-
-    const groupRows = await db
-      .selectDistinct({
-        major: students.major,
-        groupName: students.groupName,
-      })
-      .from(students)
-      .where(
-        and(
-          eq(students.status, "active"),
-          isNull(students.deletedAt),
-          sql`${students.groupName} is not null`,
-        ),
-      )
-      .orderBy(students.major, students.groupName);
-
-    const groupsByMajor = new Map<string, string[]>();
-    for (const g of groupRows) {
-      const arr = groupsByMajor.get(g.major) ?? [];
-      arr.push(g.groupName as string);
-      groupsByMajor.set(g.major, arr);
-    }
-
-    const byMajor = perMajor.map((m) => ({
-      major: m.major,
-      total: m.total,
-      submitted: m.submitted,
-      notSubmitted: m.total - m.submitted,
-      rate: m.total > 0 ? m.submitted / m.total : 0,
-      groups: groupsByMajor.get(m.major) ?? [],
-    }));
-
-    const total = byMajor.reduce((sum, m) => sum + m.total, 0);
-    const submitted = byMajor.reduce((sum, m) => sum + m.submitted, 0);
-    const notSubmitted = total - submitted;
-    const rate = total > 0 ? submitted / total : 0;
-
-    return { total, submitted, notSubmitted, rate, byMajor };
+    return getSubmissionStats();
   })
 
-  // ===== Not-submitted roster list (staff + admin) =====
-  .get(
-    "/api/roster/not-submitted",
-    async ({ user, query, set }) => {
-      if (!user) {
-        set.status = 401;
-        return { error: "unauthorized" };
-      }
-      const role = user.role;
-      if (role !== "admin" && role !== "staff") {
-        set.status = 403;
-        return { error: "staff_admin_only" };
-      }
-
-      const major = query.major?.trim() || undefined;
-      const group = query.group?.trim() || undefined;
-      const search = query.search?.trim() || undefined;
-      const page = Math.max(1, Number(query.page) || 1);
-      const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 50));
-
-      const submittedSub = db
-        .selectDistinct({ studentId: requests.studentId })
-        .from(requests)
-        .as("submitted_students");
-
-      const conds: any[] = [
-        eq(students.status, "active"),
-        isNull(students.deletedAt),
-        isNull(submittedSub.studentId),
-      ];
-      if (major) conds.push(eq(students.major, major));
-      if (group) conds.push(eq(students.groupName, group));
-      if (search) {
-        const like = `%${search}%`;
-        conds.push(sql`(${students.firstName} || ' ' || ${students.lastName} ILIKE ${like} OR ${students.studentId} ILIKE ${like})`);
-      }
-
-      const where = and(...conds);
-
-      const countRes = await db
-        .select({ n: sql<number>`count(*)` })
-        .from(students)
-        .leftJoin(submittedSub, eq(submittedSub.studentId, students.studentId))
-        .where(where);
-
-      const rows = await db
-        .select({
-          studentId: students.studentId,
-          firstName: students.firstName,
-          lastName: students.lastName,
-          major: students.major,
-          groupName: students.groupName,
-          level: students.level,
-        })
-        .from(students)
-        .leftJoin(submittedSub, eq(submittedSub.studentId, students.studentId))
-        .where(where)
-        .orderBy(students.major, students.groupName, students.studentId)
-        .limit(pageSize)
-        .offset((page - 1) * pageSize);
-
-      return {
-        total: Number(countRes[0]?.n ?? 0),
-        page,
-        pageSize,
-        items: rows,
-      };
-    },
-  );
+  // ===== Submitted / not-submitted roster lists (staff + admin) =====
+  // Both share submission.ts with /api/stats/submission, so list length == card number.
+  .get("/api/roster/not-submitted", submissionListHandler("not_submitted"), submissionListQuery)
+  .get("/api/roster/submitted", submissionListHandler("submitted"), submissionListQuery);
 
 export type App = typeof app;

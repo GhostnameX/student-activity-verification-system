@@ -23,6 +23,9 @@
     "testdb:roster-setup": "bun src/scripts/roster-testdb.ts setup",
     "testdb:roster-fingerprint": "bun src/scripts/roster-testdb.ts fingerprint",
     "testdb:roster-teardown": "bun src/scripts/roster-testdb.ts teardown",
+    "devdb:round2-reset": "bun src/scripts/round2-devdb.ts reset",
+    "devdb:round2-fingerprint": "bun src/scripts/round2-devdb.ts fingerprint",
+    "devdb:round2-teardown": "bun src/scripts/round2-devdb.ts teardown",
     "build": "echo \"db: no build step\""
   },
   "dependencies": {

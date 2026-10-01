@@ -13,6 +13,7 @@
     "dev": "bun run dev:api & bun run dev:web",
     "build": "bun run --filter @ua/db build && bun run --filter @ua/api build && bun run --filter @ua/web build",
     "build:web": "bun run --filter @ua/web build",
+    "dev:api:round2": "bun run --cwd apps/api dev:round2",
     "test:db-guard": "bun run --cwd packages/db test:db-guard",
     "test:roster": "bun run --cwd apps/api test:roster",
     "db:generate": "bun run --filter @ua/db generate",

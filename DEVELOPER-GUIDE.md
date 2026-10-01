@@ -787,6 +787,18 @@ Use in components: `t('newKey')` (imported from `i18n.ts`)
 
 ---
 
+### Browsing the UI with fake data (`ua_dev_round2`)
+
+`ua_dev_round2` is a local database cloned from `ua_dev` (read-only template) with migrations 0016-0021 and fake data only. It never touches `ua_dev` or production; the scripts refuse anything but loopback port 8520.
+
+```bash
+bun run --cwd packages/db devdb:round2-reset   # clone + migrate + seed; writes apps/api/.env.dev-round2.local (git-ignored)
+bun run dev:api:round2                          # API on :3000 against ua_dev_round2 (Google bypass + mock storage)
+bun run dev:web                                 # web on :5173
+```
+
+Staff/admin sign in at `/auth/signin` with `r2staff` / `r2admin` (passwords are in the env file). Students sign in through the Google bypass as `DEV_GOOGLE_EMAIL`. Attachment URLs point to `mock-storage.local`, so images only load if the browser intercepts that host (e.g. Playwright `route`). Drop it with `bun run --cwd packages/db devdb:round2-teardown`.
+
 ## 16. Security
 
 ### Row Level Security (RLS)

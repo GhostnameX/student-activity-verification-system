@@ -3,6 +3,7 @@
 - Production database writes are frozen until the user explicitly approves the exact operation.
 - Never run plain `bun test` or `bun test --cwd apps/api`; Bun auto-discovery can import database-backed modules.
 - Run DB guard tests first with `bun run test:db-guard`.
+- Run request-route integration tests only with `bun run --cwd apps/api test:requests` (same wrapper, same `ua_roster_test` guard).
 - Run roster integration tests only with `bun run test:roster`. This wrapper sets `ROSTER_TEST=1` and loads `apps/api/.env.test.local`.
 - Integration tests must use `TEST_DATABASE_URL` on loopback port `8520`, database `ua_roster_test`. There is no fallback to `DATABASE_URL`.
 - Local development uses `DATABASE_URL` on `127.0.0.1:8520/ua_dev`.
@@ -17,6 +18,7 @@
 ```bash
 bun run test:db-guard
 bun run test:roster
+bun run --cwd apps/api test:requests
 bun run --cwd apps/api test:oauth-security
 ```
 

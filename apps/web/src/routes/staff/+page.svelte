@@ -3,7 +3,7 @@
 	import { lang } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
-	import { formatBangkokDateTime } from '$lib/datetime';
+	import { formatBangkokDate, formatBangkokDateTime } from '$lib/datetime';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -260,7 +260,7 @@
 								{r.student?.faculty ?? '-'}
 							</td>
 							<td class="hidden px-5 py-4 text-ink-600 lg:table-cell">
-								{new Date(r.submittedAt).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
+								{formatBangkokDate(r.submittedAt, $lang)}
 							</td>
 							<td class="px-5 py-4">
 								<span
@@ -372,7 +372,7 @@
 						<div>
 							<span class="text-ink-400">{translate($lang, 'submittedAt')}: </span>
 							<span class="font-medium text-ink-800">
-								{new Date(detail.submittedAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
+								{formatBangkokDateTime(detail.submittedAt, $lang)}
 							</span>
 						</div>
 					</div>

@@ -320,7 +320,7 @@
 								{r.student?.faculty ?? '-'}
 							</td>
 							<td class="hidden px-5 py-4 text-ink-600 lg:table-cell">
-								{new Date(r.submittedAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
+								{formatBangkokDateTime(r.submittedAt, $lang)}
 							</td>
 							<td class="px-5 py-4">
 								<span

@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { lang } from '$lib/store';
+	import { bangkokYear } from '$lib/datetime';
 	import { user, loadSession } from '$lib/auth';
 	import { translate, type TKey } from '$lib/i18n';
 	import {
@@ -62,7 +63,7 @@
 			major: '',
 			groupName: '',
 			level: '',
-			admissionYear: new Date().getFullYear() + 543,
+			admissionYear: bangkokYear() + 543,
 			status: 'active',
 			email: '',
 			phone: '',

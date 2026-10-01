@@ -5,6 +5,7 @@
 	import { lang, dark } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
 	import { translate, type Lang } from '$lib/i18n';
+	import { bangkokYear, formatBangkokDateTime } from '$lib/datetime';
 	import {
 		Languages,
 		GraduationCap,
@@ -238,7 +239,7 @@
 												</div>
 												<p class="mt-0.5 line-clamp-2 text-xs text-ink-500">{n.body}</p>
 												<p class="mt-1 text-[10px] uppercase tracking-wide text-ink-400">
-													{new Date(n.createdAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
+													{formatBangkokDateTime(n.createdAt, $lang)}
 												</p>
 											</button>
 										{/each}
@@ -367,7 +368,7 @@
 
 	<footer class="border-t border-ink-100 bg-surface py-6">
 		<div class="mx-auto max-w-[1600px] px-6 text-center text-sm text-ink-400 xl:px-10">
-			<div>{translate($lang, 'appName')} &middot; © {new Date().getFullYear()}</div>
+			<div>{translate($lang, 'appName')} &middot; © {bangkokYear()}</div>
 			<div class="mt-1 text-xs text-ink-300">
 				Built by
 				<a

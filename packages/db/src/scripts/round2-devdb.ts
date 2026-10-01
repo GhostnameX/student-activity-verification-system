@@ -388,7 +388,9 @@ async function seed(target: DbTarget): Promise<void> {
     let bypassStudentEmail: string | null = null;
     let requestNumber = 0;
     let certificateNumber = 0;
-    const requestYear = new Date().getFullYear();
+    // Same rule as thaiBuddhistYear() in apps/api/src/app.ts: Asia/Bangkok year + 543.
+    const requestYear =
+      Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Bangkok", year: "numeric" }).format(new Date())) + 543;
     const auditRows: Array<typeof schema.auditLogs.$inferInsert> = [];
 
     for (const student of activeStudents) {

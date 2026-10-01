@@ -3,7 +3,7 @@
 	import { lang } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
-	import { formatBangkokDateTime } from '$lib/datetime';
+	import { formatBangkokDate, formatBangkokDateTime } from '$lib/datetime';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -296,7 +296,7 @@
 					<div>
 						<div class="text-xs text-ink-400">{translate($lang, 'date')}</div>
 						<div class="font-medium text-ink-800">
-							{currentDate?.toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US') ?? '-'}
+							{currentDate ? formatBangkokDate(currentDate, $lang) : '-'}
 						</div>
 					</div>
 				</div>
@@ -429,19 +429,14 @@
 							<div class="min-w-0">
 								<div class="flex items-center gap-2">
 									<FileText size={16} class="shrink-0 text-brand-500" />
-									<p class="truncate font-semibold text-ink-900">
+									<p class="min-w-0 break-words font-semibold text-ink-900">
 										{requestTitle(r)}
 									</p>
 								</div>
 								<p class="mt-1.5 flex items-center gap-1.5 text-sm text-ink-500">
 									<CalendarDays size={14} />
-									{new Date(r.submittedAt).toLocaleDateString($lang === 'th' ? 'th-TH' : 'en-US')}
+									{formatBangkokDate(r.submittedAt, $lang)}
 								</p>
-								{#if r.requestNumber}
-									<p class="mt-1.5 text-sm text-ink-600">
-										{translate($lang, 'requestNumber')}: {r.requestNumber}
-									</p>
-								{/if}
 								{#if r.note}
 									<p class="mt-2 text-sm text-ink-600">{r.note}</p>
 								{/if}
@@ -565,14 +560,14 @@
 					<div>
 						<span class="text-ink-400">{translate($lang, 'submittedAt')}: </span>
 						<span class="font-medium text-ink-800">
-							{new Date(detail.submittedAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
+							{formatBangkokDateTime(detail.submittedAt, $lang)}
 						</span>
 					</div>
 					{#if detail.reviewedAt}
 						<div>
 							<span class="text-ink-400">{translate($lang, 'reviewedAt')}: </span>
 							<span class="font-medium text-ink-800">
-								{new Date(detail.reviewedAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
+								{formatBangkokDateTime(detail.reviewedAt, $lang)}
 							</span>
 						</div>
 					{/if}

@@ -25,3 +25,27 @@ export function formatBangkokDateTime(value: string | Date, lang: Lang): string 
 	}
 	return `${get('day')}/${get('month')}/${year} ${get('hour')}:${get('minute')}`;
 }
+
+/**
+ * Asia/Bangkok calendar date only: `12/10/2569` for Thai (Buddhist era),
+ * `12/10/2026` for English.
+ */
+export function formatBangkokDate(value: string | Date, lang: Lang): string {
+	const date = typeof value === 'string' ? new Date(value) : value;
+	const parts = new Intl.DateTimeFormat('en-GB', {
+		timeZone: BANGKOK,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+	}).formatToParts(date);
+	const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+	const year = Number(get('year'));
+	return `${get('day')}/${get('month')}/${lang === 'th' ? year + 543 : year}`;
+}
+
+/** Current Gregorian year in Asia/Bangkok (not the browser's timezone). */
+export function bangkokYear(date: Date = new Date()): number {
+	return Number(
+		new Intl.DateTimeFormat('en-GB', { timeZone: BANGKOK, year: 'numeric' }).format(date),
+	);
+}

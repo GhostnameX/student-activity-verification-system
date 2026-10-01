@@ -38,11 +38,13 @@ const mode = process.argv[2] ?? "roster";
 const command =
   mode === "roster"
     ? [process.execPath, "test", "./scripts/roster-crud.integration.test.ts"]
-    : mode === "gate-smoke"
-      ? [process.execPath, "./scripts/gate-smoke.ts"]
-      : null;
+    : mode === "requests"
+      ? [process.execPath, "test", "./scripts/request-routes.integration.test.ts"]
+      : mode === "gate-smoke"
+        ? [process.execPath, "./scripts/gate-smoke.ts"]
+        : null;
 if (!command) {
-  throw new Error(`[test-db] unknown mode "${mode}" (expected roster | gate-smoke)`);
+  throw new Error(`[test-db] unknown mode "${mode}" (expected roster | requests | gate-smoke)`);
 }
 
 const child = Bun.spawn(
@@ -56,7 +58,7 @@ const child = Bun.spawn(
       DATABASE_URL: "",
       AUTH_BYPASS_GOOGLE: mode === "gate-smoke" ? "true" : process.env.AUTH_BYPASS_GOOGLE,
       GATE_SMOKE_EXCLUSIVE_DB: mode === "gate-smoke" ? "1" : "",
-      GATE_SMOKE_MOCK_STORAGE: mode === "gate-smoke" ? "1" : "",
+      GATE_SMOKE_MOCK_STORAGE: mode === "gate-smoke" || mode === "requests" ? "1" : "",
       GOOGLE_CLIENT_ID: mode === "gate-smoke" ? "gate-smoke-client" : process.env.GOOGLE_CLIENT_ID,
       GOOGLE_CLIENT_SECRET:
         mode === "gate-smoke" ? "gate-smoke-secret" : process.env.GOOGLE_CLIENT_SECRET,

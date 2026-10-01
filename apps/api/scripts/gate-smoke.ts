@@ -1082,7 +1082,7 @@ async function main(): Promise<number> {
   });
   const crossPdfBytes = Buffer.from(crossPdf.content, "base64");
   const paintedRequest = await inspectPaintedRequestNumber(crossPdfBytes);
-  const expectedPaintedRequest = `${crossAfter.requestSequence}/${crossAfter.requestYear}`;
+  const expectedPaintedRequest = `${crossAfter.requestSequence}`;
   record("11c-cross-year-pdf",
     crossPdfBytes.subarray(0, 5).toString() === "%PDF-"
     && crossPdfBytes.length > 10_000

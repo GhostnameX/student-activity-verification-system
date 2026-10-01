@@ -107,7 +107,7 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
   // 1. Replace the template's dotted placeholder and hard-coded /2569 with
   // the request number captured at submission time.
   page.drawRectangle({ x: 514.5, y: 749, width: 70.5, height: 19, color: rgb(1, 1, 1) });
-  drawRight(`${data.requestNumber}/${data.requestYear}`, 584.2, 753.24, 14);
+  drawRight(String(data.requestNumber), 584.2, 753.24, 14);
 
   // 2. เขียนที่ (location)
   drawLeft(data.location, 394, 639.46, 16);

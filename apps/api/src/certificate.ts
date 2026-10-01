@@ -3,6 +3,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { formatSubmittedAtThai, stripThaiNamePrefix } from "./certificate-format";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,8 +25,13 @@ export interface CertificateData {
   faculty?: string | null;
   approved: boolean;
   reason?: string | null;
-  reviewedDate: string;
+  /** requests.submitted_at from the DB (first submission; resubmit does not change it). Required — no "now" default. */
+  submittedAt: Date;
 }
+
+// Center / width of the template's "ชื่อ - สกุล......" signature line.
+const SIGNATURE_CENTER_X = 306;
+const SIGNATURE_MAX_WIDTH = 180;
 
 const FACULTY_ROWS: Array<{ label: string; baselineY: number }> = [
   { label: "สาขาวิชาการจัดการ", baselineY: 545.23 },
@@ -74,6 +80,26 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
     page.drawText(text, { x: startX, y: baselineY, size, font: f, color: black });
   }
 
+  // Centered text that shrinks (1pt steps) until it fits maxWidth, down to minSize.
+  function drawCentered(
+    text: string,
+    centerX: number,
+    baselineY: number,
+    size: number,
+    maxWidth?: number,
+    minSize = size,
+  ) {
+    if (!text) return;
+    let s = size;
+    if (maxWidth) {
+      while (s > minSize && font.widthOfTextAtSize(text, s) > maxWidth) s -= 1;
+    }
+    const w = font.widthOfTextAtSize(text, s);
+    page.drawText(text, { x: centerX - w / 2, y: baselineY, size: s, font, color: black });
+  }
+
+  const printedName = stripThaiNamePrefix(data.studentName);
+
   // 1. Replace the template's dotted placeholder and hard-coded /2569 with
   // the request number captured at submission time.
   page.drawRectangle({ x: 514.5, y: 749, width: 70.5, height: 19, color: rgb(1, 1, 1) });
@@ -87,8 +113,11 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
   drawRight(data.dateMonth, 464, 611.86, 16);
   drawRight(String(data.dateYear), 534, 611.86, 16);
 
-  // 4. ข้าพเจ้า: student name + รหัสนักศึกษา
-  drawRight(data.studentName, 359, 584.26, 16);
+  // 4. ข้าพเจ้า: student name (without title) + รหัสนักศึกษา
+  // Space between the "ข้าพเจ้า" caption and the รหัสนักศึกษา caption is ~220pt; shrink long names to fit.
+  let nameSize = 16;
+  while (nameSize > 11 && font.widthOfTextAtSize(printedName, nameSize) > 220) nameSize -= 1;
+  drawRight(printedName, 359, 584.26, nameSize);
   if (data.studentId) drawRight(data.studentId, 532, 584.26, 16);
 
   // 5. เบอร์โทร
@@ -108,11 +137,17 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
     drawLeft(data.reason, 394, 170.66, 16);
   }
 
-  // 8. ชื่อ - สกุล (student signature name)
-  drawRight(data.studentName, 392, 242.54, 16);
+  // 8. ชื่อ - สกุล line is left blank for the student to sign/write by hand.
+  // The printed (ชื่อ นามสกุล) goes under it, so the template's role caption
+  // "นักศึกษาผู้ยื่นคำร้อง" is blanked and redrawn one line lower to make room.
+  page.drawRectangle({ x: 258, y: 218, width: 98, height: 19, color: rgb(1, 1, 1) });
+  drawCentered(`(${printedName})`, SIGNATURE_CENTER_X, 223, 16, SIGNATURE_MAX_WIDTH, 12);
+  drawCentered("นักศึกษาผู้ยื่นคำร้อง", SIGNATURE_CENTER_X, 207.5, 14);
 
-  // 9. วันที่ (signature, reviewed date)
-  drawRight(data.reviewedDate, 334, 61.44, 16);
+  // 9. วันที่ (signature): first-submission time, never the approval/render time.
+  // Blank the template's "วันที่......" dots and write the full string in their place.
+  page.drawRectangle({ x: 232, y: 54, width: 112, height: 19, color: rgb(1, 1, 1) });
+  drawCentered(formatSubmittedAtThai(data.submittedAt), 287, 61.44, 16, 190, 12);
 
   const bytes = await pdfDoc.save();
   return Buffer.from(bytes);

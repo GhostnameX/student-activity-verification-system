@@ -810,6 +810,7 @@ export const app = new Elysia()
           requestYear: requests.requestYear,
           certificateNumber: requests.certificateNumber,
           certificateYear: requests.certificateYear,
+          submittedAt: requests.submittedAt,
         })
         .from(requests)
         .where(eq(requests.id, params.id));
@@ -880,8 +881,6 @@ export const app = new Elysia()
           try {
             const now = new Date();
             const buddhist = formatBuddhistDate(now);
-            const thaiNow = thaiDateParts(now);
-            const reviewedDate = `${String(thaiNow.day).padStart(2, "0")}/${String(thaiNow.month).padStart(2, "0")}/${thaiNow.year + 543}`;
             if (approved.certificateYear == null) throw new Error("approved request has no certificate year");
             attachment = await generateCertificatePDFForEmail({
               requestNumber: approved.requestSequence ?? approved.requestNumber,
@@ -898,7 +897,7 @@ export const app = new Elysia()
               phone: d.studentPhone,
               approved: true,
               reason: null,
-              reviewedDate,
+              submittedAt: approved.submittedAt,
             });
           } catch (e) {
             console.log(`[certificate] generation failed: ${e}`);

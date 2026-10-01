@@ -1005,7 +1005,7 @@ async function main(): Promise<number> {
     certificateYear: rn3Approved.certificateYear,
     location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: 2569,
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
-    approved: true, reason: null, reviewedDate: "01/01/2569",
+    approved: true, reason: null, submittedAt: new Date("2026-01-01T03:00:00Z"),
   });
   const pdfLegacy = await generateCertificatePDFForEmail({
     requestNumber: legacyRnDb.certificateNumber,
@@ -1013,7 +1013,7 @@ async function main(): Promise<number> {
     certificateYear: legacyRnDb.certificateYear,
     location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: 2569,
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
-    approved: true, reason: null, reviewedDate: "01/01/2569",
+    approved: true, reason: null, submittedAt: new Date("2026-01-01T03:00:00Z"),
   });
   record("10f-pdf-filename-cert-number", pdfNew.filename.includes(`_${rn3Approved.certificateNumber}_`) && pdfLegacy.filename.includes(`_${legacyRnDb.certificateNumber}_`) && !pdfNew.filename.includes(`_${rn3Approved.requestSequence}_`), `new=${pdfNew.filename} legacy=${pdfLegacy.filename}`);
 
@@ -1078,7 +1078,7 @@ async function main(): Promise<number> {
     certificateYear: crossAfter.certificateYear,
     location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: crossAfter.certificateYear,
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
-    approved: true, reason: null, reviewedDate: "01/01/2569",
+    approved: true, reason: null, submittedAt: new Date("2026-01-01T03:00:00Z"),
   });
   const crossPdfBytes = Buffer.from(crossPdf.content, "base64");
   const paintedRequest = await inspectPaintedRequestNumber(crossPdfBytes);

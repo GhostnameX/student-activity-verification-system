@@ -10,7 +10,7 @@
 		type RosterStudent,
 		type SubmissionState,
 	} from '$lib/api';
-	import RequestStatusBadge from './RequestStatusBadge.svelte';
+	import StatusBadge from './StatusBadge.svelte';
 	import { ChevronLeft, ChevronRight, Clock, RefreshCw, Search } from 'lucide-svelte';
 
 	interface Props {
@@ -99,7 +99,7 @@
 	}
 
 	const selectClass =
-		'min-h-11 rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100';
+		'min-h-11 rounded-control border border-ink-200 bg-ink-50 px-3.5 py-2 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100';
 </script>
 
 <div class="space-y-4">
@@ -129,7 +129,7 @@
 				placeholder={translate($lang, 'searchPlaceholder')}
 				aria-label={translate($lang, 'searchPlaceholder')}
 				oninput={onSearchInput}
-				class="min-h-11 w-full rounded-xl border border-ink-200 bg-ink-50 py-2 pl-9 pr-3.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+				class="min-h-11 w-full rounded-control border border-ink-200 bg-ink-50 py-2 pl-9 pr-3.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
 			/>
 		</div>
 		<select
@@ -162,7 +162,7 @@
 
 	{#if error}
 		<div
-			class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+			class="flex flex-wrap items-center justify-between gap-3 rounded-control border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
 			role="alert"
 		>
 			<span>{error}</span>
@@ -188,12 +188,12 @@
 			{translate($lang, 'submitting')}
 		</div>
 	{:else if items.length === 0 && !error}
-		<div class="rounded-2xl border border-dashed border-ink-200 bg-surface/60 px-6 py-10 text-center text-sm text-ink-500">
+		<div class="rounded-card border border-dashed border-ink-200 bg-surface/60 px-6 py-10 text-center text-sm text-ink-500">
 			{translate($lang, 'noResults')}
 		</div>
 	{:else}
 		<!-- table from md up -->
-		<div class="hidden overflow-x-auto rounded-2xl border border-ink-100 bg-surface shadow-soft md:block">
+		<div class="hidden overflow-x-auto rounded-card border border-ink-100 bg-surface shadow-soft md:block">
 			<table class="w-full text-left text-sm">
 				<thead class="border-b border-ink-100 bg-ink-50/70 text-xs font-semibold uppercase tracking-wide text-ink-500">
 					<tr>
@@ -214,7 +214,7 @@
 							<td class="px-5 py-3">
 								{#if s.latestStatus}
 									<div class="flex flex-wrap items-center gap-2">
-										<RequestStatusBadge status={s.latestStatus} />
+										<StatusBadge kind={s.latestStatus} />
 										{#if s.latestSubmittedAt}
 											<span class="text-xs text-ink-400">
 												{formatBangkokDate(s.latestSubmittedAt, $lang)}
@@ -222,11 +222,7 @@
 										{/if}
 									</div>
 								{:else}
-									<span
-										class="inline-flex whitespace-nowrap rounded-full bg-ink-50 px-3 py-1 text-xs font-semibold text-ink-600 ring-1 ring-ink-200"
-									>
-										{translate($lang, 'notSubmittedCount')}
-									</span>
+									<StatusBadge kind="neutral" label={translate($lang, 'notSubmittedCount')} />
 								{/if}
 							</td>
 						</tr>
@@ -238,20 +234,16 @@
 		<!-- cards below md -->
 		<ul class="space-y-2.5 md:hidden">
 			{#each items as s (s.studentId)}
-				<li class="rounded-2xl border border-ink-100 bg-surface p-4 shadow-soft">
+				<li class="rounded-card border border-ink-100 bg-surface p-4 shadow-soft">
 					<div class="flex items-start justify-between gap-3">
 						<div class="min-w-0">
 							<div class="break-words font-semibold text-ink-900">{s.firstName} {s.lastName}</div>
 							<div class="mt-0.5 font-mono text-xs text-ink-500">{s.studentId}</div>
 						</div>
 						{#if s.latestStatus}
-							<RequestStatusBadge status={s.latestStatus} />
+							<StatusBadge kind={s.latestStatus} />
 						{:else}
-							<span
-								class="inline-flex whitespace-nowrap rounded-full bg-ink-50 px-3 py-1 text-xs font-semibold text-ink-600 ring-1 ring-ink-200"
-							>
-								{translate($lang, 'notSubmittedCount')}
-							</span>
+							<StatusBadge kind="neutral" label={translate($lang, 'notSubmittedCount')} />
 						{/if}
 					</div>
 					<div class="mt-2 break-words text-xs text-ink-500">
@@ -275,7 +267,7 @@
 					type="button"
 					onclick={() => goPage(page - 1)}
 					disabled={page <= 1}
-					class="flex min-h-11 items-center gap-1 rounded-xl border border-ink-200 bg-surface px-3 py-2 text-sm font-medium text-ink-700 transition enabled:hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
+					class="flex min-h-11 items-center gap-1 rounded-control border border-ink-200 bg-surface px-3 py-2 text-sm font-medium text-ink-700 transition enabled:hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
 				>
 					<ChevronLeft size={15} />
 					{translate($lang, 'prev')}
@@ -284,7 +276,7 @@
 					type="button"
 					onclick={() => goPage(page + 1)}
 					disabled={page >= totalPages}
-					class="flex min-h-11 items-center gap-1 rounded-xl border border-ink-200 bg-surface px-3 py-2 text-sm font-medium text-ink-700 transition enabled:hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
+					class="flex min-h-11 items-center gap-1 rounded-control border border-ink-200 bg-surface px-3 py-2 text-sm font-medium text-ink-700 transition enabled:hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
 				>
 					{translate($lang, 'next')}
 					<ChevronRight size={15} />

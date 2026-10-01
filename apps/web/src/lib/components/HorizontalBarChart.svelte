@@ -36,23 +36,23 @@
 				onclick={() => onselect?.(item.key)}
 				disabled={!onselect}
 				aria-label={`${item.label}: ${valueText(item, pct)}`}
-				class="group block w-full rounded-2xl border border-ink-100 bg-surface p-4 text-left shadow-soft transition enabled:hover:border-brand-300 enabled:hover:shadow-lift focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100"
+				class="group block w-full rounded-card border border-ink-100 bg-surface p-4 text-left shadow-soft transition enabled:hover:border-brand-300 enabled:hover:shadow-lift "
 			>
 				<div class="flex items-start justify-between gap-3">
 					<span class="min-w-0 break-words font-semibold text-ink-900">{item.label}</span>
 					{#if onselect}
 						<ChevronRight
 							size={18}
-							class="mt-0.5 shrink-0 text-ink-300 transition group-hover:text-brand-600"
+							class="mt-0.5 shrink-0 text-ink-400 transition group-hover:text-brand-600"
 						/>
 					{/if}
 				</div>
 				<div
-					class="mt-2.5 h-3 w-full overflow-hidden rounded-full bg-amber-100"
+					class="mt-2.5 h-3 w-full overflow-hidden rounded-full bg-bar-track"
 					role="presentation"
 				>
 					<div
-						class="h-full rounded-full bg-green-500 transition-[width]"
+						class="h-full rounded-full bg-bar-fill transition-[width]"
 						style:width="{pct}%"
 					></div>
 				</div>

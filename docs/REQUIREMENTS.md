@@ -1,6 +1,6 @@
 # ข้อกำหนดระบบ (Source of Truth)
 
-> เอกสารฉบับนี้เป็น **Source of Truth** ของ repo ระบบคำร้องขอตรวจสอบกิจกรรมนักศึกษา (University Student Activity Verification Request System)
+> เอกสารฉบับนี้เป็น **Source of Truth** ของ repo ระบบพิจารณาคำร้องขอฝึกประสบการณ์วิชาชีพ (Professional Experience Training Request Review System)
 > การตัดสินใจ/การแก้ไขข้อกำหนดทุกครั้ง ต้องบันทึกไว้ที่นี่ก่อนลงมือ implement
 > ระเบียบเรียงตามความสำคัญ: ข้อกำหนดบังคับ (MUST) > ข้อกำหนดควรทำ (SHOULD) > หมายเหตุการออกแบบ (Note)
 
@@ -12,11 +12,14 @@
 | บทบาท | วิธีล็อกอิน | ขอบเขตการทำงาน |
 |---|---|---|
 | **Student** | Google OAuth เท่านั้น (บังคับ `hd=psru.ac.th`) | ส่งคำร้อง + แนบหลักฐาน + ติดตามสถานะ |
-| **Staff** | Staff Code + Password (Argon2) เท่านั้น | จัดการ Student Roster เท่านั้น — ห้ามแตะ Request |
+| **Staff** | Staff Code + Password (Argon2) เท่านั้น | จัดการ Student Roster + **ดูคำร้องและไฟล์แนบแบบอ่านอย่างเดียว** + กด "ตรวจสอบเอกสารแล้ว" (ดูข้อ 8) — ห้ามตัดสินคำร้อง |
 | **Admin** | Staff Code + Password (Argon2) เท่านั้น | จัดการ Request ทั้งหมด + สถิติ + บันทึก + กิจกรรม |
 
 ### 1.2 ข้อจำกัดสิทธิ์ (MUST)
-- **Staff ห้ามเข้าถึง Request API ทุกกรณี** — `GET /api/requests`, `GET /api/requests/:id` ต้องคืน 403 เมื่อ role=staff
+- **Staff เข้าถึง Request ได้แบบอ่านอย่างเดียว** (แก้จากเดิมที่ห้ามทุกกรณี — ดู Decisions Log 2026-10-01):
+  - อนุญาต: `GET /api/requests`, `GET /api/requests/:id`, `GET /api/attachments/:id/signed-url`, `POST /api/requests/:id/staff-check`
+  - **ต้องคืน 403 เมื่อ role=staff**: `POST /api/requests/:id/approve`, `/reject`, `/request-revision`, `/resubmit`, และ endpoint แก้ไข/อัปโหลดอื่นของ request ทั้งหมด
+  - `POST /api/requests/:id/staff-check` ต้องคืน 403 เมื่อ role=student หรือ admin (แยกบทบาทชัดเจน)
 - **Student ห้ามเข้าถึง Roster API** — roster all endpoints ต้อง 403 เมื่อ role=student
 - **Upload ไฟล์ ได้เฉพาะ Student** — `POST /api/upload` ต้อง 403 เมื่อ role ไม่ใช่ student
 - **`includeInactive` ของ activities เฉพาะ Admin** — student/staff เห็นเฉพาะ activities ที่ active
@@ -114,7 +117,35 @@ revision_required
 
 ---
 
-## 7. หมายเหตุการออกแบบ / Decisions Log (chronological)
+## 8. การตรวจเอกสารโดย Staff (MUST)
+
+- ตรวจได้เฉพาะคำร้องสถานะ `pending` (D5) — สถานะอื่นคืน 400; ตรวจซ้ำคืน 409
+- เก็บใน `requests.staff_checked_at` (timestamptz null) และ `requests.staff_checked_by_id` (FK `staff.id`, null, on delete set null) — migration `0021` แบบ ADD COLUMN เท่านั้น (D2)
+- **แยกจาก `reviewed_at` / `reviewed_by_id`** ซึ่งเป็นการตัดสินของ Admin และถูกล้างเมื่อ resubmit
+- การตรวจ **ห้ามแตะ** `status`, `reviewed_at`, `reviewed_by_id`, counters, `revision_state` ของไฟล์แนบ
+- ทำใน DB transaction เดียว + audit log action `staff_check` + notification ให้นักศึกษาเจ้าของคำร้อง ("เจ้าหน้าที่ตรวจสอบเอกสารแล้ว")
+- Student resubmit → ล้าง `staff_checked_at/by_id` เป็น null ใน transaction เดิม (D3)
+- การมองเห็น (D4): Student เห็นเวลาที่ตรวจ (ไม่จำเป็นต้องเห็นชื่อ Staff); Admin เห็น badge + ชื่อผู้ตรวจ + เวลา แยกชัดจากสถานะอนุมัติ
+- Notification schema รองรับ `staff_id` อยู่แล้ว แต่ `notifyUser` ปัจจุบันส่งให้ student เท่านั้น — รอบนี้ไม่ต้องแจ้งเตือน Admin/Staff (Admin เห็นผ่าน badge)
+
+## 9. นิยาม "ยื่นแล้ว / ยังไม่ยื่น" (MUST)
+
+- **ยื่นแล้ว** = นักศึกษา `status='active'` และ `deleted_at is null` ที่มีคำร้อง ≥ 1 รายการ **ทุกสถานะ ทุกปี** นับเป็นคน (distinct `student_id`) ไม่นับคำร้อง
+- **ยังไม่ยื่น** = นักศึกษา active (ไม่ถูก soft-delete) ที่เหลือ
+- ใช้นิยามเดียวกันใน `/api/stats/submission`, `/api/roster/not-submitted`, `/api/roster/submitted` และกราฟ ผ่าน helper เดียว เพื่อเปลี่ยนเป็นนับรายปี (`request_year`) ได้ภายหลัง
+- Admin และ Staff เห็นรายชื่อ/กราฟได้ (D7); Student ต้อง 403
+- นักศึกษาที่ `group_name` เป็น null รวมเป็นกลุ่ม "ไม่ระบุกลุ่ม" ในกราฟ
+
+## 10. กติกา PDF ใบรับรอง (MUST)
+
+- วันที่/เวลาด้านล่าง = `requests.submitted_at` (เวลายื่นครั้งแรก; resubmit ไม่เปลี่ยน) แปลงเป็น Asia/Bangkok ปี พ.ศ. รูปแบบ `วันที่ dd/mm/yyyy เวลา HH:mm น.` — **ห้ามใช้เวลาอนุมัติหรือ `new Date()`** (D8); วันที่ด้านบนคงเดิม
+- ช่อง "ชื่อ - สกุล" บนเส้นลายเซ็น **ปล่อยว่าง** ให้เขียนเอง; พิมพ์ `(ชื่อ นามสกุล)` ใต้เส้น จัดกึ่งกลาง ไม่มีคำนำหน้า (D9)
+- ชื่อมาจาก `students.first_name` + `last_name` ของเจ้าของคำร้องเท่านั้น และตัดคำนำหน้า (นาย, นาง, นางสาว, น.ส., ด.ช., ด.ญ., Mr., Mrs., Ms., Miss) เฉพาะเมื่อเป็นคำนำหน้าจริง
+- ฟังก์ชันสร้าง PDF ต้องรับ `submittedAt` จาก DB เสมอ ไม่มีค่า default เป็นเวลาปัจจุบัน
+
+---
+
+## 11. หมายเหตุการออกแบบ / Decisions Log (chronological)
 
 | วันที่ | การตัดสินใจ |
 |---|---|
@@ -124,3 +155,8 @@ revision_required
 | 2026-09-16 | Versioned attachment: เก็บ revision history ทั้งหมด ห้ามลบ ไฟล์เก่าใน Storage เก็บก่อน |
 | 2026-09-16 | Staff = Roster management เท่านั้น; Admin = Request management เท่านั้น |
 | 2026-09-16 | Upload transport: ใช้ `POST /api/upload` (server-side, ควบคุม MIME/size ที่เดียว) + register ผ่าน API |
+| 2026-10-01 | **แก้ข้อ 1.1/1.2 (round 2, D1):** Staff ดูคำร้อง+ไฟล์แนบแบบอ่านอย่างเดียวได้ และกด "ตรวจสอบเอกสารแล้ว" ได้อย่างเดียว ห้าม approve/reject/request-revision/แก้ไข; Admin กด staff-check แทนไม่ได้ |
+| 2026-10-01 | D2/D3/D5: เก็บการตรวจใน `requests.staff_checked_at/by_id` (migration 0021), ล้างเมื่อ resubmit, ตรวจได้เฉพาะ pending |
+| 2026-10-01 | D4: Student เห็นแจ้งเตือน+เวลาตรวจ, Admin เห็น badge ผู้ตรวจ/เวลา |
+| 2026-10-01 | D6/D7: "ยื่นแล้ว" = active ที่มีคำร้อง ≥1 (ทุกสถานะ/ทุกปี) นับคน ผ่าน helper เดียว; Admin+Staff เห็นรายชื่อ/กราฟ |
+| 2026-10-01 | D8/D9: PDF ใช้ `submitted_at` (ยื่นครั้งแรก) แทนเวลาอนุมัติ; ชื่อ `(ชื่อ นามสกุล)` ใต้เส้นลายเซ็น ไม่มีคำนำหน้า |

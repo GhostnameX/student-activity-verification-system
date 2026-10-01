@@ -3,7 +3,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { formatSubmittedAtThai, stripThaiNamePrefix } from "./certificate-format";
+import { formatReviewedDateThai, formatSubmittedAtThai, stripThaiNamePrefix } from "./certificate-format";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,11 +27,15 @@ export interface CertificateData {
   reason?: string | null;
   /** requests.submitted_at from the DB (first submission; resubmit does not change it). Required — no "now" default. */
   submittedAt: Date;
+  /** requests.reviewed_at from the DB (the admin decision time). Required — no "now" default. */
+  reviewedAt: Date;
 }
 
 // Center / width of the template's "ชื่อ - สกุล......" signature line.
 const SIGNATURE_CENTER_X = 306;
 const SIGNATURE_MAX_WIDTH = 180;
+// y of the redrawn dashed divider above "ผลการพิจารณา" (template original ≈ 202).
+const DIVIDER_Y = 190;
 
 const FACULTY_ROWS: Array<{ label: string; baselineY: number }> = [
   { label: "สาขาวิชาการจัดการ", baselineY: 545.23 },
@@ -137,17 +141,27 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
     drawLeft(data.reason, 394, 170.66, 16);
   }
 
-  // 8. ชื่อ - สกุล line is left blank for the student to sign/write by hand.
-  // The printed (ชื่อ นามสกุล) goes under it, so the template's role caption
-  // "นักศึกษาผู้ยื่นคำร้อง" is blanked and redrawn one line lower to make room.
+  // 8. Student signature block. The "ชื่อ - สกุล" line is left blank for the student
+  // to write by hand; below it, top to bottom: (ชื่อ นามสกุล), the role caption and
+  // the first-submission time. The template has no room for three lines, so the role
+  // caption and the dashed divider are blanked and redrawn ~12pt lower.
   page.drawRectangle({ x: 258, y: 218, width: 98, height: 19, color: rgb(1, 1, 1) });
-  drawCentered(`(${printedName})`, SIGNATURE_CENTER_X, 223, 16, SIGNATURE_MAX_WIDTH, 12);
-  drawCentered("นักศึกษาผู้ยื่นคำร้อง", SIGNATURE_CENTER_X, 207.5, 14);
+  page.drawRectangle({ x: 70, y: 198, width: 472, height: 10, color: rgb(1, 1, 1) });
+  page.drawLine({
+    start: { x: 72, y: DIVIDER_Y },
+    end: { x: 538.7, y: DIVIDER_Y },
+    thickness: 0.6,
+    dashArray: [2.2, 1.6],
+    color: black,
+  });
+  drawCentered(`(${printedName})`, SIGNATURE_CENTER_X, 224, 16, SIGNATURE_MAX_WIDTH, 12);
+  drawCentered("นักศึกษาผู้ยื่นคำร้อง", SIGNATURE_CENTER_X, 211, 14);
+  // First-submission time (requests.submitted_at), never the approval/render time.
+  drawCentered(`ยื่นคำร้องเมื่อ ${formatSubmittedAtThai(data.submittedAt)}`, SIGNATURE_CENTER_X, 198, 13, 230, 11);
 
-  // 9. วันที่ (signature): first-submission time, never the approval/render time.
-  // Blank the template's "วันที่......" dots and write the full string in their place.
-  page.drawRectangle({ x: 232, y: 54, width: 112, height: 19, color: rgb(1, 1, 1) });
-  drawCentered(formatSubmittedAtThai(data.submittedAt), 287, 61.44, 16, 190, 12);
+  // 9. วันที่ (reviewer signature): approval date from requests.reviewed_at, written on
+  // the template's own "วันที่......" dots.
+  drawRight(formatReviewedDateThai(data.reviewedAt), 334, 61.44, 16);
 
   const bytes = await pdfDoc.save();
   return Buffer.from(bytes);

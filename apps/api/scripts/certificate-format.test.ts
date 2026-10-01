@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatSubmittedAtThai, stripThaiNamePrefix } from "../src/certificate-format";
+import { formatReviewedDateThai, formatSubmittedAtThai, stripThaiNamePrefix } from "../src/certificate-format";
 
 describe("formatSubmittedAtThai", () => {
   test("formats Asia/Bangkok, Buddhist year, 24h", () => {
@@ -17,6 +17,13 @@ describe("formatSubmittedAtThai", () => {
   });
   test("rejects invalid date", () => {
     expect(() => formatSubmittedAtThai(new Date("nope"))).toThrow();
+  });
+});
+
+describe("formatReviewedDateThai", () => {
+  test("date only, Bangkok day, Buddhist year", () => {
+    expect(formatReviewedDateThai(new Date("2026-10-14T03:20:00Z"))).toBe("14/10/2569");
+    expect(formatReviewedDateThai(new Date("2026-10-14T17:30:00Z"))).toBe("15/10/2569");
   });
 });
 

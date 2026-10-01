@@ -26,3 +26,6 @@ apps/api/api.err
 
 # local production recovery evidence (may contain PII/credential hashes)
 recovery-snapshots/
+
+# local scratch output (sample PDFs/screenshots)
+tmp/

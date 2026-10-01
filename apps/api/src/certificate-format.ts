@@ -22,6 +22,11 @@ export function formatSubmittedAtThai(d: Date): string {
   return `วันที่ ${get("day")}/${get("month")}/${year} เวลา ${get("hour")}:${get("minute")} น.`;
 }
 
+/** "12/10/2569" — Asia/Bangkok date, Buddhist year (the reviewer's signature date). */
+export function formatReviewedDateThai(d: Date): string {
+  return formatSubmittedAtThai(d).replace(/^วันที่ /, "").replace(/ เวลา .*$/, "");
+}
+
 // Longest first so "นางสาว" wins over "นาง". Only stripped when a real prefix:
 // followed by whitespace, or written with a dot ("น.ส.", "Mr.").
 const PREFIXES = ["นางสาว", "น.ส.", "นาง", "นาย", "ด.ช.", "ด.ญ.", "Miss", "Mrs.", "Mrs", "Mr.", "Mr", "Ms.", "Ms"];

@@ -811,6 +811,7 @@ export const app = new Elysia()
           certificateNumber: requests.certificateNumber,
           certificateYear: requests.certificateYear,
           submittedAt: requests.submittedAt,
+          reviewedAt: requests.reviewedAt,
         })
         .from(requests)
         .where(eq(requests.id, params.id));
@@ -882,6 +883,7 @@ export const app = new Elysia()
             const now = new Date();
             const buddhist = formatBuddhistDate(now);
             if (approved.certificateYear == null) throw new Error("approved request has no certificate year");
+            if (approved.reviewedAt == null) throw new Error("approved request has no reviewed_at");
             attachment = await generateCertificatePDFForEmail({
               requestNumber: approved.requestSequence ?? approved.requestNumber,
               requestYear: approved.requestYear ?? approved.certificateYear,
@@ -898,6 +900,7 @@ export const app = new Elysia()
               approved: true,
               reason: null,
               submittedAt: approved.submittedAt,
+              reviewedAt: approved.reviewedAt,
             });
           } catch (e) {
             console.log(`[certificate] generation failed: ${e}`);

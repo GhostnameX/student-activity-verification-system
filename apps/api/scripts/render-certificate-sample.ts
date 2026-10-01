@@ -23,6 +23,7 @@ const base: CertificateData = {
   approved: true,
   reason: null,
   submittedAt: new Date("2026-10-12T16:00:00Z"),
+  reviewedAt: new Date("2026-10-14T03:20:00Z"),
 };
 
 const cases: Record<string, Partial<CertificateData>> = {

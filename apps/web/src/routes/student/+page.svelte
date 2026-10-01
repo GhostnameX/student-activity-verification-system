@@ -4,6 +4,8 @@
 	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
 	import { formatBangkokDate, formatBangkokDateTime } from '$lib/datetime';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -196,13 +198,6 @@
 		}
 	}
 
-	function statusClass(status: string) {
-		if (status === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
-		if (status === 'rejected') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
-		if (status === 'revision_required') return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200';
-		return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
-	}
-
 	function revisionStateLabel(state: string) {
 		if (state === 'needs_revision') return translate($lang, 'revisionStateNeedsRevision');
 		if (state === 'resubmitted') return translate($lang, 'revisionStateResubmitted');
@@ -234,15 +229,10 @@
 
 <div class="grid grid-cols-1 gap-8 xl:grid-cols-5">
 	<div class="xl:col-span-2">
-		<div>
-			<h1 class="text-3xl font-extrabold tracking-tight text-ink-900">
-				{translate($lang, 'myRequests')}
-			</h1>
-			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'tagline')}</p>
-		</div>
+		<PageHeader title={translate($lang, 'myRequests')} subtitle={translate($lang, 'tagline')} />
 
 		{#if errorMsg}
-			<div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+			<div class="mt-4 rounded-xl border border-rejected-ring bg-rejected-soft px-4 py-3 text-sm text-rejected">
 				{errorMsg}
 			</div>
 		{/if}
@@ -255,7 +245,7 @@
 		{/if}
 		{#if studentUser && !studentUser.phone}
 			<div
-				class="mt-4 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+				class="mt-4 flex items-center gap-3 rounded-xl border border-pending-ring bg-pending-soft px-4 py-3 text-sm text-pending"
 			>
 				<CircleAlert size={16} class="shrink-0 text-amber-600" />
 				<div class="flex flex-1 flex-wrap items-center justify-between gap-2">
@@ -268,7 +258,7 @@
 		{/if}
 
 		<!-- Submit form -->
-		<div class="mt-4 rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft xl:sticky xl:top-24">
+		<div class="mt-4 rounded-card border border-ink-100 bg-surface p-6 shadow-soft xl:sticky xl:top-24">
 			<div class="mb-5 flex items-center gap-2.5">
 				<span class="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
 					<FileText size={18} />
@@ -278,23 +268,23 @@
 			<form onsubmit={submit} class="space-y-4">
 				<div class="grid grid-cols-2 gap-3 rounded-xl border border-ink-100 bg-ink-50/60 p-3.5 text-sm">
 					<div>
-						<div class="text-xs text-ink-400">{translate($lang, 'nameLabel')}</div>
+						<div class="text-xs text-ink-500">{translate($lang, 'nameLabel')}</div>
 						<div class="font-medium text-ink-800">{studentUser?.name ?? '-'}</div>
 					</div>
 					<div>
-						<div class="text-xs text-ink-400">{translate($lang, 'studentId')}</div>
+						<div class="text-xs text-ink-500">{translate($lang, 'studentId')}</div>
 						<div class="font-medium text-ink-800">{studentUser?.studentId ?? '-'}</div>
 					</div>
 					<div class="col-span-2">
-						<div class="text-xs text-ink-400">{translate($lang, 'major')}</div>
+						<div class="text-xs text-ink-500">{translate($lang, 'major')}</div>
 						<div class="font-medium text-ink-800">{studentUser?.faculty ?? '-'}</div>
 					</div>
 					<div>
-						<div class="text-xs text-ink-400">{translate($lang, 'phone')}</div>
+						<div class="text-xs text-ink-500">{translate($lang, 'phone')}</div>
 						<div class="font-medium text-ink-800">{studentUser?.phone ?? '-'}</div>
 					</div>
 					<div>
-						<div class="text-xs text-ink-400">{translate($lang, 'date')}</div>
+						<div class="text-xs text-ink-500">{translate($lang, 'date')}</div>
 						<div class="font-medium text-ink-800">
 							{currentDate ? formatBangkokDate(currentDate, $lang) : '-'}
 						</div>
@@ -320,7 +310,7 @@
 						<label for="slot1" class="block text-sm font-medium text-ink-700">
 							{translate($lang, 'slot1Evidence')} *
 						</label>
-						<span class="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">
+						<span class="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-rejected">
 							{translate($lang, 'requiredLabel')}
 						</span>
 					</div>
@@ -334,7 +324,7 @@
 									<Paperclip size={13} class="mr-1 inline" />
 									{slot1File.name}
 								</span>
-								<span class="text-xs text-ink-400">
+								<span class="text-xs text-ink-500">
 									{slot1File.type} · {(slot1File.size / 1024).toFixed(0)} KB
 								</span>
 							{:else}
@@ -344,7 +334,7 @@
 							{/if}
 						</label>
 					</div>
-					<p class="mt-1.5 text-xs text-ink-400">{translate($lang, 'slot1Hint')}</p>
+					<p class="mt-1.5 text-xs text-ink-500">{translate($lang, 'slot1Hint')}</p>
 					<input
 						id="slot1"
 						type="file"
@@ -374,7 +364,7 @@
 									<Paperclip size={13} class="mr-1 inline" />
 									{slot2File.name}
 								</span>
-								<span class="text-xs text-ink-400">
+								<span class="text-xs text-ink-500">
 									{slot2File.type} · {(slot2File.size / 1024).toFixed(0)} KB
 								</span>
 							{:else}
@@ -384,7 +374,7 @@
 							{/if}
 						</label>
 					</div>
-					<p class="mt-1.5 text-xs text-ink-400">{translate($lang, 'slot2Hint')}</p>
+					<p class="mt-1.5 text-xs text-ink-500">{translate($lang, 'slot2Hint')}</p>
 					<input
 						id="slot2"
 						type="file"
@@ -441,32 +431,19 @@
 									<p class="mt-2 text-sm text-ink-600">{r.note}</p>
 								{/if}
 							</div>
-							<span
-								class={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${statusClass(r.status)}`}
-							>
-								{#if r.status === 'approved'}
-									<CircleCheck size={13} />
-								{:else if r.status === 'rejected'}
-									<CircleX size={13} />
-								{:else if r.status === 'revision_required'}
-									<RotateCcw size={13} />
-								{:else}
-									<Clock size={13} />
-								{/if}
-								{statusLabel(r)}
-							</span>
+							<div class="shrink-0"><StatusBadge kind={r.status} /></div>
 						</div>
 					</button>
 
 					{#if r.status === 'rejected' && r.rejectionReason}
-						<p class="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+						<p class="mt-3 rounded-xl bg-rejected-soft px-3 py-2 text-sm text-rejected">
 							{translate($lang, 'reason')}: {r.rejectionReason}
 						</p>
 					{/if}
 
 					{#if r.status === 'pending' && r.staffCheckedAt}
 						<div
-							class="mt-3 flex items-start gap-2 rounded-xl bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 ring-1 ring-sky-200"
+							class="mt-3 flex items-start gap-2 rounded-xl bg-checked-soft px-3 py-2 text-sm font-medium text-checked ring-1 ring-checked-ring"
 						>
 							<BadgeCheck size={16} class="mt-0.5 shrink-0" />
 							<span>
@@ -476,7 +453,7 @@
 					{/if}
 
 					{#if r.status === 'revision_required'}
-						<div class="mt-3 rounded-xl bg-indigo-50 px-3 py-2 text-sm text-indigo-700">
+						<div class="mt-3 rounded-xl bg-revision-soft px-3 py-2 text-sm text-revision">
 							<RotateCcw size={14} class="mr-1.5 inline" />
 							{translate($lang, 'needResubmitSlots')}: {translate($lang, 'viewDetail')}
 						</div>
@@ -492,7 +469,7 @@
 						</button>
 						<button
 							onclick={refresh}
-							class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink-400 transition hover:bg-ink-50 hover:text-ink-600"
+							class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink-500 transition hover:bg-ink-50 hover:text-ink-600"
 						>
 							<RefreshCw size={13} />
 						</button>
@@ -512,7 +489,7 @@
 		onclick={(e) => { if (e.target === e.currentTarget) detail = null; }}
 		onkeydown={(e) => { if (e.key === 'Escape') detail = null; }}
 	>
-		<div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-surface p-6 shadow-lift">
+		<div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-card bg-surface p-6 shadow-lift">
 			{#if detailLoading}
 				<div class="flex items-center gap-2 py-12 text-sm text-ink-500">
 					<Clock size={16} class="animate-spin" />
@@ -524,15 +501,11 @@
 						<h3 class="text-lg font-bold text-ink-900">
 							{requestTitle(detail)}
 						</h3>
-						<span
-							class={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusClass(detail.status)}`}
-						>
-							{statusLabel(detail)}
-						</span>
+						<div class="mt-1"><StatusBadge kind={detail.status} /></div>
 					</div>
 					<button
 						onclick={() => (detail = null)}
-						class="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700"
+						class="rounded-lg p-1.5 text-ink-500 transition hover:bg-ink-50 hover:text-ink-700"
 						aria-label={translate($lang, 'cancel')}
 					>
 						<CircleX size={18} />
@@ -541,7 +514,7 @@
 
 				{#if detail.status === 'pending' && detail.staffCheckedAt}
 					<div
-						class="mb-4 flex items-start gap-2 rounded-xl bg-sky-50 px-4 py-3 text-sm font-medium text-sky-800 ring-1 ring-sky-200"
+						class="mb-4 flex items-start gap-2 rounded-xl bg-checked-soft px-4 py-3 text-sm font-medium text-checked ring-1 ring-checked-ring"
 					>
 						<BadgeCheck size={18} class="mt-0.5 shrink-0" />
 						<span>
@@ -553,19 +526,19 @@
 				<div class="mb-5 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
 					{#if detail.requestNumber}
 						<div>
-							<span class="text-ink-400">{translate($lang, 'requestNumber')}: </span>
+							<span class="text-ink-500">{translate($lang, 'requestNumber')}: </span>
 							<span class="font-semibold text-ink-800">{detail.requestNumber}</span>
 						</div>
 					{/if}
 					<div>
-						<span class="text-ink-400">{translate($lang, 'submittedAt')}: </span>
+						<span class="text-ink-500">{translate($lang, 'submittedAt')}: </span>
 						<span class="font-medium text-ink-800">
 							{formatBangkokDateTime(detail.submittedAt, $lang)}
 						</span>
 					</div>
 					{#if detail.reviewedAt}
 						<div>
-							<span class="text-ink-400">{translate($lang, 'reviewedAt')}: </span>
+							<span class="text-ink-500">{translate($lang, 'reviewedAt')}: </span>
 							<span class="font-medium text-ink-800">
 								{formatBangkokDateTime(detail.reviewedAt, $lang)}
 							</span>
@@ -575,7 +548,7 @@
 
 				{#if detail.note}
 					<div class="mb-5">
-						<div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-400">
+						<div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">
 							{translate($lang, 'note')}
 						</div>
 						<p class="rounded-xl bg-ink-50 px-3.5 py-2.5 text-sm text-ink-700">{detail.note}</p>
@@ -584,12 +557,12 @@
 
 				<!-- Attachments with revision history -->
 				<div class="mb-5">
-					<div class="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-400">
+					<div class="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">
 						<Paperclip size={13} />
 						{translate($lang, 'attachments')}
 					</div>
 					{#if !detail.attachments || detail.attachments.length === 0}
-						<p class="text-sm text-ink-400">{translate($lang, 'noFiles')}</p>
+						<p class="text-sm text-ink-500">{translate($lang, 'noFiles')}</p>
 					{:else}
 						<div class="space-y-4">
 							{#each detail.attachments as a (a.id)}
@@ -606,7 +579,7 @@
 											</span>
 											{slotLabel}
 											{#if a.slot === 1}
-												<span class="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+												<span class="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-rejected">
 													{translate($lang, 'requiredLabel')}
 												</span>
 											{:else}
@@ -631,9 +604,9 @@
 											rel="noopener noreferrer"
 											class="flex items-center gap-2 rounded-xl bg-surface px-3 py-2 text-sm text-ink-700 ring-1 ring-ink-100 transition hover:text-brand-700"
 										>
-											<Paperclip size={14} class="shrink-0 text-ink-400" />
+											<Paperclip size={14} class="shrink-0 text-ink-500" />
 											<span class="line-clamp-1 flex-1">{cur.fileName}</span>
-											<span class="text-xs text-ink-400">
+											<span class="text-xs text-ink-500">
 												{translate($lang, 'currentFile')} · v{cur.revisionNumber}
 											</span>
 										</a>
@@ -641,7 +614,7 @@
 
 									{#if (a.revisions?.length ?? 0) > 1}
 										<div class="mt-2.5 border-t border-ink-100 pt-2.5">
-											<div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+											<div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
 												{translate($lang, 'revisionHistory')}
 											</div>
 											<div class="space-y-1.5">
@@ -659,7 +632,7 @@
 														>
 															{revisionStateLabel(rev.revisionState)}
 														</span>
-														<span class="text-ink-400">v{rev.revisionNumber}</span>
+														<span class="text-ink-500">v{rev.revisionNumber}</span>
 													</a>
 												{/each}
 											</div>

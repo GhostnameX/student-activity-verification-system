@@ -13,6 +13,10 @@
 	} from '$lib/api';
 	import HorizontalBarChart, { type BarItem } from '$lib/components/HorizontalBarChart.svelte';
 	import SubmissionRoster from '$lib/components/SubmissionRoster.svelte';
+	import StatCard from '$lib/components/StatCard.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 	import {
 		RefreshCw,
 		Users,
@@ -122,35 +126,25 @@
 	);
 	let level = $derived(showRoster ? 3 : major ? 2 : 1);
 
-	const cardBase =
-		'rounded-3xl border border-ink-100 bg-surface p-5 text-left shadow-soft transition';
-	const clickable =
-		'cursor-pointer hover:border-brand-300 hover:shadow-lift focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100';
 </script>
 
 <div class="space-y-6">
-	<div class="flex flex-wrap items-center justify-between gap-3">
-		<div class="min-w-0">
-			<h1 class="flex items-center gap-2 text-3xl font-extrabold tracking-tight text-ink-900">
-				<LayoutDashboard size={26} class="shrink-0 text-brand-600" />
-				{translate($lang, 'submissionStats')}
-			</h1>
-			<p class="mt-1 text-sm text-ink-500">
-				{stats ? `${stats.total} ${translate($lang, 'studentsUnit')}` : translate($lang, 'stats')}
-			</p>
-		</div>
-		<button
-			onclick={refresh}
-			class="flex min-h-11 items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
-		>
-			<RefreshCw size={15} />
-			{translate($lang, 'refresh')}
-		</button>
-	</div>
+	<PageHeader
+		title={translate($lang, 'submissionStats')}
+		subtitle={stats ? `${stats.total} ${translate($lang, 'studentsUnit')}` : translate($lang, 'stats')}
+		icon={LayoutDashboard}
+	>
+		{#snippet actions()}
+			<Button onclick={refresh}>
+				<RefreshCw size={15} aria-hidden="true" />
+				{translate($lang, 'refresh')}
+			</Button>
+		{/snippet}
+	</PageHeader>
 
 	{#if errorMsg}
 		<div
-			class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+			class="flex flex-wrap items-center justify-between gap-3 rounded-control border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
 			role="alert"
 		>
 			<span>{errorMsg}</span>
@@ -171,55 +165,35 @@
 		</div>
 	{:else if stats}
 		<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-			<button
-				type="button"
+			<StatCard
+				label={translate($lang, 'eligibleStudents')}
+				value={stats.total}
+				icon={Users}
+				tone="ink"
 				onclick={() => navigate({})}
-				aria-label={translate($lang, 'eligibleStudents')}
-				class="{cardBase} {clickable}"
-			>
-				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-ink-500 to-ink-700 text-white shadow-soft">
-					<Users size={19} />
-				</div>
-				<p class="text-sm text-ink-500">{translate($lang, 'eligibleStudents')}</p>
-				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{stats.total}</p>
-			</button>
-			<button
-				type="button"
+			/>
+			<StatCard
+				label={translate($lang, 'submittedCount')}
+				value={stats.submitted}
+				icon={CircleCheck}
+				tone="green"
+				ariaLabel="{translate($lang, 'viewSubmitted')}: {stats.submitted}"
 				onclick={() => navigate({ state: 'submitted' })}
-				aria-label="{translate($lang, 'viewSubmitted')}: {stats.submitted}"
-				class="{cardBase} {clickable}"
-			>
-				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-green-700 text-white shadow-soft">
-					<CircleCheck size={19} />
-				</div>
-				<p class="flex items-center gap-1 text-sm text-ink-500">
-					{translate($lang, 'submittedCount')}
-					<ChevronRight size={14} class="text-ink-300" />
-				</p>
-				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{stats.submitted}</p>
-			</button>
-			<button
-				type="button"
+			/>
+			<StatCard
+				label={translate($lang, 'notSubmittedCount')}
+				value={stats.notSubmitted}
+				icon={UserX}
+				tone="amber"
+				ariaLabel="{translate($lang, 'viewNotSubmitted')}: {stats.notSubmitted}"
 				onclick={() => navigate({ state: 'not_submitted' })}
-				aria-label="{translate($lang, 'viewNotSubmitted')}: {stats.notSubmitted}"
-				class="{cardBase} {clickable}"
-			>
-				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-white shadow-soft">
-					<UserX size={19} />
-				</div>
-				<p class="flex items-center gap-1 text-sm text-ink-500">
-					{translate($lang, 'notSubmittedCount')}
-					<ChevronRight size={14} class="text-ink-300" />
-				</p>
-				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{stats.notSubmitted}</p>
-			</button>
-			<div class="{cardBase}">
-				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
-					<TrendingUp size={19} />
-				</div>
-				<p class="text-sm text-ink-500">{translate($lang, 'submissionRate')}</p>
-				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{ratePct(stats.rate)}</p>
-			</div>
+			/>
+			<StatCard
+				label={translate($lang, 'submissionRate')}
+				value={ratePct(stats.rate)}
+				icon={TrendingUp}
+				tone="brand"
+			/>
 		</div>
 
 		{#if level > 1}
@@ -235,7 +209,7 @@
 						</button>
 					</li>
 					{#if major}
-						<li aria-hidden="true"><ChevronRight size={14} class="text-ink-300" /></li>
+						<li aria-hidden="true"><ChevronRight size={14} class="text-ink-400" /></li>
 						<li>
 							{#if group}
 								<button
@@ -251,12 +225,12 @@
 						</li>
 					{/if}
 					{#if group}
-						<li aria-hidden="true"><ChevronRight size={14} class="text-ink-300" /></li>
+						<li aria-hidden="true"><ChevronRight size={14} class="text-ink-400" /></li>
 						<li>
 							<span class="px-2 font-semibold text-ink-900" aria-current="page">{crumbGroupLabel}</span>
 						</li>
 					{:else if showRoster}
-						<li aria-hidden="true"><ChevronRight size={14} class="text-ink-300" /></li>
+						<li aria-hidden="true"><ChevronRight size={14} class="text-ink-400" /></li>
 						<li>
 							<span class="px-2 font-semibold text-ink-900" aria-current="page">
 								{translate($lang, 'rosterTitle')}
@@ -276,9 +250,7 @@
 				onchange={onRosterChange}
 			/>
 		{:else if major && !selectedMajor}
-			<div class="rounded-2xl border border-dashed border-ink-200 bg-surface/60 px-6 py-10 text-center text-sm text-ink-500">
-				{translate($lang, 'noResults')}
-			</div>
+			<EmptyState message={translate($lang, 'noResults')} />
 		{:else}
 			<section class="space-y-3">
 				<div>
@@ -291,9 +263,7 @@
 					</p>
 				</div>
 				{#if (major ? groupBars : majorBars).length === 0}
-					<div class="rounded-2xl border border-dashed border-ink-200 bg-surface/60 px-6 py-10 text-center text-sm text-ink-500">
-						{translate($lang, 'noResults')}
-					</div>
+					<EmptyState message={translate($lang, 'noResults')} />
 				{:else if major}
 					<HorizontalBarChart
 						items={groupBars}

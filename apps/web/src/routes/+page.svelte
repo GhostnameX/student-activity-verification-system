@@ -51,7 +51,7 @@
 			{translate($lang, 'welcome')}, {$user.name}
 		</div>
 		<div class="mb-6 text-7xl">🎓</div>
-		<h1 class="mb-4 text-5xl font-extrabold tracking-tight text-ink-900">
+		<h1 class="mb-4 text-3xl font-extrabold tracking-tight text-ink-900 sm:text-5xl">
 			{translate($lang, 'appName')}
 		</h1>
 		<p class="mb-10 text-xl text-ink-500">{translate($lang, 'tagline')}</p>
@@ -72,7 +72,7 @@
 			>
 				<GraduationCap size={44} />
 			</div>
-			<h1 class="mb-4 text-5xl font-extrabold leading-tight tracking-tight text-ink-900 xl:text-6xl">
+			<h1 class="mb-4 text-3xl font-extrabold leading-tight tracking-tight text-ink-900 sm:text-5xl xl:text-6xl">
 				{translate($lang, 'appName')}
 			</h1>
 			<p class="mb-10 text-xl text-ink-500 xl:text-2xl">{translate($lang, 'tagline')}</p>
@@ -96,7 +96,7 @@
 		<div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
 			{#each features as f (f.title)}
 				<div
-					class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft transition hover:-translate-y-1 hover:shadow-lift"
+					class="rounded-card border border-ink-100 bg-surface p-6 shadow-soft transition hover:-translate-y-1 hover:shadow-lift"
 				>
 					<div class="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
 						<f.icon size={22} />

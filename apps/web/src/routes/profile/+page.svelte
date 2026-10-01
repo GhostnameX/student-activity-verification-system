@@ -160,14 +160,14 @@
 
 <div class="mx-auto max-w-lg py-4">
 	<div class="mb-6">
-		<h1 class="text-3xl font-extrabold tracking-tight text-ink-900">
+		<h1 class="text-2xl font-extrabold tracking-tight text-ink-900 sm:text-3xl">
 			{translate($lang, 'profileTitle')}
 		</h1>
 		<p class="mt-1 text-sm text-ink-500">{translate($lang, 'tagline')}</p>
 	</div>
 
 	{#if $user}
-		<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
+		<div class="rounded-card border border-ink-100 bg-surface p-6 shadow-soft">
 			<div class="flex flex-col gap-5">
 				<div class="flex items-start gap-4">
 					<div class="shrink-0">
@@ -250,7 +250,7 @@
 							{/if}
 						{:else}
 							<p class="truncate text-lg font-bold text-ink-900">{$user.name}</p>
-							<p class="mt-0.5 text-xs text-ink-400">{translate($lang, 'studentNameLocked')}</p>
+							<p class="mt-0.5 text-xs text-ink-500">{translate($lang, 'studentNameLocked')}</p>
 						{/if}
 
 						<div class="mt-2 flex items-center gap-1.5">
@@ -285,11 +285,11 @@
 				{#if $user.role === 'student' && $user.studentId}
 					<div class="grid grid-cols-1 gap-2 rounded-2xl bg-ink-50/60 px-4 py-3 text-sm sm:grid-cols-3">
 						<div>
-							<span class="text-ink-400">{translate($lang, 'studentId')}: </span>
+							<span class="text-ink-500">{translate($lang, 'studentId')}: </span>
 							<span class="font-medium text-ink-800">{$user.studentId}</span>
 						</div>
 						<div>
-							<span class="text-ink-400">{translate($lang, 'level')}: </span>
+							<span class="text-ink-500">{translate($lang, 'level')}: </span>
 							<span class="font-medium text-ink-800">{$user.admissionYear ?? '-'}</span>
 						</div>
 					</div>
@@ -298,7 +298,7 @@
 		</div>
 
 		{#if !isStaff}
-			<div class="mt-5 rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
+			<div class="mt-5 rounded-card border border-ink-100 bg-surface p-6 shadow-soft">
 				<div class="mb-4 flex items-center gap-2 border-b border-ink-100 pb-4">
 					<User size={18} class="text-brand-600" />
 					<h2 class="font-bold text-ink-900">{translate($lang, 'profileTitle')}</h2>
@@ -321,7 +321,7 @@
 						<div class="relative">
 							<Phone
 								size={17}
-								class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
+								class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-500"
 							/>
 							<input
 								id="phone"
@@ -332,7 +332,7 @@
 								class={phoneInputClass}
 							/>
 						</div>
-						<p class="mt-1.5 text-xs text-ink-400">{translate($lang, 'phoneOnCertificate')}</p>
+						<p class="mt-1.5 text-xs text-ink-500">{translate($lang, 'phoneOnCertificate')}</p>
 					</div>
 					<button
 						type="submit"
@@ -347,7 +347,7 @@
 		{/if}
 
 		{#if isStaff}
-			<div class="mt-5 rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
+			<div class="mt-5 rounded-card border border-ink-100 bg-surface p-6 shadow-soft">
 				<div class="mb-4 flex items-center gap-2 border-b border-ink-100 pb-4">
 					<KeyRound size={18} class="text-brand-600" />
 					<h2 class="font-bold text-ink-900">{translate($lang, 'changePassword')}</h2>

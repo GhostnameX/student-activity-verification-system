@@ -4,6 +4,10 @@
 	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
 	import { formatBangkokDateTime } from '$lib/datetime';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -149,21 +153,17 @@
 </script>
 
 <div class="space-y-6">
-	<div class="flex flex-wrap items-center justify-between gap-3">
-		<div>
-			<h1 class="text-3xl font-extrabold tracking-tight text-ink-900">
-				{translate($lang, 'staffReviewTitle')}
-			</h1>
-			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'staffReviewSubtitle')}</p>
-		</div>
-		<button
-			onclick={refresh}
-			class="flex min-h-11 items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
-		>
-			<RefreshCw size={15} />
-			{translate($lang, 'refresh')}
-		</button>
-	</div>
+	<PageHeader
+		title={translate($lang, 'staffReviewTitle')}
+		subtitle={translate($lang, 'staffReviewSubtitle')}
+	>
+		{#snippet actions()}
+			<Button onclick={refresh}>
+				<RefreshCw size={15} aria-hidden="true" />
+				{translate($lang, 'refresh')}
+			</Button>
+		{/snippet}
+	</PageHeader>
 
 	<div class="flex flex-wrap gap-2" role="group" aria-label={translate($lang, 'status')}>
 		{#each ['unchecked', 'checked', 'all'] as const as f (f)}
@@ -183,7 +183,7 @@
 	</div>
 
 	{#if loadError}
-		<div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+		<div class="rounded-xl border border-rejected-ring bg-rejected-soft px-4 py-3 text-sm text-rejected" role="alert">
 			{loadError}
 		</div>
 	{/if}
@@ -194,41 +194,29 @@
 			{translate($lang, 'submitting')}
 		</div>
 	{:else if visible.length === 0}
-		<div class="rounded-2xl border border-dashed border-ink-200 bg-surface/60 px-6 py-12 text-center">
-			<Inbox size={30} class="mx-auto mb-2 text-ink-300" />
-			<p class="text-sm text-ink-500">{translate($lang, 'noRequests')}</p>
-		</div>
+		<EmptyState message={translate($lang, 'noRequests')} />
 	{:else}
 		<ul class="space-y-3">
 			{#each visible as r (r.id)}
 				<li>
 					<button
 						onclick={() => openDetail(r.id)}
-						class="flex w-full flex-wrap items-center justify-between gap-3 rounded-2xl border border-ink-100 bg-surface p-4 text-left shadow-soft transition hover:shadow-lift"
+						class="flex w-full flex-wrap items-center justify-between gap-3 rounded-card border border-ink-100 bg-surface p-4 text-left shadow-soft transition hover:shadow-lift"
 					>
 						<div class="min-w-0">
 							<div class="font-semibold text-ink-900">{r.student?.name}</div>
 							<div class="mt-0.5 text-xs text-ink-500">
 								{r.student?.studentId ?? '-'} · {r.student?.faculty ?? '-'}
 							</div>
-							<div class="mt-1 text-xs text-ink-400">
+							<div class="mt-1 text-xs text-ink-500">
 								{translate($lang, 'submittedAt')}: {formatBangkokDateTime(r.submittedAt, $lang)}
 							</div>
 						</div>
 						<div class="flex items-center gap-3">
 							{#if r.staffCheckedAt}
-								<span
-									class="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-200"
-								>
-									<BadgeCheck size={14} />
-									{translate($lang, 'staffCheckedBadge')}
-								</span>
+								<StatusBadge kind="checked" />
 							{:else}
-								<span
-									class="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200"
-								>
-									{translate($lang, 'staffNotChecked')}
-								</span>
+								<StatusBadge kind="pending" label={translate($lang, 'staffNotChecked')} />
 							{/if}
 							<span class="text-sm font-semibold text-brand-700">
 								{translate($lang, 'staffReviewOpen')}
@@ -254,7 +242,7 @@
 				if (e.key === 'Escape') closeDetail();
 			}}
 		>
-			<div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-surface p-6 shadow-lift">
+			<div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-card bg-surface p-6 shadow-lift">
 				{#if detailLoading}
 					<div class="flex items-center gap-2 py-12 text-sm text-ink-500">
 						<Clock size={16} class="animate-spin" />
@@ -265,7 +253,7 @@
 						<p class="text-sm text-red-700" role="alert">{detailError}</p>
 						<button
 							onclick={closeDetail}
-							class="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700"
+							class="rounded-lg p-1.5 text-ink-500 transition hover:bg-ink-50 hover:text-ink-700"
 							aria-label={translate($lang, 'cancel')}
 						>
 							<X size={18} />
@@ -276,7 +264,7 @@
 						<h3 class="text-lg font-bold text-ink-900">{requestTitle(detail)}</h3>
 						<button
 							onclick={closeDetail}
-							class="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700"
+							class="rounded-lg p-1.5 text-ink-500 transition hover:bg-ink-50 hover:text-ink-700"
 							aria-label={translate($lang, 'cancel')}
 						>
 							<X size={18} />
@@ -285,19 +273,19 @@
 
 					<div class="mb-5 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
 						<div>
-							<span class="text-ink-400">{translate($lang, 'student')}: </span>
+							<span class="text-ink-500">{translate($lang, 'student')}: </span>
 							<span class="font-medium text-ink-800">{detail.student?.name}</span>
 						</div>
 						<div>
-							<span class="text-ink-400">{translate($lang, 'studentId')}: </span>
+							<span class="text-ink-500">{translate($lang, 'studentId')}: </span>
 							<span class="font-medium text-ink-800">{detail.student?.studentId ?? '-'}</span>
 						</div>
 						<div>
-							<span class="text-ink-400">{translate($lang, 'faculty')}: </span>
+							<span class="text-ink-500">{translate($lang, 'faculty')}: </span>
 							<span class="font-medium text-ink-800">{detail.student?.faculty ?? '-'}</span>
 						</div>
 						<div>
-							<span class="text-ink-400">{translate($lang, 'submittedAt')}: </span>
+							<span class="text-ink-500">{translate($lang, 'submittedAt')}: </span>
 							<span class="font-medium text-ink-800">
 								{formatBangkokDateTime(detail.submittedAt, $lang)}
 							</span>
@@ -306,7 +294,7 @@
 
 					{#if detail.note}
 						<div class="mb-5">
-							<div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-400">
+							<div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">
 								{translate($lang, 'note')}
 							</div>
 							<p class="rounded-xl bg-ink-50 px-3.5 py-2.5 text-sm text-ink-700">{detail.note}</p>
@@ -314,12 +302,12 @@
 					{/if}
 
 					<div class="mb-5">
-						<div class="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-400">
+						<div class="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">
 							<Paperclip size={13} />
 							{translate($lang, 'attachments')}
 						</div>
 						{#if !detail.attachments || detail.attachments.length === 0}
-							<p class="text-sm text-ink-400">{translate($lang, 'noFiles')}</p>
+							<p class="text-sm text-ink-500">{translate($lang, 'noFiles')}</p>
 						{:else}
 							<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
 								{#each detail.attachments as a (a.id)}
@@ -351,14 +339,14 @@
 
 					<div class="border-t border-ink-100 pt-4">
 						{#if checkError}
-							<p class="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+							<p class="mb-3 rounded-xl bg-rejected-soft px-3 py-2 text-sm text-rejected" role="alert">
 								{checkError}
 							</p>
 						{/if}
 
 						{#if detail.staffCheckedAt}
 							<div
-								class="flex items-start gap-2 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-800 ring-1 ring-sky-200"
+								class="flex items-start gap-2 rounded-xl bg-checked-soft px-4 py-3 text-sm text-checked ring-1 ring-checked-ring"
 							>
 								<BadgeCheck size={18} class="mt-0.5 shrink-0" />
 								<div>
@@ -376,16 +364,16 @@
 							<p class="text-sm text-ink-500">{translate($lang, 'staffReviewNotPending')}</p>
 						{:else if confirming}
 							<div
-								class="rounded-xl border border-amber-200 bg-amber-50 p-4"
+								class="rounded-xl border border-pending-ring bg-pending-soft p-4"
 								role="alertdialog"
 								aria-labelledby="confirm-title"
 								use:revealInDialog
 							>
-								<div id="confirm-title" class="flex items-center gap-2 font-semibold text-amber-900">
+								<div id="confirm-title" class="flex items-center gap-2 font-semibold text-pending">
 									<CircleAlert size={18} />
 									{translate($lang, 'staffReviewConfirmTitle')}
 								</div>
-								<p class="mt-2 text-sm text-amber-900">{translate($lang, 'staffReviewConfirmBody')}</p>
+								<p class="mt-2 text-sm text-pending">{translate($lang, 'staffReviewConfirmBody')}</p>
 								<div class="mt-4 flex flex-wrap justify-end gap-2">
 									<button
 										onclick={() => (confirming = false)}

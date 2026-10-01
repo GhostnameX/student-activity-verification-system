@@ -342,7 +342,7 @@
 	<section class="border-y border-ink-100 bg-surface px-0 py-4 sm:px-4" aria-label={translate($lang, 'filters')}>
 		<div class="grid gap-3 md:grid-cols-[minmax(15rem,1fr)_auto_auto] xl:grid-cols-[minmax(18rem,1fr)_12rem_15rem_auto]">
 			<div class="relative">
-				<Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
+				<Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
 				<input
 					bind:value={search}
 					oninput={onSearchInput}
@@ -439,7 +439,7 @@
 							<td class="px-4 py-3 font-medium text-ink-900">{student.firstName} {student.lastName}</td>
 							<td class="px-4 py-3 text-ink-600">
 								{student.major}
-								<div class="mt-0.5 text-xs text-ink-400">{student.groupName ?? '-'} · {student.level ?? '-'}</div>
+								<div class="mt-0.5 text-xs text-ink-500">{student.groupName ?? '-'} · {student.level ?? '-'}</div>
 							</td>
 							<td class="px-4 py-3">
 								<div class="flex flex-wrap gap-1.5">
@@ -540,18 +540,18 @@
 						{#each statusOptions as value}<option value={value}>{statusLabel(value)}</option>{/each}
 					</select>
 				</label>
-				<label class="text-sm font-medium text-ink-700">{translate($lang, 'group')} <span class="font-normal text-ink-400">({translate($lang, 'optionalField')})</span>
+				<label class="text-sm font-medium text-ink-700">{translate($lang, 'group')} <span class="font-normal text-ink-500">({translate($lang, 'optionalField')})</span>
 					<input bind:value={form.groupName} class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm" />
 				</label>
-				<label class="text-sm font-medium text-ink-700">{translate($lang, 'level')} <span class="font-normal text-ink-400">({translate($lang, 'optionalField')})</span>
+				<label class="text-sm font-medium text-ink-700">{translate($lang, 'level')} <span class="font-normal text-ink-500">({translate($lang, 'optionalField')})</span>
 					<input bind:value={form.level} class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm" />
 				</label>
-				<label class="text-sm font-medium text-ink-700">{translate($lang, 'email')} <span class="font-normal text-ink-400">({translate($lang, 'optionalField')})</span>
+				<label class="text-sm font-medium text-ink-700">{translate($lang, 'email')} <span class="font-normal text-ink-500">({translate($lang, 'optionalField')})</span>
 					<input bind:value={form.email} type="email" disabled={Boolean(editing?.emailBoundAt) || (editing !== null && $user?.role !== 'admin')} class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm disabled:cursor-not-allowed disabled:text-ink-500" />
 					{#if editing?.emailBoundAt}<span class="mt-1 block text-xs text-brand-600">{translate($lang, 'boundEmailHint')}</span>
 					{:else if editing && $user?.role !== 'admin'}<span class="mt-1 block text-xs text-brand-600">{translate($lang, 'emailAdminOnlyHint')}</span>{/if}
 				</label>
-				<label class="text-sm font-medium text-ink-700">{translate($lang, 'phone')} <span class="font-normal text-ink-400">({translate($lang, 'optionalField')})</span>
+				<label class="text-sm font-medium text-ink-700">{translate($lang, 'phone')} <span class="font-normal text-ink-500">({translate($lang, 'optionalField')})</span>
 					<input bind:value={form.phone} type="tel" class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm" />
 				</label>
 			</div>

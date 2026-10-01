@@ -4,6 +4,10 @@
 	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
 	import { formatBangkokDate, formatBangkokDateTime } from '$lib/datetime';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -118,18 +122,6 @@
 			: translate($lang, 'allRequests');
 	}
 
-	function statusClass(status: string) {
-		if (status === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
-		if (status === 'rejected') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
-		if (status === 'revision_required') return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200';
-		return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
-	}
-
-	function statusLabel(status: string) {
-		if (status === 'revision_required') return translate($lang, 'revisionRequired');
-		return translate($lang, status as 'pending');
-	}
-
 	let pendingCount = $derived(requests.filter((r) => r.status === 'pending').length);
 
 	// Revision request state
@@ -199,24 +191,63 @@
 	}
 </script>
 
-<div class="space-y-6">
-	<div class="flex flex-wrap items-center justify-between gap-3">
-		<div>
-			<h1 class="text-3xl font-extrabold tracking-tight text-ink-900">
-				{translate($lang, 'allRequests')}
-			</h1>
-			<p class="mt-1 text-sm text-ink-500">
-				{pendingCount} {translate($lang, 'totalPending').toLowerCase()}
-			</p>
-		</div>
-		<button
-			onclick={refresh}
-			class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
-		>
-			<RefreshCw size={15} />
-			{translate($lang, 'refresh')}
-		</button>
+{#snippet badges(r: RequestItem)}
+	<div class="flex flex-wrap items-center gap-1.5">
+		<StatusBadge kind={r.status} />
+		{#if r.staffCheckedAt}
+			<span title={formatBangkokDateTime(r.staffCheckedAt, $lang)}>
+				<StatusBadge kind="checked" />
+			</span>
+		{/if}
 	</div>
+{/snippet}
+
+{#snippet actionCell(r: RequestItem)}
+	{#if r.status === 'pending'}
+		{#if $user?.role === 'admin'}
+			<div class="flex flex-wrap gap-2 md:justify-end xl:flex-nowrap">
+				<button
+					onclick={(e) => { e.stopPropagation(); openRevision(r.id); }}
+					class="flex min-h-11 items-center gap-1.5 rounded-control bg-orange-700 px-3 py-2 text-xs font-semibold text-white shadow-soft transition hover:bg-orange-800"
+				>
+					<RotateCcw size={14} aria-hidden="true" />
+					{translate($lang, 'requestRevision')}
+				</button>
+				<button
+					onclick={(e) => { e.stopPropagation(); approve(r.id); }}
+					class="flex min-h-11 items-center gap-1.5 rounded-control bg-green-700 px-3 py-2 text-xs font-semibold text-white shadow-soft transition hover:bg-green-800"
+				>
+					<Check size={14} aria-hidden="true" />
+					{translate($lang, 'approve')}
+				</button>
+				<button
+					onclick={(e) => { e.stopPropagation(); rejectId = r.id; }}
+					class="flex min-h-11 items-center gap-1.5 rounded-control bg-red-700 px-3 py-2 text-xs font-semibold text-white shadow-soft transition hover:bg-red-800"
+				>
+					<X size={14} aria-hidden="true" />
+					{translate($lang, 'reject')}
+				</button>
+			</div>
+		{:else}
+			<span class="text-xs text-ink-500">{translate($lang, 'readOnly')}</span>
+		{/if}
+	{:else if r.status === 'rejected' && r.rejectionReason}
+		<span class="text-xs text-rejected">{r.rejectionReason}</span>
+	{/if}
+{/snippet}
+
+<div class="space-y-6">
+	<PageHeader
+		title={translate($lang, 'allRequests')}
+		subtitle="{pendingCount} {translate($lang, 'totalPending').toLowerCase()}"
+	>
+		{#snippet actions()}
+			<Button onclick={refresh}>
+				<RefreshCw size={15} aria-hidden="true" />
+				{translate($lang, 'refresh')}
+			</Button>
+		{/snippet}
+	</PageHeader>
 
 	{#if actionMsg}
 		<div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -230,17 +261,15 @@
 			{translate($lang, 'submitting')}
 		</div>
 	{:else if requests.length === 0}
-		<div class="rounded-2xl border border-dashed border-ink-200 bg-surface/60 px-6 py-12 text-center">
-			<Inbox size={30} class="mx-auto mb-2 text-ink-300" />
-			<p class="text-sm text-ink-500">{translate($lang, 'noRequests')}</p>
-		</div>
+		<EmptyState message={translate($lang, 'noRequests')} />
 	{:else}
-		<div class="overflow-x-auto rounded-3xl border border-ink-100 bg-surface shadow-soft">
+		<!-- table from md up -->
+		<div class="hidden overflow-x-auto rounded-card border border-ink-100 bg-surface shadow-soft md:block">
 			<table class="w-full text-left text-sm">
 				<thead class="border-b border-ink-100 bg-ink-50/70 text-xs font-semibold uppercase tracking-wide text-ink-500">
 					<tr>
 						<th class="px-5 py-3.5">{translate($lang, 'student')}</th>
-						<th class="hidden px-5 py-3.5 md:table-cell">{translate($lang, 'faculty')}</th>
+						<th class="px-5 py-3.5">{translate($lang, 'faculty')}</th>
 						<th class="hidden px-5 py-3.5 lg:table-cell">{translate($lang, 'date')}</th>
 						<th class="px-5 py-3.5">{translate($lang, 'status')}</th>
 						<th class="px-5 py-3.5 text-right">{translate($lang, 'actions')}</th>
@@ -254,70 +283,41 @@
 						>
 							<td class="px-5 py-4">
 								<div class="font-medium text-ink-800">{r.student?.name}</div>
-								<div class="text-xs text-ink-400">{r.student?.email}</div>
+								<div class="text-xs text-ink-500">{r.student?.email}</div>
 							</td>
-							<td class="hidden px-5 py-4 text-ink-600 md:table-cell">
-								{r.student?.faculty ?? '-'}
-							</td>
+							<td class="px-5 py-4 text-ink-600">{r.student?.faculty ?? '-'}</td>
 							<td class="hidden px-5 py-4 text-ink-600 lg:table-cell">
 								{formatBangkokDate(r.submittedAt, $lang)}
 							</td>
 							<td class="px-5 py-4">
-								<span
-									class={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusClass(r.status)}`}
-								>
-									{statusLabel(r.status)}
-								</span>
-								{#if r.staffCheckedAt}
-									<span
-										class="mt-1 flex w-fit items-center gap-1 rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200"
-										title={formatBangkokDateTime(r.staffCheckedAt, $lang)}
-									>
-										<BadgeCheck size={12} />
-										{translate($lang, 'staffCheckedBadge')}
-									</span>
-								{/if}
+								{@render badges(r)}
 							</td>
 							<td class="px-5 py-4">
-								{#if r.status === 'pending'}
-									{#if $user?.role === 'admin'}
-										<div class="flex justify-end gap-2">
-											<button
-												onclick={(e) => { e.stopPropagation(); openRevision(r.id); }}
-												class="flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-soft transition hover:bg-indigo-700"
-											>
-												<RotateCcw size={14} />
-												{translate($lang, 'requestRevision')}
-											</button>
-											<button
-												onclick={(e) => { e.stopPropagation(); approve(r.id); }}
-												class="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-soft transition hover:bg-green-700"
-											>
-												<Check size={14} />
-												{translate($lang, 'approve')}
-											</button>
-											<button
-												onclick={(e) => { e.stopPropagation(); rejectId = r.id; }}
-												class="flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-soft transition hover:bg-red-700"
-											>
-												<X size={14} />
-												{translate($lang, 'reject')}
-											</button>
-										</div>
-									{:else}
-										<span class="text-xs text-ink-400">{translate($lang, 'readOnly')}</span>
-									{/if}
-								{:else}
-									{#if r.status === 'rejected' && r.rejectionReason}
-										<span class="text-xs text-red-600">{r.rejectionReason}</span>
-									{/if}
-								{/if}
+								{@render actionCell(r)}
 							</td>
 						</tr>
 					{/each}
 				</tbody>
 			</table>
 		</div>
+
+		<!-- cards below md -->
+		<ul class="space-y-3 md:hidden">
+			{#each requests as r (r.id)}
+				<li
+					class="rounded-card border border-ink-100 bg-surface p-4 shadow-soft {removingId === r.id ? (removingStatus === 'approved' ? 'row-out-approve' : 'row-out-reject') : ''}"
+				>
+					<button type="button" class="block w-full text-left" onclick={() => openDetail(r.id)}>
+						<div class="break-words font-semibold text-ink-900">{r.student?.name}</div>
+						<div class="mt-0.5 break-all text-xs text-ink-500">{r.student?.email}</div>
+						<div class="mt-1 break-words text-xs text-ink-500">{r.student?.faculty ?? '-'}</div>
+						<div class="mt-0.5 text-xs text-ink-500">{formatBangkokDate(r.submittedAt, $lang)}</div>
+						<div class="mt-2.5">{@render badges(r)}</div>
+					</button>
+					<div class="mt-3">{@render actionCell(r)}</div>
+				</li>
+			{/each}
+		</ul>
 	{/if}
 
 	{#if detailLoading || detail}
@@ -329,7 +329,7 @@
 			onclick={(e) => { if (e.target === e.currentTarget) detail = null; }}
 			onkeydown={(e) => { if (e.key === 'Escape') detail = null; }}
 		>
-			<div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-surface p-6 shadow-lift">
+			<div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-card bg-surface p-6 shadow-lift">
 				{#if detailLoading}
 					<div class="flex items-center gap-2 py-12 text-sm text-ink-500">
 						<Clock size={16} class="animate-spin" />
@@ -341,15 +341,11 @@
 							<h3 class="text-lg font-bold text-ink-900">
 								{requestTitle(detail)}
 							</h3>
-							<span
-								class={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusClass(detail.status)}`}
-							>
-								{statusLabel(detail.status)}
-							</span>
+							<div class="mt-1"><StatusBadge kind={detail.status} /></div>
 						</div>
 						<button
 							onclick={() => (detail = null)}
-							class="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700"
+							class="rounded-lg p-1.5 text-ink-500 transition hover:bg-ink-50 hover:text-ink-700"
 							aria-label={translate($lang, 'cancel')}
 						>
 							<X size={18} />
@@ -358,19 +354,19 @@
 
 					<div class="mb-5 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
 						<div>
-							<span class="text-ink-400">{translate($lang, 'student')}: </span>
+							<span class="text-ink-500">{translate($lang, 'student')}: </span>
 							<span class="font-medium text-ink-800">{detail.student?.name}</span>
 						</div>
 						<div>
-							<span class="text-ink-400">{translate($lang, 'faculty')}: </span>
+							<span class="text-ink-500">{translate($lang, 'faculty')}: </span>
 							<span class="font-medium text-ink-800">{detail.student?.faculty ?? '-'}</span>
 						</div>
 						<div>
-							<span class="text-ink-400">{translate($lang, 'studentId')}: </span>
+							<span class="text-ink-500">{translate($lang, 'studentId')}: </span>
 							<span class="font-medium text-ink-800">{detail.student?.studentId ?? '-'}</span>
 						</div>
 						<div>
-							<span class="text-ink-400">{translate($lang, 'submittedAt')}: </span>
+							<span class="text-ink-500">{translate($lang, 'submittedAt')}: </span>
 							<span class="font-medium text-ink-800">
 								{formatBangkokDateTime(detail.submittedAt, $lang)}
 							</span>
@@ -397,7 +393,7 @@
 
 					{#if detail.note}
 						<div class="mb-5">
-							<div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-400">
+							<div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">
 								{translate($lang, 'note')}
 							</div>
 							<p class="rounded-xl bg-ink-50 px-3.5 py-2.5 text-sm text-ink-700">{detail.note}</p>
@@ -405,12 +401,12 @@
 					{/if}
 
 					<div class="mb-5">
-						<div class="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-400">
+						<div class="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">
 							<Paperclip size={13} />
 							{translate($lang, 'attachments')}
 						</div>
 						{#if !detail.attachments || detail.attachments.length === 0}
-							<p class="text-sm text-ink-400">{translate($lang, 'noFiles')}</p>
+							<p class="text-sm text-ink-500">{translate($lang, 'noFiles')}</p>
 						{:else}
 							<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
 								{#each detail.attachments as a (a.id)}
@@ -434,7 +430,7 @@
 										<span class="line-clamp-1 w-full text-xs font-medium text-ink-700 group-hover:text-brand-700">
 											{a.fileName}
 										</span>
-										<span class="text-[11px] text-ink-400">{translate($lang, 'download')}</span>
+										<span class="text-[11px] text-ink-500">{translate($lang, 'download')}</span>
 									</a>
 								{/each}
 							</div>
@@ -489,7 +485,7 @@
 			tabindex="-1"
 			onkeydown={(e) => { if (e.key === 'Escape') rejectId = null; }}
 		>
-			<div class="w-full max-w-md rounded-3xl bg-surface p-6 shadow-lift">
+			<div class="w-full max-w-md rounded-card bg-surface p-6 shadow-lift">
 				<h3 class="mb-4 text-lg font-bold text-ink-900">{translate($lang, 'reject')}</h3>
 				<label for="reject-reason" class="mb-1.5 block text-sm font-medium text-ink-700">
 					{translate($lang, 'reason')}
@@ -526,7 +522,7 @@
 			tabindex="-1"
 			onkeydown={(e) => { if (e.key === 'Escape') { revisionFor = null; revisionRequest = null; } }}
 		>
-			<div class="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-surface p-6 shadow-lift">
+			<div class="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-card bg-surface p-6 shadow-lift">
 				{#if revisionLoading}
 					<div class="flex items-center gap-2 py-12 text-sm text-ink-500">
 						<Clock size={16} class="animate-spin" />
@@ -540,7 +536,7 @@
 						</div>
 						<button
 							onclick={() => { revisionFor = null; revisionRequest = null; }}
-							class="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700"
+							class="rounded-lg p-1.5 text-ink-500 transition hover:bg-ink-50 hover:text-ink-700"
 							aria-label={translate($lang, 'cancel')}
 						>
 							<X size={18} />

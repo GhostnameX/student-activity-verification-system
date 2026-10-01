@@ -94,7 +94,7 @@
 	</div>
 
 	<div class="mx-auto w-full max-w-md">
-		<div class="relative overflow-hidden rounded-3xl border border-ink-100 bg-surface shadow-lift">
+		<div class="relative overflow-hidden rounded-card border border-ink-100 bg-surface shadow-lift">
 			<div
 				class="pointer-events-none absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-brand-500 via-brand-700 to-brand-900"
 			></div>
@@ -125,7 +125,7 @@
 					{translate($lang, 'googleSignIn')}
 				</button>
 
-				<div class="my-6 flex items-center gap-3 text-xs text-ink-400">
+				<div class="my-6 flex items-center gap-3 text-xs text-ink-500">
 					<div class="h-px flex-1 bg-ink-100"></div>
 					{translate($lang, 'student')}
 					<div class="h-px flex-1 bg-ink-100"></div>
@@ -139,7 +139,7 @@
 						<div class="relative">
 							<Mail
 								size={17}
-								class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
+								class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-500"
 							/>
 							<input
 								id="staffCode"
@@ -159,7 +159,7 @@
 						<div class="relative">
 							<Lock
 								size={17}
-								class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400"
+								class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-500"
 							/>
 							<input
 								id="password"

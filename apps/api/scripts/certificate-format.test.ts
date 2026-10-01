@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatReviewedDateThai, formatSubmittedAtThai, stripThaiNamePrefix } from "../src/certificate-format";
+import { certificateReviewDates, formatReviewedDateThai, formatSubmittedAtThai, stripThaiNamePrefix } from "../src/certificate-format";
 
 describe("formatSubmittedAtThai", () => {
   test("formats Asia/Bangkok, Buddhist year, 24h", () => {
@@ -24,6 +24,39 @@ describe("formatReviewedDateThai", () => {
   test("date only, Bangkok day, Buddhist year", () => {
     expect(formatReviewedDateThai(new Date("2026-10-14T03:20:00Z"))).toBe("14/10/2569");
     expect(formatReviewedDateThai(new Date("2026-10-14T17:30:00Z"))).toBe("15/10/2569");
+  });
+});
+
+describe("certificateReviewDates (top date and signature date share one instant)", () => {
+  test("both dates agree", () => {
+    const r = certificateReviewDates(new Date("2026-10-14T03:20:00Z"));
+    expect(r).toEqual({ dateDay: 14, dateMonth: "ตุลาคม", dateYear: 2569, signatureDate: "14/10/2569" });
+  });
+  test("UTC late evening rolls both dates to the next Bangkok day", () => {
+    const r = certificateReviewDates(new Date("2026-10-13T17:30:00Z"));
+    expect(r).toEqual({ dateDay: 14, dateMonth: "ตุลาคม", dateYear: 2569, signatureDate: "14/10/2569" });
+  });
+  test("year boundary: 2026-12-31T17:00Z is 1 January 2570 (Bangkok)", () => {
+    const r = certificateReviewDates(new Date("2026-12-31T17:00:00Z"));
+    expect(r).toEqual({ dateDay: 1, dateMonth: "มกราคม", dateYear: 2570, signatureDate: "01/01/2570" });
+  });
+  test("just before midnight Bangkok stays on the same day", () => {
+    const r = certificateReviewDates(new Date("2026-10-13T16:59:00Z"));
+    expect(r.dateDay).toBe(13);
+    expect(r.signatureDate).toBe("13/10/2569");
+  });
+  test("top and signature always match, for every month", () => {
+    for (let m = 0; m < 12; m++) {
+      const r = certificateReviewDates(new Date(Date.UTC(2026, m, 15, 20, 0)));
+      const [dd, mm, yyyy] = r.signatureDate.split("/").map(Number);
+      expect([r.dateDay, r.dateYear]).toEqual([dd, yyyy]);
+      expect(r.dateMonth).toBe(
+        ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"][mm - 1],
+      );
+    }
+  });
+  test("rejects invalid date", () => {
+    expect(() => certificateReviewDates(new Date("nope"))).toThrow();
   });
 });
 

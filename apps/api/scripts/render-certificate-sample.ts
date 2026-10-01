@@ -13,9 +13,6 @@ const base: CertificateData = {
   certificateNumber: 34,
   certificateYear: 2569,
   location: "พิษณุโลก",
-  dateDay: 13,
-  dateMonth: "ตุลาคม",
-  dateYear: 2569,
   studentName: "นาย สมชาย ใจดี",
   studentId: "6512345678",
   phone: "0812345678",
@@ -32,7 +29,12 @@ const cases: Record<string, Partial<CertificateData>> = {
     studentName: "นางสาว ปรีชญาพัชร์ สุวรรณภูมิพัฒนกุลวงศ์ศิริเกียรติ ศรีสวัสดิ์นฤมิตรชัยพิพัฒน์",
     faculty: "สาขาวิชาการจัดการเทคโนโลยีสารสนเทศทางธุรกิจ",
   },
-  "utc-rollover": { submittedAt: new Date("2026-10-12T16:30:00Z"), studentName: "นางนวล ใจดี" },
+  // 17:30Z on the 13th is already 00:30 on the 14th in Bangkok: both dates must read 14.
+  "utc-rollover": {
+    submittedAt: new Date("2026-10-13T16:30:00Z"),
+    reviewedAt: new Date("2026-10-13T17:30:00Z"),
+    studentName: "นางนวล ใจดี",
+  },
 };
 
 for (const [name, patch] of Object.entries(cases)) {

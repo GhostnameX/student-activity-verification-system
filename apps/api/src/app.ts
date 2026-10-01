@@ -87,11 +87,6 @@ function avatarPublicUrl(storagePath: string): string {
   return `${SUPABASE_URL}/storage/v1/object/public/avatars/${storagePath}`;
 }
 
-const THAI_MONTHS = [
-  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
-  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
-];
-
 const THAI_TZ = "Asia/Bangkok";
 
 export function thaiDateParts(d: Date = new Date()): { year: number; month: number; day: number } {
@@ -107,15 +102,6 @@ export function thaiDateParts(d: Date = new Date()): { year: number; month: numb
 
 export function thaiBuddhistYear(d: Date = new Date()): number {
   return thaiDateParts(d).year + 543;
-}
-
-function formatBuddhistDate(d: Date): { day: number; month: string; year: number } {
-  const { year, month, day } = thaiDateParts(d);
-  return {
-    day,
-    month: THAI_MONTHS[month - 1],
-    year: year + 543,
-  };
 }
 
 function requestNumberLabel(sequence: number | null, year: number | null): string | null {
@@ -880,8 +866,6 @@ export const app = new Elysia()
         setImmediate(async () => {
           let attachment: { filename: string; content: string } | undefined;
           try {
-            const now = new Date();
-            const buddhist = formatBuddhistDate(now);
             if (approved.certificateYear == null) throw new Error("approved request has no certificate year");
             if (approved.reviewedAt == null) throw new Error("approved request has no reviewed_at");
             attachment = await generateCertificatePDFForEmail({
@@ -890,9 +874,6 @@ export const app = new Elysia()
               certificateNumber: approved.requestNumber,
               certificateYear: approved.certificateYear,
               location: process.env.CERTIFICATE_LOCATION || "พิษณุโลก",
-              dateDay: buddhist.day,
-              dateMonth: buddhist.month,
-              dateYear: buddhist.year,
               studentName: d.studentName,
               studentId: d.studentCode,
               faculty: d.studentFaculty,

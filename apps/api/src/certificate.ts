@@ -3,7 +3,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { formatReviewedDateThai, formatSubmittedAtThai, stripThaiNamePrefix } from "./certificate-format";
+import { certificateReviewDates, formatSubmittedAtThai, stripThaiNamePrefix } from "./certificate-format";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,9 +16,6 @@ export interface CertificateData {
   certificateNumber?: number | null;
   certificateYear: number;
   location: string;
-  dateDay: number;
-  dateMonth: string;
-  dateYear: number;
   studentName: string;
   studentId?: string | null;
   phone?: string | null;
@@ -27,7 +24,10 @@ export interface CertificateData {
   reason?: string | null;
   /** requests.submitted_at from the DB (first submission; resubmit does not change it). Required — no "now" default. */
   submittedAt: Date;
-  /** requests.reviewed_at from the DB (the admin decision time). Required — no "now" default. */
+  /**
+   * requests.reviewed_at from the DB (the admin decision time). Required — no "now" default.
+   * Both the top date and the reviewer's signature date are derived from it (Asia/Bangkok).
+   */
   reviewedAt: Date;
 }
 
@@ -36,6 +36,8 @@ const SIGNATURE_CENTER_X = 306;
 const SIGNATURE_MAX_WIDTH = 180;
 // y of the redrawn dashed divider above "ผลการพิจารณา" (template original ≈ 202).
 const DIVIDER_Y = 190;
+// "คำร้องที่" caption ends at x≈511.7; the number starts ~6pt after it.
+const REQUEST_NUMBER_X = 517.7;
 
 const FACULTY_ROWS: Array<{ label: string; baselineY: number }> = [
   { label: "สาขาวิชาการจัดการ", baselineY: 545.23 },
@@ -107,15 +109,17 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
   // 1. Replace the template's dotted placeholder and hard-coded /2569 with
   // the request number captured at submission time.
   page.drawRectangle({ x: 514.5, y: 749, width: 70.5, height: 19, color: rgb(1, 1, 1) });
-  drawRight(String(data.requestNumber), 584.2, 753.24, 14);
+  // Number only (no year), left-aligned REQUEST_NUMBER_GAP after the "คำร้องที่" caption (ends x≈511.7).
+  drawLeft(String(data.requestNumber), REQUEST_NUMBER_X, 753.24, 14);
 
   // 2. เขียนที่ (location)
   drawLeft(data.location, 394, 639.46, 16);
 
-  // 3. วันที่ (top): day / month / year
-  drawRight(String(data.dateDay), 346, 611.86, 16);
-  drawRight(data.dateMonth, 464, 611.86, 16);
-  drawRight(String(data.dateYear), 534, 611.86, 16);
+  // 3. วันที่ (top): day / month / year — from reviewed_at, same instant as the signature date (step 9)
+  const reviewDates = certificateReviewDates(data.reviewedAt);
+  drawRight(String(reviewDates.dateDay), 346, 611.86, 16);
+  drawRight(reviewDates.dateMonth, 464, 611.86, 16);
+  drawRight(String(reviewDates.dateYear), 534, 611.86, 16);
 
   // 4. ข้าพเจ้า: student name (without title) + รหัสนักศึกษา
   // Space between the "ข้าพเจ้า" caption and the รหัสนักศึกษา caption is ~220pt; shrink long names to fit.
@@ -161,7 +165,7 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
 
   // 9. วันที่ (reviewer signature): approval date from requests.reviewed_at, written on
   // the template's own "วันที่......" dots.
-  drawRight(formatReviewedDateThai(data.reviewedAt), 334, 61.44, 16);
+  drawRight(reviewDates.signatureDate, 334, 61.44, 16);
 
   const bytes = await pdfDoc.save();
   return Buffer.from(bytes);

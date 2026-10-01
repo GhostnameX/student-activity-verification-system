@@ -27,6 +27,27 @@ export function formatReviewedDateThai(d: Date): string {
   return formatSubmittedAtThai(d).replace(/^วันที่ /, "").replace(/ เวลา .*$/, "");
 }
 
+const THAI_MONTHS = [
+  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
+];
+
+/**
+ * Both certificate dates — the top "วันที่ … เดือน … พ.ศ. …" line and the reviewer's
+ * signature date — derived from ONE instant (requests.reviewed_at, Asia/Bangkok),
+ * so they can never disagree.
+ */
+export function certificateReviewDates(reviewedAt: Date): {
+  dateDay: number;
+  dateMonth: string;
+  dateYear: number;
+  signatureDate: string;
+} {
+  const signatureDate = formatReviewedDateThai(reviewedAt); // validates the date too
+  const [dd, mm, yyyy] = signatureDate.split("/").map(Number);
+  return { dateDay: dd, dateMonth: THAI_MONTHS[mm - 1], dateYear: yyyy, signatureDate };
+}
+
 // Longest first so "นางสาว" wins over "นาง". Only stripped when a real prefix:
 // followed by whitespace, or written with a dot ("น.ส.", "Mr.").
 const PREFIXES = ["นางสาว", "น.ส.", "นาง", "นาย", "ด.ช.", "ด.ญ.", "Miss", "Mrs.", "Mrs", "Mr.", "Mr", "Ms.", "Ms"];

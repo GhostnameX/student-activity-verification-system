@@ -1003,7 +1003,7 @@ async function main(): Promise<number> {
     requestYear: rn3Approved.requestYear,
     certificateNumber: rn3Approved.certificateNumber,
     certificateYear: rn3Approved.certificateYear,
-    location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: 2569,
+    location: "พิษณุโลก",
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
     approved: true, reason: null, submittedAt: new Date("2026-01-01T03:00:00Z"), reviewedAt: new Date("2026-01-02T03:00:00Z"),
   });
@@ -1011,7 +1011,7 @@ async function main(): Promise<number> {
     requestNumber: legacyRnDb.certificateNumber,
     requestYear: legacyRnDb.certificateYear,
     certificateYear: legacyRnDb.certificateYear,
-    location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: 2569,
+    location: "พิษณุโลก",
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
     approved: true, reason: null, submittedAt: new Date("2026-01-01T03:00:00Z"), reviewedAt: new Date("2026-01-02T03:00:00Z"),
   });
@@ -1076,7 +1076,7 @@ async function main(): Promise<number> {
     requestYear: crossAfter.requestYear,
     certificateNumber: crossAfter.certificateNumber,
     certificateYear: crossAfter.certificateYear,
-    location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: crossAfter.certificateYear,
+    location: "พิษณุโลก",
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
     approved: true, reason: null, submittedAt: new Date("2026-01-01T03:00:00Z"), reviewedAt: new Date("2026-01-02T03:00:00Z"),
   });

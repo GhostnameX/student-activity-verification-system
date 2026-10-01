@@ -229,4 +229,5 @@ Phase 6: ไม่เพิ่มฟีเจอร์ ตรวจรวมท�
 3. เขียน docs/DEPLOY-ROUND2.md: รายการไฟล์ที่แก้แยกตามข้อ, migration ที่ต้องรันบน production (0021) พร้อม SQL ตรงตัวและวิธี rollback, env ใหม่ (ถ้ามี), ลำดับ deploy (DB migration → API → Web), สิ่งที่ต้องตรวจหลัง deploy, ปัญหา/ข้อจำกัดที่เหลือ
 4. ห้าม deploy ห้ามรัน migration บน production — รอผมอนุมัติ
 5. (ผู้ใช้สั่งเพิ่ม 2026-10-02) DEPLOY-ROUND2.md ต้องระบุ **migration ทั้งหมดที่ยังไม่เคยรันบน production** ไม่ใช่แค่ 0021: ตรวจ 0016–0021 ทีละตัวว่ารันแล้ว/ยังไม่รัน จาก docs/PRODUCTION-RECONSTRUCTION-ROLLOUT.md และ DEPLOY-0012.md (อ่านอย่างเดียว ห้ามต่อ production) โดยเฉพาะ **0019 ที่ลบตาราง activities เป็น destructive ต้องขออนุมัติแยกต่างหาก** พร้อม SQL ตรงตัว วิธีตรวจก่อนรัน และแผนสำรองข้อมูล
+6. (ผู้ใช้สั่งเพิ่ม 2026-10-02) เช็กลิสต์ก่อน deploy: **ยืนยัน timezone ของ production DB = UTC ก่อน deploy** (`reviewed_at`/`submitted_at` เป็น `timestamp` ไม่มี tz — โค้ดอ่านเป็น UTC แล้วแปลงเป็น Asia/Bangkok ตอนวาด PDF) ใน dev/test ตรวจแล้ว `SHOW timezone` = GMT (offset 0) ทั้ง ua_dev และ ua_roster_test; production ต้องตรวจเองแบบอ่านอย่างเดียวผ่านผู้ใช้ ห้ามต่อ production จาก local
 ```

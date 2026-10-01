@@ -315,13 +315,28 @@ export async function getStats(): Promise<StatsResponse> {
   return apiFetch("/api/stats");
 }
 
+/** Query value for the group filter that means "students without a group". */
+export const NO_GROUP = "__none__";
+
+export interface GroupSubmissionStats {
+  /** null = students without a group. */
+  groupName: string | null;
+  total: number;
+  submitted: number;
+  notSubmitted: number;
+  rate: number;
+}
+
 export interface MajorSubmissionStats {
   major: string;
   total: number;
   submitted: number;
   notSubmitted: number;
   rate: number;
+  /** Named groups only, natural-sorted. */
   groups: string[];
+  /** Every group (null group last), natural-sorted. */
+  groupStats: GroupSubmissionStats[];
 }
 
 export interface SubmissionStats {
@@ -341,24 +356,32 @@ export interface RosterStudent {
   firstName: string;
   lastName: string;
   major: string;
-  groupName: string;
-  level: string;
+  groupName: string | null;
+  level: string | null;
+  /** Only set for students who have submitted. */
+  latestStatus?: RequestStatus | null;
+  latestSubmittedAt?: string | null;
 }
 
-export interface NotSubmittedList {
+export type SubmissionState = "submitted" | "not_submitted";
+
+export interface SubmissionList {
   total: number;
   page: number;
   pageSize: number;
   items: RosterStudent[];
 }
 
-export async function getNotSubmitted(params: {
-  major?: string;
-  group?: string;
-  search?: string;
-  page?: number;
-  pageSize?: number;
-}): Promise<NotSubmittedList> {
+export async function getSubmissionList(
+  state: SubmissionState,
+  params: {
+    major?: string;
+    group?: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  },
+): Promise<SubmissionList> {
   const q = new URLSearchParams();
   if (params.major) q.set("major", params.major);
   if (params.group) q.set("group", params.group);
@@ -366,7 +389,8 @@ export async function getNotSubmitted(params: {
   if (params.page) q.set("page", String(params.page));
   if (params.pageSize) q.set("pageSize", String(params.pageSize));
   const qs = q.toString();
-  return apiFetch(`/api/roster/not-submitted${qs ? `?${qs}` : ""}`);
+  const path = state === "submitted" ? "submitted" : "not-submitted";
+  return apiFetch(`/api/roster/${path}${qs ? `?${qs}` : ""}`);
 }
 
 export type StudentStatus = "active" | "graduated" | "withdrawn";
@@ -473,12 +497,14 @@ export async function restoreRosterStudent(studentId: string): Promise<RosterRec
 export interface StatsResponse {
   total: number;
   pending: number;
+  revisionRequired: number;
   approved: number;
   rejected: number;
   byFaculty: {
     faculty: string;
     total: number;
     pending: number;
+    revisionRequired: number;
     approved: number;
     rejected: number;
   }[];

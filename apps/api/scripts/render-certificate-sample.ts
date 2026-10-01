@@ -29,10 +29,11 @@ const cases: Record<string, Partial<CertificateData>> = {
     studentName: "นางสาว ปรีชญาพัชร์ สุวรรณภูมิพัฒนกุลวงศ์ศิริเกียรติ ศรีสวัสดิ์นฤมิตรชัยพิพัฒน์",
     faculty: "สาขาวิชาการจัดการเทคโนโลยีสารสนเทศทางธุรกิจ",
   },
-  // 17:30Z on the 13th is already 00:30 on the 14th in Bangkok: both dates must read 14.
+  // Both instants fall on the previous UTC day but already on the next Bangkok day:
+  // reviewer box must read 14/10/2569 00:30 (submittedAt), top date 15 ตุลาคม (reviewedAt).
   "utc-rollover": {
-    submittedAt: new Date("2026-10-13T16:30:00Z"),
-    reviewedAt: new Date("2026-10-13T17:30:00Z"),
+    submittedAt: new Date("2026-10-13T17:30:00Z"),
+    reviewedAt: new Date("2026-10-14T17:30:00Z"),
     studentName: "นางนวล ใจดี",
   },
 };

@@ -3,7 +3,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { certificateReviewDates, formatSubmittedAtThai, stripThaiNamePrefix } from "./certificate-format";
+import { certificateDateFields, stripThaiNamePrefix } from "./certificate-format";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +26,7 @@ export interface CertificateData {
   submittedAt: Date;
   /**
    * requests.reviewed_at from the DB (the admin decision time). Required — no "now" default.
-   * Both the top date and the reviewer's signature date are derived from it (Asia/Bangkok).
+   * Used only for the top "วันที่ … เดือน … พ.ศ. …" line (Asia/Bangkok).
    */
   reviewedAt: Date;
 }
@@ -34,9 +34,9 @@ export interface CertificateData {
 // Center / width of the template's "ชื่อ - สกุล......" signature line.
 const SIGNATURE_CENTER_X = 306;
 const SIGNATURE_MAX_WIDTH = 180;
-// y of the redrawn dashed divider above "ผลการพิจารณา" (template original ≈ 202).
-const DIVIDER_Y = 190;
 // "คำร้องที่" caption ends at x≈511.7; the number starts ~6pt after it.
+// Center of the reviewer box ("ผู้ตรวจสอบกิจกรรม" caption spans x 244–330).
+const REVIEWER_DATE_CENTER_X = 287;
 const REQUEST_NUMBER_X = 517.7;
 
 const FACULTY_ROWS: Array<{ label: string; baselineY: number }> = [
@@ -115,8 +115,8 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
   // 2. เขียนที่ (location)
   drawLeft(data.location, 394, 639.46, 16);
 
-  // 3. วันที่ (top): day / month / year — from reviewed_at, same instant as the signature date (step 9)
-  const reviewDates = certificateReviewDates(data.reviewedAt);
+  // 3. วันที่ (top): day / month / year — from reviewed_at, independent of the reviewer-box time (step 9)
+  const { top: reviewDates, reviewerLine } = certificateDateFields(data);
   drawRight(String(reviewDates.dateDay), 346, 611.86, 16);
   drawRight(reviewDates.dateMonth, 464, 611.86, 16);
   drawRight(String(reviewDates.dateYear), 534, 611.86, 16);
@@ -146,26 +146,19 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
   }
 
   // 8. Student signature block. The "ชื่อ - สกุล" line is left blank for the student
-  // to write by hand; below it, top to bottom: (ชื่อ นามสกุล), the role caption and
-  // the first-submission time. The template has no room for three lines, so the role
-  // caption and the dashed divider are blanked and redrawn ~12pt lower.
+  // to write by hand; below it: (ชื่อ นามสกุล), then the role caption. The template's
+  // caption is blanked and redrawn one line lower to make room; the dashed divider
+  // stays exactly where the template has it.
   page.drawRectangle({ x: 258, y: 218, width: 98, height: 19, color: rgb(1, 1, 1) });
-  page.drawRectangle({ x: 70, y: 198, width: 472, height: 10, color: rgb(1, 1, 1) });
-  page.drawLine({
-    start: { x: 72, y: DIVIDER_Y },
-    end: { x: 538.7, y: DIVIDER_Y },
-    thickness: 0.6,
-    dashArray: [2.2, 1.6],
-    color: black,
-  });
-  drawCentered(`(${printedName})`, SIGNATURE_CENTER_X, 224, 16, SIGNATURE_MAX_WIDTH, 12);
-  drawCentered("นักศึกษาผู้ยื่นคำร้อง", SIGNATURE_CENTER_X, 211, 14);
-  // First-submission time (requests.submitted_at), never the approval/render time.
-  drawCentered(`ยื่นคำร้องเมื่อ ${formatSubmittedAtThai(data.submittedAt)}`, SIGNATURE_CENTER_X, 198, 13, 230, 11);
+  drawCentered(`(${printedName})`, SIGNATURE_CENTER_X, 223, 16, SIGNATURE_MAX_WIDTH, 12);
+  drawCentered("นักศึกษาผู้ยื่นคำร้อง", SIGNATURE_CENTER_X, 207.5, 14);
 
-  // 9. วันที่ (reviewer signature): approval date from requests.reviewed_at, written on
-  // the template's own "วันที่......" dots.
-  drawRight(reviewDates.signatureDate, 334, 61.44, 16);
+  // 9. Reviewer box "วันที่......" (between "(ว่าที่ร้อยตรีหญิง…)" above and
+  // "เจ้าหน้าที่ฝ่ายพัฒนานักศึกษา" below): first-submission time (requests.submitted_at,
+  // Asia/Bangkok), never the approval/render time. Blank the template dots (x 235–339,
+  // y 57.5–75) and write the full string centred on the same line.
+  page.drawRectangle({ x: 233, y: 58, width: 108, height: 17, color: rgb(1, 1, 1) });
+  drawCentered(reviewerLine, REVIEWER_DATE_CENTER_X, 61.44, 15, 230, 12);
 
   const bytes = await pdfDoc.save();
   return Buffer.from(bytes);

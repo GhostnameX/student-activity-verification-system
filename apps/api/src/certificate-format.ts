@@ -32,20 +32,27 @@ const THAI_MONTHS = [
   "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
 ];
 
-/**
- * Both certificate dates — the top "วันที่ … เดือน … พ.ศ. …" line and the reviewer's
- * signature date — derived from ONE instant (requests.reviewed_at, Asia/Bangkok),
- * so they can never disagree.
- */
+/** Top "วันที่ … เดือน … พ.ศ. …" line, from requests.reviewed_at (Asia/Bangkok, Buddhist year). */
 export function certificateReviewDates(reviewedAt: Date): {
   dateDay: number;
   dateMonth: string;
   dateYear: number;
-  signatureDate: string;
 } {
-  const signatureDate = formatReviewedDateThai(reviewedAt); // validates the date too
-  const [dd, mm, yyyy] = signatureDate.split("/").map(Number);
-  return { dateDay: dd, dateMonth: THAI_MONTHS[mm - 1], dateYear: yyyy, signatureDate };
+  const [dd, mm, yyyy] = formatReviewedDateThai(reviewedAt).split("/").map(Number); // validates the date too
+  return { dateDay: dd, dateMonth: THAI_MONTHS[mm - 1], dateYear: yyyy };
+}
+
+/**
+ * Every date printed on the certificate, from two independent instants:
+ * - `top` (วันที่ at the top of the form) = requests.reviewed_at
+ * - `reviewerLine` (the "วันที่…" line in the reviewer box, per the form owner,
+ *   confirmed 2026-10-02) = requests.submitted_at, the first submission time
+ */
+export function certificateDateFields(d: { submittedAt: Date; reviewedAt: Date }): {
+  top: { dateDay: number; dateMonth: string; dateYear: number };
+  reviewerLine: string;
+} {
+  return { top: certificateReviewDates(d.reviewedAt), reviewerLine: formatSubmittedAtThai(d.submittedAt) };
 }
 
 // Longest first so "นางสาว" wins over "นาง". Only stripped when a real prefix:

@@ -119,6 +119,7 @@
 		const map: Record<string, string> = {
 			approve: $lang === 'th' ? 'อนุมัติ' : 'Approve',
 			reject: $lang === 'th' ? 'ไม่อนุมัติ' : 'Reject',
+			staff_check: translate($lang, 'staffCheckAuditAction'),
 		};
 		return map[action] ?? action;
 	}
@@ -357,7 +358,7 @@
 									<td class="px-3 py-2.5 whitespace-nowrap text-ink-600">
 										{new Date(log.createdAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
 									</td>
-									<td class="px-3 py-2.5 text-ink-700">{log.actorId ? log.actorId.slice(0, 8) : '-'}</td>
+									<td class="px-3 py-2.5 text-ink-700">{log.actorName ?? (log.actorStaffId ? log.actorStaffId.slice(0, 8) : '-')}</td>
 									<td class="px-3 py-2.5 font-medium text-ink-900">{actionLabel(log.action)}</td>
 									<td class="px-3 py-2.5 text-ink-600">
 										<span class="rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-600">

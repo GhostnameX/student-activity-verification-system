@@ -3,6 +3,7 @@
 	import { lang } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
+	import { formatBangkokDateTime } from '$lib/datetime';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -23,6 +24,7 @@
 		Paperclip,
 		FileText as FileIcon,
 		RotateCcw,
+		BadgeCheck,
 	} from 'lucide-svelte';
 
 	let requests: RequestItem[] = $state([]);
@@ -266,6 +268,15 @@
 								>
 									{statusLabel(r.status)}
 								</span>
+								{#if r.staffCheckedAt}
+									<span
+										class="mt-1 flex w-fit items-center gap-1 rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200"
+										title={formatBangkokDateTime(r.staffCheckedAt, $lang)}
+									>
+										<BadgeCheck size={12} />
+										{translate($lang, 'staffCheckedBadge')}
+									</span>
+								{/if}
 							</td>
 							<td class="px-5 py-4">
 								{#if r.status === 'pending'}
@@ -365,6 +376,24 @@
 							</span>
 						</div>
 					</div>
+
+					{#if detail.staffCheckedAt}
+						<div
+							class="mb-5 flex items-start gap-2 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-800 ring-1 ring-sky-200"
+						>
+							<BadgeCheck size={18} class="mt-0.5 shrink-0" />
+							<div>
+								<div class="font-semibold">{translate($lang, 'staffCheckedBadge')}</div>
+								<div class="text-xs">
+									{translate($lang, 'staffCheckedAtLabel')}:
+									{formatBangkokDateTime(detail.staffCheckedAt, $lang)}
+									{#if detail.staffCheckedByName}
+										· {translate($lang, 'staffCheckedBy')} {detail.staffCheckedByName}
+									{/if}
+								</div>
+							</div>
+						</div>
+					{/if}
 
 					{#if detail.note}
 						<div class="mb-5">

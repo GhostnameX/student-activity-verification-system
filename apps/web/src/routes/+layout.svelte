@@ -20,6 +20,7 @@
 		Sun,
 		Menu,
 		X,
+		BadgeCheck,
 	} from 'lucide-svelte';
 	import {
 		getNotifications,
@@ -105,6 +106,9 @@
 				: null,
 			$user?.role === 'admin'
 				? { href: '/staff', label: translate($lang, 'allRequests'), icon: Inbox }
+				: null,
+			$user?.role === 'staff'
+				? { href: '/review', label: translate($lang, 'staffReviewTitle'), icon: BadgeCheck }
 				: null,
 			$user?.role === 'staff' || $user?.role === 'admin'
 				? { href: '/stats', label: translate($lang, 'submissionStats'), icon: LayoutDashboard }

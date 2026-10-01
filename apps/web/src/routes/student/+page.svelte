@@ -3,6 +3,7 @@
 	import { lang } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
+	import { formatBangkokDateTime } from '$lib/datetime';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -29,6 +30,7 @@
 		RotateCcw,
 		RefreshCw,
 		ChevronDown,
+		BadgeCheck,
 	} from 'lucide-svelte';
 
 	let requests: RequestItem[] = $state([]);
@@ -467,6 +469,17 @@
 						</p>
 					{/if}
 
+					{#if r.status === 'pending' && r.staffCheckedAt}
+						<div
+							class="mt-3 flex items-start gap-2 rounded-xl bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 ring-1 ring-sky-200"
+						>
+							<BadgeCheck size={16} class="mt-0.5 shrink-0" />
+							<span>
+								{translate($lang, 'staffCheckedNotice')} · {formatBangkokDateTime(r.staffCheckedAt, $lang)}
+							</span>
+						</div>
+					{/if}
+
 					{#if r.status === 'revision_required'}
 						<div class="mt-3 rounded-xl bg-indigo-50 px-3 py-2 text-sm text-indigo-700">
 							<RotateCcw size={14} class="mr-1.5 inline" />
@@ -530,6 +543,17 @@
 						<CircleX size={18} />
 					</button>
 				</div>
+
+				{#if detail.status === 'pending' && detail.staffCheckedAt}
+					<div
+						class="mb-4 flex items-start gap-2 rounded-xl bg-sky-50 px-4 py-3 text-sm font-medium text-sky-800 ring-1 ring-sky-200"
+					>
+						<BadgeCheck size={18} class="mt-0.5 shrink-0" />
+						<span>
+							{translate($lang, 'staffCheckedNotice')} · {formatBangkokDateTime(detail.staffCheckedAt, $lang)}
+						</span>
+					</div>
+				{/if}
 
 				<div class="mb-5 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
 					{#if detail.requestNumber}

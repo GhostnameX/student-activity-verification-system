@@ -57,10 +57,13 @@ export interface RequestItem {
   requestNumber?: string | null;
   submittedAt: string;
   reviewedAt?: string | null;
+  /** Staff document check (round 2). Only the time reaches students; the name is for staff/admin. */
+  staffCheckedAt?: string | null;
+  staffCheckedByName?: string | null;
   student?: {
     id: string;
     name: string;
-    email: string;
+    email: string | null;
     faculty?: string | null;
     studentId?: string | null;
   };
@@ -79,7 +82,8 @@ export interface NotificationItem {
 
 export interface AuditLogItem {
   id: string;
-  actorId?: string | null;
+  actorStaffId?: string | null;
+  actorName?: string | null;
   action: string;
   targetType: string;
   targetId: string;
@@ -157,8 +161,9 @@ export async function changePassword(body: {
   });
 }
 
-export async function getRequests(): Promise<RequestItem[]> {
-  return apiFetch("/api/requests");
+export async function getRequests(status?: RequestStatus): Promise<RequestItem[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return apiFetch(`/api/requests${query}`);
 }
 
 export async function getRequest(id: string): Promise<RequestItem> {
@@ -211,6 +216,15 @@ export async function uploadFile(file: File): Promise<Attachment> {
 
 export async function approveRequest(id: string): Promise<void> {
   await apiFetch(`/api/requests/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function staffCheckRequest(
+  id: string,
+): Promise<{ id: string; staffCheckedAt: string }> {
+  return apiFetch(`/api/requests/${encodeURIComponent(id)}/staff-check`, {
     method: "POST",
     body: JSON.stringify({}),
   });

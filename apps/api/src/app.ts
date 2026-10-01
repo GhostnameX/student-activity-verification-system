@@ -337,10 +337,7 @@ export const app = new Elysia()
         set.status = 404;
         return { error: "attachment_not_found" };
       }
-      if (user.role === "staff") {
-        set.status = 403;
-        return { error: "staff_cannot_access" };
-      }
+      // staff may read attachments (round 2, D1); only the owner among students
       if (user.role === "student" && attachment.studentId !== user.id) {
         set.status = 403;
         return { error: "forbidden" };
@@ -427,6 +424,7 @@ export const app = new Elysia()
           requestYear: requests.requestYear,
           submittedAt: requests.submittedAt,
           reviewedAt: requests.reviewedAt,
+          staffCheckedAt: requests.staffCheckedAt,
         })
         .from(requests)
         .where(where)
@@ -437,11 +435,8 @@ export const app = new Elysia()
       }));
     }
 
-    if (role === "staff") {
-      set.status = 403;
-      return { error: "staff_cannot_access" };
-    }
-
+    // admin and staff share the reviewer list; staff is read-only and gets no
+    // student contact fields (round 2, D1). Both see who checked the documents.
     const list = await db
       .select({
         id: requests.id,
@@ -452,6 +447,8 @@ export const app = new Elysia()
         requestYear: requests.requestYear,
         submittedAt: requests.submittedAt,
         reviewedAt: requests.reviewedAt,
+        staffCheckedAt: requests.staffCheckedAt,
+        staffCheckedByName: staff.fullName,
         student: {
           id: students.studentId,
           name: sql`${students.firstName} || ' ' || ${students.lastName}`,
@@ -462,10 +459,12 @@ export const app = new Elysia()
       })
       .from(requests)
       .innerJoin(students, eq(requests.studentId, students.studentId))
+      .leftJoin(staff, eq(requests.staffCheckedById, staff.id))
       .where(statusWhere)
       .orderBy(desc(requests.submittedAt));
     return list.map((r) => ({
       ...r,
+      student: role === "staff" ? { ...r.student, email: null } : r.student,
       requestNumber: requestNumberLabel(r.requestSequence, r.requestYear),
     }));
   })
@@ -488,6 +487,8 @@ export const app = new Elysia()
           requestYear: requests.requestYear,
           submittedAt: requests.submittedAt,
           reviewedAt: requests.reviewedAt,
+          staffCheckedAt: requests.staffCheckedAt,
+          staffCheckedByName: staff.fullName,
           student: {
             id: students.studentId,
             name: sql`${students.firstName} || ' ' || ${students.lastName}`,
@@ -498,6 +499,7 @@ export const app = new Elysia()
         })
         .from(requests)
         .innerJoin(students, eq(requests.studentId, students.studentId))
+        .leftJoin(staff, eq(requests.staffCheckedById, staff.id))
         .where(eq(requests.id, params.id)),
 
       db
@@ -518,11 +520,6 @@ export const app = new Elysia()
       return { error: "forbidden" };
     }
 
-    if (role === "staff") {
-      set.status = 403;
-      return { error: "staff_cannot_access" };
-    }
-
     const attachmentIds = attachments.map((a) => a.id);
     const revisions = attachmentIds.length > 0
       ? await db
@@ -537,8 +534,17 @@ export const app = new Elysia()
       revisions: revisions.filter((r) => r.attachmentId === a.id),
     }));
 
+    // The student sees when the documents were checked, not who checked them;
+    // staff get no student contact fields.
+    const { staffCheckedByName: _checker, ...withoutChecker } = req;
+    const visible =
+      role === "student"
+        ? withoutChecker
+        : role === "staff"
+          ? { ...req, student: { ...req.student, email: null } }
+          : req;
     return {
-      ...req,
+      ...visible,
       requestNumber: requestNumberLabel(req.requestSequence, req.requestYear),
       attachments: attachmentsWithRevisions,
     };
@@ -723,6 +729,88 @@ export const app = new Elysia()
       }),
     },
   )
+
+  // ===== Staff document check (round 2, D1-D5) =====
+  // Staff-only on purpose (admin cannot check on staff's behalf). Touches only the
+  // staff_checked_* columns: never status, reviewed_*, counters or attachment state.
+  .post("/api/requests/:id/staff-check", async ({ params, user, set }) => {
+    if (!user) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    if (user.role !== "staff") {
+      set.status = 403;
+      return { error: "staff_only" };
+    }
+
+    const [existing] = await db
+      .select({
+        status: requests.status,
+        studentId: requests.studentId,
+        staffCheckedAt: requests.staffCheckedAt,
+      })
+      .from(requests)
+      .where(eq(requests.id, params.id));
+    if (!existing) {
+      set.status = 404;
+      return { error: "not_found" };
+    }
+    if (existing.status !== "pending") {
+      set.status = 400;
+      return { error: "not_pending" };
+    }
+    if (existing.staffCheckedAt) {
+      set.status = 409;
+      return { error: "already_checked" };
+    }
+
+    const checked = await db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .update(requests)
+        .set({ staffCheckedAt: sql`now()`, staffCheckedById: user.id })
+        .where(
+          and(
+            eq(requests.id, params.id),
+            eq(requests.status, "pending"),
+            isNull(requests.staffCheckedAt),
+          ),
+        )
+        .returning({ staffCheckedAt: requests.staffCheckedAt });
+      return claimed ?? null;
+    });
+    if (!checked) {
+      // Lost a race: another check or a decision committed between the read and the claim.
+      const [current] = await db
+        .select({ status: requests.status })
+        .from(requests)
+        .where(eq(requests.id, params.id));
+      if (current && current.status !== "pending") {
+        set.status = 400;
+        return { error: "not_pending" };
+      }
+      set.status = 409;
+      return { error: "already_checked" };
+    }
+
+    // best-effort หลัง commit เหมือน approve/reject (audit S-5): การตรวจถูกบันทึกแล้ว
+    await Promise.all([
+      notifyUser({
+        studentId: existing.studentId,
+        title: "เจ้าหน้าที่ตรวจสอบเอกสารแล้ว",
+        body: "เจ้าหน้าที่ตรวจสอบเอกสารในคำร้องของคุณแล้ว อยู่ระหว่างรอการพิจารณา",
+        requestId: params.id,
+      }),
+      writeAuditLog({
+        actorStaffId: user.id,
+        action: "staff_check",
+        targetType: "request",
+        targetId: params.id,
+        metadata: { status: "pending" },
+      }),
+    ]).catch((e) => console.log(`[staff-check] notify/audit failed: ${e}`));
+
+    return { id: params.id, staffCheckedAt: checked.staffCheckedAt };
+  })
 
   // ===== Staff review actions =====
   .post(
@@ -1248,6 +1336,9 @@ export const app = new Elysia()
               status: "pending",
               reviewedById: null,
               reviewedAt: null,
+              // documents changed: staff must check again (D3)
+              staffCheckedAt: null,
+              staffCheckedById: null,
               updatedAt: sql`now()`,
             })
             .where(
@@ -1609,11 +1700,13 @@ export const app = new Elysia()
       set.status = 403;
       return { error: "admin_only" };
     }
-    return await db
-      .select()
+    const rows = await db
+      .select({ log: auditLogs, actorName: staff.fullName })
       .from(auditLogs)
+      .leftJoin(staff, eq(auditLogs.actorStaffId, staff.id))
       .orderBy(desc(auditLogs.createdAt))
       .limit(200);
+    return rows.map((r) => ({ ...r.log, actorName: r.actorName }));
   })
 
   // ===== Staff management (admin only) =====

@@ -35,6 +35,7 @@ delete process.env.RESEND_API_KEY;
 const { app } = await import("../src/app");
 const { db, pool } = await import("@ua/db/client");
 const {
+  attachmentUploads,
   auditLogs,
   notifications,
   requestAttachmentRevisions,
@@ -259,12 +260,14 @@ describe("GET /api/requests", () => {
     expect(res.body.find((r: any) => r.id === a.id).student.studentId).toBe(STUDENT_A);
   });
 
-  test("staff is refused with 403 (current behaviour, changes with staff read access)", async () => {
+  test("staff can read the reviewer list but gets no student email (round 2, D1)", async () => {
+    const r = await seedRequest(STUDENT_A);
     const res = await api("GET", "/api/requests", { cookie: staffCookie });
-    expect({ status: res.status, error: res.body.error }).toEqual({
-      status: 403,
-      error: "staff_cannot_access",
-    });
+    expect(res.status).toBe(200);
+    const row = res.body.find((x: any) => x.id === r.id);
+    expect(row.student.studentId).toBe(STUDENT_A);
+    expect(row.student.email).toBeNull();
+    expect(row.staffCheckedAt).toBeNull();
   });
 });
 
@@ -290,13 +293,12 @@ describe("GET /api/requests/:id", () => {
     expect(res.status).toBe(404);
   });
 
-  test("staff is refused with 403 (current behaviour, changes with staff read access)", async () => {
+  test("staff can read the detail and its attachments, read-only (round 2, D1)", async () => {
     const r = await seedRequest(STUDENT_A);
     const res = await api("GET", `/api/requests/${r.id}`, { cookie: staffCookie });
-    expect({ status: res.status, error: res.body.error }).toEqual({
-      status: 403,
-      error: "staff_cannot_access",
-    });
+    expect(res.status).toBe(200);
+    expect(res.body.attachments).toHaveLength(1);
+    expect(res.body.student.email).toBeNull();
   });
 });
 
@@ -328,13 +330,13 @@ describe("GET /api/attachments/:id/signed-url", () => {
     });
   });
 
-  test("staff is refused with 403 (current behaviour, changes with staff read access)", async () => {
+  test("staff can get a signed URL (round 2, D1)", async () => {
     const r = await seedRequest(STUDENT_A);
-    const res = await api("GET", `/api/attachments/${r.attachmentId}/signed-url`, { cookie: staffCookie });
-    expect({ status: res.status, error: res.body.error }).toEqual({
-      status: 403,
-      error: "staff_cannot_access",
+    const res = await api("GET", `/api/attachments/${r.attachmentId}/signed-url?revisionId=${r.revisionId}`, {
+      cookie: staffCookie,
     });
+    expect(res.status).toBe(200);
+    expect(typeof res.body.url).toBe("string");
   });
 });
 
@@ -481,5 +483,222 @@ describe("state machine", () => {
       status: 400,
       error: "not_revision_required",
     });
+  });
+});
+
+// --- 5. staff document check (round 2, D1-D5) --------------------------------
+
+describe("POST /api/requests/:id/staff-check", () => {
+  test("staff check on a pending request sets the columns and nothing else", async () => {
+    const r = await seedRequest(STUDENT_A);
+    const [before] = await db.select().from(requests).where(eq(requests.id, r.id));
+
+    const res = await api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie });
+    expect(res.status).toBe(200);
+    expect(res.body.staffCheckedAt).toBeTruthy();
+
+    const [after] = await db.select().from(requests).where(eq(requests.id, r.id));
+    expect(after.staffCheckedAt).not.toBeNull();
+    expect(after.staffCheckedById).toBe(STAFF_ID);
+    // the admin decision and everything else is untouched
+    expect(after.status).toBe("pending");
+    expect(after.reviewedAt).toBeNull();
+    expect(after.reviewedById).toBeNull();
+    expect(after.certificateNumber).toBeNull();
+    expect(after.requestSequence).toBe(before.requestSequence);
+    const [rev] = await db
+      .select()
+      .from(requestAttachmentRevisions)
+      .where(eq(requestAttachmentRevisions.id, r.revisionId));
+    expect(rev.revisionState).toBe("unchanged");
+  });
+
+  test("writes a staff_check audit row and notifies the owning student only", async () => {
+    const r = await seedRequest(STUDENT_B);
+    const res = await api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie });
+    expect(res.status).toBe(200);
+
+    const audits = await db.select().from(auditLogs).where(eq(auditLogs.targetId, r.id));
+    expect(audits).toHaveLength(1);
+    expect(audits[0].action).toBe("staff_check");
+    expect(audits[0].actorStaffId).toBe(STAFF_ID);
+
+    const notes = await db.select().from(notifications).where(eq(notifications.requestId, r.id));
+    expect(notes).toHaveLength(1);
+    expect(notes[0].studentId).toBe(STUDENT_B);
+    expect(notes[0].staffId).toBeNull();
+    expect(notes[0].title).toBe("เจ้าหน้าที่ตรวจสอบเอกสารแล้ว");
+  });
+
+  test("a second check is 409 even from another staff member, and keeps the first checker", async () => {
+    const r = await seedRequest(STUDENT_A);
+    expect((await api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie })).status).toBe(200);
+
+    const staff2Cookie = await makeSession(STAFF2_ID, "staff");
+    for (const cookie of [staffCookie, staff2Cookie]) {
+      const again = await api("POST", `/api/requests/${r.id}/staff-check`, { cookie });
+      expect({ status: again.status, error: again.body.error }).toEqual({ status: 409, error: "already_checked" });
+    }
+    const [row] = await db.select().from(requests).where(eq(requests.id, r.id));
+    expect(row.staffCheckedById).toBe(STAFF_ID);
+    const audits = await db.select().from(auditLogs).where(eq(auditLogs.targetId, r.id));
+    expect(audits).toHaveLength(1);
+  });
+
+  test("concurrent checks: exactly one wins", async () => {
+    const r = await seedRequest(STUDENT_A);
+    const staff2Cookie = await makeSession(STAFF2_ID, "staff");
+    const results = await Promise.all([
+      api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie }),
+      api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staff2Cookie }),
+    ]);
+    expect(results.map((x) => x.status).sort()).toEqual([200, 409]);
+  });
+
+  test("non-pending requests are 400 not_pending and stay unchecked", async () => {
+    for (const status of ["approved", "rejected", "revision_required"] as const) {
+      const r = await seedRequest(STUDENT_A, status);
+      const res = await api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie });
+      expect({ status, code: res.status, error: res.body.error }).toEqual({
+        status,
+        code: 400,
+        error: "not_pending",
+      });
+      const [row] = await db.select().from(requests).where(eq(requests.id, r.id));
+      expect(row.staffCheckedAt).toBeNull();
+    }
+  });
+
+  test("unknown id is 404", async () => {
+    const res = await api("POST", "/api/requests/does-not-exist/staff-check", { cookie: staffCookie });
+    expect(res.status).toBe(404);
+  });
+
+  test("student and admin get 403 staff_only and nothing is written", async () => {
+    const r = await seedRequest(STUDENT_A);
+    for (const cookie of [studentA, admin]) {
+      const res = await api("POST", `/api/requests/${r.id}/staff-check`, { cookie });
+      expect({ status: res.status, error: res.body.error }).toEqual({ status: 403, error: "staff_only" });
+    }
+    const [row] = await db.select().from(requests).where(eq(requests.id, r.id));
+    expect(row.staffCheckedAt).toBeNull();
+    expect(row.staffCheckedById).toBeNull();
+  });
+
+  test("visibility: admin sees the checker name, the student only the time", async () => {
+    const r = await seedRequest(STUDENT_A);
+    await api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie });
+
+    const adminDetail = await api("GET", `/api/requests/${r.id}`, { cookie: admin });
+    expect(adminDetail.body.staffCheckedAt).toBeTruthy();
+    expect(adminDetail.body.staffCheckedByName).toBe("เจ้าหน้าที่ทดสอบ");
+
+    const studentDetail = await api("GET", `/api/requests/${r.id}`, { cookie: studentA });
+    expect(studentDetail.body.staffCheckedAt).toBeTruthy();
+    expect(studentDetail.body.staffCheckedByName).toBeUndefined();
+
+    const studentList = await api("GET", "/api/requests", { cookie: studentA });
+    const row = studentList.body.find((x: any) => x.id === r.id);
+    expect(row.staffCheckedAt).toBeTruthy();
+    expect(row.staffCheckedByName).toBeUndefined();
+
+    const adminList = await api("GET", "/api/requests", { cookie: admin });
+    expect(adminList.body.find((x: any) => x.id === r.id).staffCheckedByName).toBe("เจ้าหน้าที่ทดสอบ");
+  });
+
+  test("admin can still decide a checked request; approve keeps the check record", async () => {
+    const r = await seedRequest(STUDENT_A);
+    await api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie });
+    const ok = await api("POST", `/api/requests/${r.id}/approve`, { cookie: admin });
+    expect(ok.status).toBe(200);
+    const [row] = await db.select().from(requests).where(eq(requests.id, r.id));
+    expect(row.status).toBe("approved");
+    expect(row.staffCheckedById).toBe(STAFF_ID);
+  });
+
+  test("request-revision keeps the check until the student resubmits, then resubmit clears it (D3)", async () => {
+    const r = await seedRequest(STUDENT_A);
+    await api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie });
+    const flag = await api("POST", `/api/requests/${r.id}/request-revision`, {
+      cookie: admin,
+      body: { slots: [1] },
+    });
+    expect(flag.status).toBe(200);
+    const [flagged] = await db.select().from(requests).where(eq(requests.id, r.id));
+    expect(flagged.staffCheckedAt).not.toBeNull();
+
+    // Replace the flagged file the way the resubmit route expects: a consumed-once upload.
+    const storagePath = `requests/${randomUUID()}.pdf`;
+    await db.insert(attachmentUploads).values({
+      storagePath,
+      studentId: STUDENT_A,
+      fileName: "fixed.pdf",
+      fileType: "application/pdf",
+      fileSize: 999,
+    });
+    const resubmit = await api("POST", `/api/requests/${r.id}/resubmit`, {
+      cookie: studentA,
+      body: {
+        attachments: [
+          { slot: 1, fileName: "fixed.pdf", fileType: "application/pdf", fileSize: 999, storagePath },
+        ],
+      },
+    });
+    expect(resubmit.status).toBe(200);
+
+    const [after] = await db.select().from(requests).where(eq(requests.id, r.id));
+    expect(after.status).toBe("pending");
+    expect(after.staffCheckedAt).toBeNull();
+    expect(after.staffCheckedById).toBeNull();
+
+    // and the cleared request can be checked again
+    const again = await api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie });
+    expect(again.status).toBe(200);
+  });
+});
+
+describe("staff stays read-only on every decision and edit route", () => {
+  test("approve / reject / request-revision / resubmit / create / patch all refuse staff", async () => {
+    const r = await seedRequest(STUDENT_A);
+    const cases: Array<[string, string, unknown, number, string]> = [
+      ["POST", `/api/requests/${r.id}/approve`, undefined, 403, "admin_only"],
+      ["POST", `/api/requests/${r.id}/reject`, { reason: "x" }, 403, "admin_only"],
+      ["POST", `/api/requests/${r.id}/request-revision`, { slots: [1] }, 403, "admin_only"],
+      ["POST", `/api/requests/${r.id}/resubmit`, {}, 403, "only_students"],
+      ["POST", "/api/requests", { attachments: [] }, 403, "only_students"],
+      ["PATCH", `/api/requests/${r.id}`, { note: "x" }, 403, "forbidden"],
+    ];
+    for (const [method, path, body, status, error] of cases) {
+      const res = await api(method, path, { cookie: staffCookie, body });
+      expect({ method, path, status: res.status, error: res.body.error }).toEqual({
+        method,
+        path,
+        status,
+        error,
+      });
+    }
+    const [row] = await db.select().from(requests).where(eq(requests.id, r.id));
+    expect(row.status).toBe("pending");
+    expect(row.note).toBe("note");
+    expect(row.staffCheckedAt).toBeNull();
+  });
+
+  test("staff cannot reach the audit log or stats", async () => {
+    for (const path of ["/api/audit", "/api/stats"]) {
+      const res = await api("GET", path, { cookie: staffCookie });
+      expect({ path, status: res.status }).toEqual({ path, status: 403 });
+    }
+  });
+});
+
+describe("GET /api/audit actor", () => {
+  test("rows carry the staff member name (audit W-1)", async () => {
+    const r = await seedRequest(STUDENT_A);
+    await api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie });
+    const res = await api("GET", "/api/audit", { cookie: admin });
+    expect(res.status).toBe(200);
+    const row = res.body.find((x: any) => x.targetId === r.id && x.action === "staff_check");
+    expect(row.actorStaffId).toBe(STAFF_ID);
+    expect(row.actorName).toBe("เจ้าหน้าที่ทดสอบ");
   });
 });

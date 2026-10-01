@@ -483,9 +483,9 @@ async function main(): Promise<number> {
   const staffMe = await api("/api/me", { cookie: `ua_session=${cookieStaff}` });
   record("3c-staff-session-identity", staffMe.status === 200 && staffMe.json?.user?.staffCode === plainStaff.user.staffCode && !("email" in (staffMe.json?.user ?? {})), `status=${staffMe.status} code=${staffMe.json?.user?.staffCode}`);
 
-  // --- 3d. staff request API → 403 ---
+  // --- 3d. staff request API: read-only (round 2, D1) ---
   const staffList = await api("/api/requests", { cookie: `ua_session=${cookieStaff}` });
-  record("3d-staff-list-403", staffList.status === 403 && staffList.json?.error === "staff_cannot_access", `status=${staffList.status}`);
+  record("3d-staff-list-readonly", staffList.status === 200 && Array.isArray(staffList.json), `status=${staffList.status}`);
 
   // --- upload from student ---
   const uploadedA1 = await uploadAttachment(cookieA, 1);
@@ -657,7 +657,7 @@ async function main(): Promise<number> {
   const otherStudentSigned = await api(signedPath, { cookie: `ua_session=${cookieB}` });
   record("13-other-student-signed-url-403", otherStudentSigned.status === 403 && otherStudentSigned.json?.error === "forbidden", `status=${otherStudentSigned.status} err=${otherStudentSigned.json?.error}`);
   const staffSigned = await api(signedPath, { cookie: `ua_session=${cookieStaff}` });
-  record("13-staff-signed-url-403", staffSigned.status === 403 && staffSigned.json?.error === "staff_cannot_access", `status=${staffSigned.status} err=${staffSigned.json?.error}`);
+  record("13-staff-signed-url", staffSigned.status === 200 && staffSigned.json?.expiresIn === 600, `status=${staffSigned.status} err=${staffSigned.json?.error}`);
   const anonSigned = await api(signedPath);
   record("13-anon-signed-url-401", anonSigned.status === 401 && anonSigned.json?.error === "unauthorized", `status=${anonSigned.status}`);
   const mismatchedRevision = await api(`${signedPath}?revisionId=${otherRev.id}`, { cookie: `ua_session=${cookieA}` });
@@ -836,7 +836,7 @@ async function main(): Promise<number> {
   record("6-exclusive-detail-b-forbidden", otherDetail.status === 403, `status=${otherDetail.status} err=${otherDetail.json?.error}`);
 
   const staffDetail = await api(`/api/requests/${reqId}`, { cookie: `ua_session=${cookieStaff}` });
-  record("6-staff-detail-403", staffDetail.status === 403 && staffDetail.json?.error === "staff_cannot_access", `status=${staffDetail.status}`);
+  record("6-staff-detail-readonly", staffDetail.status === 200 && staffDetail.json?.student?.email === null, `status=${staffDetail.status}`);
 
   const patchOther = await api(`/api/requests/${reqId}`, { method: "PATCH", cookie: `ua_session=${cookieB}`, body: { note: "hacked" } });
   record("6-patch-other-403", patchOther.status === 403, `status=${patchOther.status} err=${patchOther.json?.error}`);

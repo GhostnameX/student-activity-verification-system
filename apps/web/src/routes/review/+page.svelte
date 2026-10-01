@@ -103,6 +103,11 @@
 		}
 	}
 
+	// The confirm panel opens below the fold on small screens; keep its buttons reachable.
+	function revealInDialog(node: HTMLElement) {
+		node.scrollIntoView({ block: 'nearest' });
+	}
+
 	function closeDetail() {
 		detail = null;
 		detailError = '';
@@ -370,7 +375,12 @@
 						{:else if detail.status !== 'pending'}
 							<p class="text-sm text-ink-500">{translate($lang, 'staffReviewNotPending')}</p>
 						{:else if confirming}
-							<div class="rounded-xl border border-amber-200 bg-amber-50 p-4" role="alertdialog" aria-labelledby="confirm-title">
+							<div
+								class="rounded-xl border border-amber-200 bg-amber-50 p-4"
+								role="alertdialog"
+								aria-labelledby="confirm-title"
+								use:revealInDialog
+							>
 								<div id="confirm-title" class="flex items-center gap-2 font-semibold text-amber-900">
 									<CircleAlert size={18} />
 									{translate($lang, 'staffReviewConfirmTitle')}

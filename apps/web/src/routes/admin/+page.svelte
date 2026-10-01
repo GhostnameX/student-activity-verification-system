@@ -3,6 +3,7 @@
 	import { lang } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
+	import { formatBangkokDateTime } from '$lib/datetime';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -355,10 +356,10 @@
 						<tbody>
 							{#each auditLogs as log (log.id)}
 								<tr class="border-b border-ink-50 last:border-0">
-									<td class="px-3 py-2.5 whitespace-nowrap text-ink-600">
-										{new Date(log.createdAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
+									<td class="min-w-36 px-3 py-2.5 text-ink-600">
+										{formatBangkokDateTime(log.createdAt, $lang)}
 									</td>
-									<td class="px-3 py-2.5 text-ink-700">{log.actorName ?? (log.actorStaffId ? log.actorStaffId.slice(0, 8) : '-')}</td>
+									<td class="px-3 py-2.5 whitespace-nowrap text-ink-700">{log.actorName ?? (log.actorStaffId ? log.actorStaffId.slice(0, 8) : '-')}</td>
 									<td class="px-3 py-2.5 font-medium text-ink-900">{actionLabel(log.action)}</td>
 									<td class="px-3 py-2.5 text-ink-600">
 										<span class="rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-600">

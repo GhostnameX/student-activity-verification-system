@@ -22,6 +22,7 @@
 		Menu,
 		X,
 		BadgeCheck,
+		ChevronDown,
 	} from 'lucide-svelte';
 	import {
 		getNotifications,
@@ -48,6 +49,11 @@
 	let notifications: NotificationItem[] = $state([]);
 	let bellOpen = $state(false);
 	let mobileNavOpen = $state(false);
+	let userMenuOpen = $state(false);
+
+	function handleWindowClick(event: MouseEvent) {
+		if (!(event.target as Element | null)?.closest('[data-user-menu]')) userMenuOpen = false;
+	}
 
 	function isNavActive(href: string) {
 		return page.url.pathname === href || page.url.pathname.startsWith(`${href}/`);
@@ -58,7 +64,10 @@
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') closeMobileNav();
+		if (event.key === 'Escape') {
+			closeMobileNav();
+			userMenuOpen = false;
+		}
 	}
 
 	$effect(() => {
@@ -123,9 +132,12 @@
 			$user ? { href: '/profile', label: translate($lang, 'profile'), icon: User } : null,
 		].filter((x): x is { href: string; label: string; icon: typeof FileText } => x !== null),
 	);
+
+	// Profile lives in the user menu on desktop, so the top bar keeps one line of links.
+	const desktopNav = $derived(nav.filter((item) => item.href !== '/profile'));
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:window onkeydown={handleWindowKeydown} onclick={handleWindowClick} />
 
 <svelte:head>
 	<title>{translate($lang, 'appName')}</title>
@@ -140,20 +152,30 @@
 				>
 					<GraduationCap size={22} />
 				</span>
-				<span class="min-w-0 truncate text-lg font-bold tracking-tight text-ink-900 max-sm:hidden">
+				<span
+					class="min-w-0 truncate text-lg font-bold tracking-tight text-ink-900 {$user ? 'hidden 2xl:block' : 'max-sm:hidden'}"
+				>
 					{translate($lang, 'appName')}
 				</span>
 			</a>
 
 			{#if $user}
-				<nav class="hidden items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-1 md:flex">
-					{#each nav as item (item.href)}
+				<nav
+					class="hidden min-w-0 items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-1 md:flex"
+					aria-label="Main navigation"
+				>
+					{#each desktopNav as item (item.href)}
 						<a
 							href={item.href}
-							class="flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium text-ink-600 transition hover:bg-surface hover:text-ink-900 hover:shadow-soft sm:px-4 md:px-3 lg:px-4"
+							title={item.label}
+							aria-label={item.label}
+							aria-current={isNavActive(item.href) ? 'page' : undefined}
+							class="flex min-h-10 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition hover:bg-surface hover:text-ink-900 hover:shadow-soft {isNavActive(item.href)
+								? 'bg-surface text-brand-700 shadow-soft'
+								: 'text-ink-600'}"
 						>
-							<item.icon size={16} />
-							<span class="hidden md:inline">{item.label}</span>
+							<item.icon size={16} aria-hidden="true" />
+							<span class="hidden lg:inline">{item.label}</span>
 						</a>
 					{/each}
 				</nav>
@@ -163,7 +185,7 @@
 				{#if $user}
 					<button
 						onclick={() => (mobileNavOpen = !mobileNavOpen)}
-						class="flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 md:hidden"
+						class="flex h-11 w-11 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 md:hidden"
 						aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
 						aria-expanded={mobileNavOpen}
 						aria-controls="mobile-navigation"
@@ -174,20 +196,12 @@
 							<Menu size={18} />
 						{/if}
 					</button>
-					<a
-						href="/auth/signout"
-						class="hidden h-9 w-9 items-center justify-center rounded-xl bg-ink-900 text-ink-50 transition hover:bg-ink-800 md:flex lg:hidden"
-						aria-label={translate($lang, 'logout')}
-						title={translate($lang, 'logout')}
-					>
-						<LogOut size={16} />
-					</a>
 				{/if}
 				{#if $user}
 					<div class="relative">
 						<button
 							onclick={openBell}
-							class="relative flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50"
+							class="relative flex h-11 w-11 items-center justify-center rounded-xl border border-ink-200 md:h-10 md:w-10 bg-surface text-ink-700 transition hover:bg-ink-50"
 							aria-label={translate($lang, 'notifications')}
 						>
 							<Bell size={16} />
@@ -252,15 +266,16 @@
 
 				<button
 					onclick={toggleLang}
-					class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-2.5 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50 sm:px-3.5"
+					class="flex h-11 items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-3 text-sm font-medium text-ink-700 transition hover:bg-ink-50 md:h-10 xl:px-3.5"
 					title={translate($lang, 'language')}
+					aria-label={translate($lang, 'language')}
 				>
 					<Languages size={16} />
-					<span class="max-lg:hidden">{$lang === 'th' ? 'English' : 'ไทย'}</span>
+					<span class="max-xl:hidden">{$lang === 'th' ? 'English' : 'ไทย'}</span>
 				</button>
 				<button
 					onclick={toggleTheme}
-					class="flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 max-sm:hidden"
+					class="flex h-11 w-11 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 max-sm:hidden md:h-10 md:w-10"
 					aria-label="Toggle dark mode"
 					title="Dark mode"
 				>
@@ -271,37 +286,63 @@
 					{/if}
 				</button>
 				{#if $user}
-					<div class="hidden items-center gap-2.5 lg:flex">
-						<a href="/profile" class="shrink-0" title={translate($lang, 'profile')}>
+					<div class="relative hidden md:block" data-user-menu>
+						<button
+							type="button"
+							onclick={() => (userMenuOpen = !userMenuOpen)}
+							aria-haspopup="menu"
+							aria-expanded={userMenuOpen}
+							aria-label={$user.name}
+							class="flex h-10 items-center gap-2 rounded-xl border border-ink-200 bg-surface py-1 pl-1 pr-2.5 transition hover:bg-ink-50"
+						>
 							{#if $user.avatarUrl}
 								<img
 									src={avatarUrl($user.avatarUrl)}
-									alt={translate($lang, 'avatar')}
-									class="h-9 w-9 rounded-xl border border-ink-100 object-cover"
+									alt=""
+									class="h-8 w-8 rounded-lg border border-ink-100 object-cover"
 								/>
 							{:else}
 								<span
-									class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white"
+									class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white"
 								>
 									{$user.name.trim().charAt(0).toUpperCase()}
 								</span>
 							{/if}
-						</a>
-						<div class="text-right">
-							<a href="/profile" class="block text-sm font-semibold leading-tight text-ink-900 hover:text-brand-700">
+							<span class="hidden max-w-40 truncate text-sm font-semibold text-ink-900 xl:block">
 								{$user.name}
-							</a>
-							<div class="text-xs capitalize text-ink-400">
-								{translate($lang, $user.role as 'student')}
+							</span>
+							<ChevronDown size={15} class="text-ink-500" aria-hidden="true" />
+						</button>
+						{#if userMenuOpen}
+							<div
+								role="menu"
+								class="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-ink-100 bg-surface shadow-lift"
+							>
+								<div class="border-b border-ink-100 px-4 py-3">
+									<p class="break-words text-sm font-semibold text-ink-900">{$user.name}</p>
+									<p class="mt-0.5 text-xs capitalize text-ink-500">
+										{translate($lang, $user.role as 'student')}
+									</p>
+								</div>
+								<a
+									href="/profile"
+									role="menuitem"
+									onclick={() => (userMenuOpen = false)}
+									class="flex min-h-11 items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+								>
+									<User size={16} aria-hidden="true" />
+									{translate($lang, 'profile')}
+								</a>
+								<a
+									href="/auth/signout"
+									role="menuitem"
+									class="flex min-h-11 items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
+								>
+									<LogOut size={16} aria-hidden="true" />
+									{translate($lang, 'logout')}
+								</a>
 							</div>
-						</div>
-						<a
-							href="/auth/signout"
-							class="flex items-center gap-1.5 rounded-xl bg-ink-900 px-2.5 py-2 text-sm font-medium text-ink-50 transition hover:bg-ink-800 sm:px-3.5"
-						>
-							<LogOut size={15} />
-							<span class="hidden xl:inline">{translate($lang, 'logout')}</span>
-						</a>
+						{/if}
 					</div>
 				{:else}
 					<a
@@ -350,7 +391,21 @@
 					</a>
 				{/each}
 			</nav>
-			<div class="border-t border-ink-100 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+			<div class="space-y-1 border-t border-ink-100 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+				{#if $user}
+					<div class="px-3 pb-2">
+						<p class="break-words text-sm font-semibold text-ink-900">{$user.name}</p>
+						<p class="text-xs capitalize text-ink-500">{translate($lang, $user.role as 'student')}</p>
+					</div>
+				{/if}
+				<button
+					type="button"
+					onclick={toggleTheme}
+					class="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-600 transition hover:bg-ink-50 sm:hidden"
+				>
+					{#if $dark}<Sun size={19} aria-hidden="true" />{:else}<Moon size={19} aria-hidden="true" />{/if}
+					<span>{$dark ? 'Light mode' : 'Dark mode'}</span>
+				</button>
 				<a
 					href="/auth/signout"
 					class="flex min-h-12 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
@@ -362,14 +417,14 @@
 		</aside>
 	{/if}
 
-	<main class="mx-auto w-full max-w-[1600px] flex-1 px-6 py-8 xl:px-10">
+	<main class="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6 sm:py-8 xl:px-10">
 		{@render children()}
 	</main>
 
 	<footer class="border-t border-ink-100 bg-surface py-6">
-		<div class="mx-auto max-w-[1600px] px-6 text-center text-sm text-ink-400 xl:px-10">
+		<div class="mx-auto max-w-[1600px] px-4 text-center text-sm text-ink-500 sm:px-6 xl:px-10">
 			<div>{translate($lang, 'appName')} &middot; © {bangkokYear()}</div>
-			<div class="mt-1 text-xs text-ink-300">
+			<div class="mt-1 text-xs text-ink-500">
 				Built by
 				<a
 					href="https://github.com/GhostnameX"

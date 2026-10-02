@@ -50,6 +50,12 @@ export const CENTERED_FIELDS = {
   studentName: { startX: 140.04, endX: 364.59, baselineY: 584.26 },
   studentId: { startX: 419.81, endX: 537.63, baselineY: 584.26 },
   phone: { startX: 109.19, endX: 305.34, baselineY: 564.67 },
+  // "เขียนที่" run ends at the template's trailing space (x 540.1).
+  location: { startX: 392.25, endX: 539.41, baselineY: 639.46 },
+  // Top date: the three dot runs after "วันที่", "เดือน" and "พ.ศ." (the dots inside "พ.ศ." are not part of a field).
+  dateDay: { startX: 315.03, endX: 351.17, baselineY: 611.86 },
+  dateMonth: { startX: 373.5, endX: 468.98, baselineY: 611.86 },
+  dateYear: { startX: 484.99, endX: 539.18, baselineY: 611.86 },
 } as const;
 
 const FACULTY_ROWS: Array<{ label: string; baselineY: number }> = [
@@ -87,12 +93,6 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
 
   const page = pdfDoc.getPage(0);
   const black = rgb(0, 0, 0);
-
-  function drawRight(text: string, endX: number, baselineY: number, size: number, f = font) {
-    if (!text) return;
-    const w = f.widthOfTextAtSize(text, size);
-    page.drawText(text, { x: endX - w, y: baselineY, size, font: f, color: black });
-  }
 
   function drawLeft(text: string, startX: number, baselineY: number, size: number, f = font) {
     if (!text) return;
@@ -133,13 +133,18 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
   drawLeft(String(data.requestNumber), REQUEST_NUMBER_X, 753.24, 14);
 
   // 2. เขียนที่ (location)
-  drawLeft(data.location, 394, 639.46, 16);
+  const loc = CENTERED_FIELDS.location;
+  drawCentered(data.location, loc.startX, loc.endX, loc.baselineY, 16);
 
   // 3. วันที่ (top): day / month / year — from reviewed_at, independent of the reviewer-box time (step 9)
   const { top: reviewDates, reviewerLine } = certificateDateFields(data);
-  drawRight(String(reviewDates.dateDay), 346, 611.86, 16);
-  drawRight(reviewDates.dateMonth, 464, 611.86, 16);
-  drawRight(String(reviewDates.dateYear), 534, 611.86, 16);
+  for (const [text, f] of [
+    [String(reviewDates.dateDay), CENTERED_FIELDS.dateDay],
+    [reviewDates.dateMonth, CENTERED_FIELDS.dateMonth],
+    [String(reviewDates.dateYear), CENTERED_FIELDS.dateYear],
+  ] as const) {
+    drawCentered(text, f.startX, f.endX, f.baselineY, 16);
+  }
 
   // 4. ข้าพเจ้า: student name (without title) + รหัสนักศึกษา, centred in their dotted fields
   const { studentName: nameField, studentId: idField, phone: phoneField } = CENTERED_FIELDS;

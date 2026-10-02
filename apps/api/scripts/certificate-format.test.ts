@@ -161,6 +161,29 @@ describe("real font in the template's dotted fields", () => {
       expect(r.x + m(text, r.size) / 2).toBeCloseTo((f.startX + f.endX) / 2, 6);
     }
   });
+  test("location and top date fields are centred", async () => {
+    const m = await measurer();
+    for (const [text, f] of [
+      ["พิษณุโลก", CENTERED_FIELDS.location],
+      ["14", CENTERED_FIELDS.dateDay],
+      ["ตุลาคม", CENTERED_FIELDS.dateMonth],
+      ["พฤศจิกายน", CENTERED_FIELDS.dateMonth],
+      ["2569", CENTERED_FIELDS.dateYear],
+    ] as const) {
+      const r = fitCenteredInRange(m, text, f.startX, f.endX, 16);
+      expect(r.size).toBe(16);
+      expect(r.x + m(text, r.size) / 2).toBeCloseTo((f.startX + f.endX) / 2, 6);
+    }
+  });
+  test("a very long location shrinks to stay inside its field", async () => {
+    const m = await measurer();
+    const f = CENTERED_FIELDS.location;
+    const text = "มหาวิทยาลัยราชภัฏพิบูลสงครามจังหวัดพิษณุโลก";
+    const r = fitCenteredInRange(m, text, f.startX, f.endX, 16);
+    expect(r.size).toBeLessThan(16);
+    expect(r.x).toBeGreaterThanOrEqual(f.startX);
+    expect(r.x + m(text, r.size)).toBeLessThanOrEqual(f.endX);
+  });
   test("longest tested name shrinks to 12pt and stays inside the name field", async () => {
     const m = await measurer();
     const f = CENTERED_FIELDS.studentName;

@@ -6,6 +6,7 @@
 	import { formatBangkokDateTime } from '$lib/datetime';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import RevisionNotes from '$lib/components/RevisionNotes.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { goto } from '$app/navigation';
@@ -291,6 +292,12 @@
 							</span>
 						</div>
 					</div>
+
+					{#if detail.revisionNotes && detail.revisionNotes.length > 0}
+						<div class="mb-5">
+							<RevisionNotes notes={detail.revisionNotes} showAuthor={true} />
+						</div>
+					{/if}
 
 					{#if detail.note}
 						<div class="mb-5">

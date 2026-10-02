@@ -6,6 +6,7 @@
 	import { formatBangkokDate, formatBangkokDateTime } from '$lib/datetime';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import RevisionNotes from '$lib/components/RevisionNotes.svelte';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -453,10 +454,20 @@
 					{/if}
 
 					{#if r.status === 'revision_required'}
-						<div class="mt-3 rounded-xl bg-revision-soft px-3 py-2 text-sm text-revision">
-							<RotateCcw size={14} class="mr-1.5 inline" />
-							{translate($lang, 'needResubmitSlots')}: {translate($lang, 'viewDetail')}
-						</div>
+						{#if r.latestRevisionNote}
+							<div class="mt-3">
+								<RevisionNotes
+									variant="highlight"
+									notes={[{ id: `latest-${r.id}`, ...r.latestRevisionNote, authorName: null }]}
+									resubmitHint={true}
+								/>
+							</div>
+						{:else}
+							<div class="mt-3 rounded-xl bg-revision-soft px-3 py-2 text-sm text-revision">
+								<RotateCcw size={14} class="mr-1.5 inline" />
+								{translate($lang, 'needResubmitSlots')}: {translate($lang, 'viewDetail')}
+							</div>
+						{/if}
 					{/if}
 
 					<div class="mt-3 flex items-center justify-between">
@@ -547,6 +558,20 @@
 						</div>
 					{/if}
 				</div>
+
+				{#if detail.revisionNotes && detail.revisionNotes.length > 0}
+					<div class="mb-5">
+						<RevisionNotes
+							notes={detail.revisionNotes}
+							variant={detail.status === 'revision_required' ? 'highlight' : 'history'}
+							resubmitHint={detail.status === 'revision_required'}
+						/>
+					</div>
+				{:else if detail.status === 'revision_required'}
+					<p class="mb-5 rounded-xl bg-revision-soft px-3.5 py-2.5 text-sm text-revision">
+						{translate($lang, 'revisionNoNote')}
+					</p>
+				{/if}
 
 				{#if detail.note}
 					<div class="mb-5">

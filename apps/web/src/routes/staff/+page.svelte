@@ -8,6 +8,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
+	import RevisionNotes from '$lib/components/RevisionNotes.svelte';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -15,6 +16,7 @@
 		approveRequest,
 		rejectRequest,
 		requestRevisionRequest,
+		REVISION_NOTE_MAX_LENGTH,
 		attachmentUrl,
 		type RequestItem,
 		type Attachment,
@@ -130,10 +132,12 @@
 	let revisionLoading = $state(false);
 	let revisionSelected = $state<Record<number, boolean>>({});
 	let revisionMsg = $state('');
+	let revisionNote = $state('');
 
 	async function openRevision(id: string) {
 		revisionFor = null;
 		revisionMsg = '';
+		revisionNote = '';
 		revisionSelected = {};
 		revisionLoading = true;
 		try {
@@ -164,9 +168,14 @@
 			revisionMsg = translate($lang, 'selectAtLeastOne');
 			return;
 		}
+		const note = revisionNote.trim();
+		if (note.length === 0) {
+			revisionMsg = translate($lang, 'revisionNoteRequired');
+			return;
+		}
 		actionMsg = '';
 		try {
-			await requestRevisionRequest(id, slots);
+			await requestRevisionRequest(id, slots, note);
 			revisionFor = null;
 			revisionRequest = null;
 			if (detail?.id === id) detail = null;
@@ -397,6 +406,12 @@
 						</div>
 					{/if}
 
+					{#if detail.revisionNotes && detail.revisionNotes.length > 0}
+						<div class="mb-5">
+							<RevisionNotes notes={detail.revisionNotes} showAuthor={true} />
+						</div>
+					{/if}
+
 					{#if detail.note}
 						<div class="mb-5">
 							<div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">
@@ -601,6 +616,27 @@
 							{/each}
 						</div>
 					{/if}
+
+					<div class="mt-4">
+						<label for="revision-note" class="mb-1.5 block text-sm font-semibold text-ink-800">
+							{translate($lang, 'revisionNoteLabel')} <span class="text-rejected" aria-hidden="true">*</span>
+						</label>
+						<textarea
+							id="revision-note"
+							bind:value={revisionNote}
+							rows="4"
+							maxlength={REVISION_NOTE_MAX_LENGTH}
+							required
+							aria-required="true"
+							placeholder={translate($lang, 'revisionNotePlaceholder')}
+							class="w-full rounded-control border border-ink-200 bg-surface px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-100"
+						></textarea>
+						<p class="mt-1 text-right text-xs text-ink-500">
+							{translate($lang, 'revisionNoteCounter')
+								.replace('{count}', String(revisionNote.length))
+								.replace('{max}', String(REVISION_NOTE_MAX_LENGTH))}
+						</p>
+					</div>
 
 					<div class="mt-5 flex justify-end gap-2 border-t border-ink-100 pt-4">
 						<button

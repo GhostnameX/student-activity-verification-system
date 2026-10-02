@@ -3,6 +3,7 @@ import {
   text,
   timestamp,
   integer,
+  smallint,
   pgEnum,
   index,
   uniqueIndex,
@@ -184,6 +185,28 @@ export const requestAttachmentRevisions = pgTable(
     ),
     index("attrev_attachment_idx").on(t.attachmentId),
   ],
+);
+
+// Reason history for "send back for revision": one row per admin request-revision call.
+export const requestRevisionNotes = pgTable(
+  "request_revision_notes",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    requestId: text("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    authorStaffId: text("author_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    note: text("note").notNull(),
+    slots: smallint("slots").array().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .default(sql`now()`)
+      .notNull(),
+  },
+  (t) => [index("request_revision_notes_request_created_idx").on(t.requestId, t.createdAt)],
 );
 
 export const notifications = pgTable(

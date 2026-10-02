@@ -67,17 +67,7 @@ async function api(
   path: string,
   options: { cookie?: string; body?: unknown } = {},
 ): Promise<ApiResult> {
-  const headers: Record<string, string> = {};
-  if (options.cookie) headers.cookie = options.cookie;
-  if (options.body !== undefined) headers["content-type"] = "application/json";
-
-  const response = await app.handle(
-    new Request(`${ORIGIN}${path}`, {
-      method,
-      headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    }),
-  );
+  const response = await rawApi(method, path, options);
   const text = await response.text();
   let body: any = text;
   if (text !== "") {
@@ -90,9 +80,80 @@ async function api(
   return { status: response.status, body, setCookie: response.headers.get("set-cookie") ?? "" };
 }
 
+async function rawApi(
+  method: string,
+  path: string,
+  options: { cookie?: string; body?: unknown } = {},
+): Promise<Response> {
+  const headers: Record<string, string> = {};
+  if (options.cookie) headers.cookie = options.cookie;
+  if (options.body !== undefined) headers["content-type"] = "application/json";
+
+  return app.handle(
+    new Request(`${ORIGIN}${path}`, {
+      method,
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    }),
+  );
+}
+
+function parseCsv(csv: string): string[][] {
+  const text = csv.startsWith("\uFEFF") ? csv.slice(1) : csv;
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted) {
+      if (char === '"' && text[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        field += char;
+      }
+    } else if (char === '"') {
+      quoted = true;
+    } else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (char === "\r" && text[index + 1] === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      index += 1;
+    } else {
+      field += char;
+    }
+  }
+
+  if (field !== "" || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
 function cookieValue(setCookie: string, name: string): string | null {
   for (const chunk of setCookie.split(/,\s*(?=[A-Za-z0-9_-]+=)/)) {
     const pair = chunk.split(";")[0];
+    if (pair.startsWith(`${name}=`)) return pair.slice(name.length + 1);
+  }
+  return null;
+}
+
+function responseCookies(response: Response): string[] {
+  return response.headers.getSetCookie();
+}
+
+function responseCookieValue(response: Response, name: string): string | null {
+  for (const cookie of responseCookies(response)) {
+    const pair = cookie.split(";", 1)[0];
     if (pair.startsWith(`${name}=`)) return pair.slice(name.length + 1);
   }
   return null;
@@ -226,7 +287,8 @@ beforeAll(async () => {
   }
 
   await db.execute(sql`
-    TRUNCATE students, staff, sessions, audit_logs, requests, request_attachments,
+    TRUNCATE students, staff, sessions, oauth_bind_sessions, oauth_login_states,
+      audit_logs, requests, request_attachments,
       request_attachment_revisions, attachment_uploads, notifications CASCADE
   `);
 
@@ -275,10 +337,13 @@ describe("roster authorization", () => {
   test("a student is rejected with 403 on every roster route", async () => {
     const cases: Array<[string, string, unknown?]> = [
       ["GET", "/api/roster/students", undefined],
+      ["GET", "/api/roster/export.csv", undefined],
       ["POST", "/api/roster/students", { studentId: "x", firstName: "x", lastName: "x", major: "x", admissionYear: 2568 }],
       ["PATCH", "/api/roster/students/6501000001", { firstName: "hacked" }],
       ["DELETE", "/api/roster/students/6501000001", undefined],
       ["POST", "/api/roster/students/6501000001/restore", undefined],
+      ["POST", "/api/roster/students/bulk-delete", { studentIds: ["6501000001"] }],
+      ["POST", "/api/roster/students/bulk-restore", { studentIds: ["6501000005"] }],
     ];
     for (const [method, path, body] of cases) {
       const res = await api(method, path, { cookie: studentCookie, body });
@@ -288,9 +353,104 @@ describe("roster authorization", () => {
   });
 
   test("no session is rejected with 401", async () => {
-    const res = await api("GET", "/api/roster/students");
-    expect(res.status).toBe(401);
-    expect(res.body.error).toBe("unauthorized");
+    const cases: Array<[string, string, unknown?]> = [
+      ["GET", "/api/roster/students", undefined],
+      ["GET", "/api/roster/export.csv", undefined],
+      ["POST", "/api/roster/students/bulk-delete", { studentIds: ["6501000001"] }],
+      ["POST", "/api/roster/students/bulk-restore", { studentIds: ["6501000005"] }],
+    ];
+    for (const [method, path, body] of cases) {
+      const res = await api(method, path, { body });
+      expect({ path, status: res.status, error: res.body.error }).toEqual({
+        path,
+        status: 401,
+        error: "unauthorized",
+      });
+    }
+  });
+
+  test("staff and admin have equal bulk permissions", async () => {
+    for (const cookie of [staffCookie, adminCookie]) {
+      const remove = await api("POST", "/api/roster/students/bulk-delete", {
+        cookie,
+        body: { studentIds: ["6501000005"] },
+      });
+      expect(remove.status).toBe(200);
+      expect(remove.body.conflicted).toEqual([{ studentId: "6501000005", reason: "already_deleted" }]);
+
+      const restore = await api("POST", "/api/roster/students/bulk-restore", {
+        cookie,
+        body: { studentIds: ["6501000001"] },
+      });
+      expect(restore.status).toBe(200);
+      expect(restore.body.conflicted).toEqual([{ studentId: "6501000001", reason: "already_active" }]);
+    }
+  });
+});
+
+describe("roster statistics authorization", () => {
+  test("staff and admin can read submission stats and the not-submitted roster", async () => {
+    for (const cookie of [staffCookie, adminCookie]) {
+      const stats = await api("GET", "/api/stats/submission", { cookie });
+      expect(stats.status).toBe(200);
+
+      const roster = await api("GET", "/api/roster/not-submitted", { cookie });
+      expect(roster.status).toBe(200);
+    }
+  });
+
+  test("students receive 403 from both roster statistics endpoints", async () => {
+    for (const path of ["/api/stats/submission", "/api/roster/not-submitted"]) {
+      const res = await api("GET", path, { cookie: studentCookie });
+      expect({ path, status: res.status, error: res.body.error }).toEqual({
+        path,
+        status: 403,
+        error: "staff_admin_only",
+      });
+    }
+  });
+
+  test("missing sessions receive 401 from both roster statistics endpoints", async () => {
+    for (const path of ["/api/stats/submission", "/api/roster/not-submitted"]) {
+      const res = await api("GET", path);
+      expect({ path, status: res.status, error: res.body.error }).toEqual({
+        path,
+        status: 401,
+        error: "unauthorized",
+      });
+    }
+  });
+});
+
+describe("roster statistics correctness", () => {
+  test("submission stats exclude soft-deleted students while retaining active status semantics", async () => {
+    const res = await api("GET", "/api/stats/submission", { cookie: staffCookie });
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(3);
+    expect(res.body.submitted).toBe(0);
+    expect(res.body.notSubmitted).toBe(3);
+    expect(res.body.byMajor.reduce((sum: number, row: any) => sum + row.total, 0)).toBe(3);
+  });
+
+  test("not-submitted list excludes soft-deleted students and paginates", async () => {
+    const first = await api("GET", "/api/roster/not-submitted?page=1&pageSize=2", {
+      cookie: staffCookie,
+    });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ total: 3, page: 1, pageSize: 2 });
+    expect(first.body.items).toHaveLength(2);
+
+    const second = await api("GET", "/api/roster/not-submitted?page=2&pageSize=2", {
+      cookie: staffCookie,
+    });
+    expect(second.status).toBe(200);
+    expect(second.body).toMatchObject({ total: 3, page: 2, pageSize: 2 });
+    expect(second.body.items).toHaveLength(1);
+
+    const ids = [...first.body.items, ...second.body.items].map((row: any) => row.studentId);
+    expect(ids).not.toContain("6501000005");
+    expect(ids.sort()).toEqual(["6501000001", "6501000002", "6501000006"]);
   });
 });
 
@@ -450,6 +610,108 @@ describe("GET /api/roster/students", () => {
     expect(shown.body.total).toBe(6);
     const deleted = shown.body.items.find((s: any) => s.studentId === "6501000005");
     expect(deleted.deletedAt).not.toBeNull();
+  });
+});
+
+describe("GET /api/roster/export.csv", () => {
+  test("exports every active non-deleted roster row with a dated attachment filename", async () => {
+    const response = await rawApi("GET", "/api/roster/export.csv?status=active", { cookie: staffCookie });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+    expect(response.headers.get("content-disposition")).toMatch(
+      /^attachment; filename="student-roster-\d{4}-\d{2}-\d{2}\.csv"$/,
+    );
+    expect(response.headers.get("cache-control")).toBe("no-store");
+
+    const rows = parseCsv(await response.text());
+    expect(rows[0]).toEqual([
+      "studentId", "firstName", "lastName", "major", "groupName", "level",
+      "admissionYear", "status", "email", "phone",
+    ]);
+    expect(rows.slice(1).map((row) => row[0])).toEqual(["6501000001", "6501000002", "6501000006"]);
+    expect(rows.slice(1).every((row) => row[7] === "active")).toBe(true);
+  });
+
+  test("uses the same search, status and sort filters as the roster list", async () => {
+    const bySearch = await rawApi(
+      "GET",
+      "/api/roster/export.csv?search=" + encodeURIComponent("ปิยะ"),
+      { cookie: staffCookie },
+    );
+    expect(parseCsv(await bySearch.text()).slice(1).map((row) => row[0])).toEqual(["6501000003"]);
+
+    const graduated = await rawApi(
+      "GET",
+      "/api/roster/export.csv?status=graduated&sort=admissionYear&order=desc",
+      { cookie: adminCookie },
+    );
+    const graduatedRows = parseCsv(await graduated.text());
+    expect(graduatedRows.slice(1).map((row) => [row[0], row[7]])).toEqual([["6501000003", "graduated"]]);
+  });
+
+  test("includes soft-deleted rows and an explicit deleted column only when requested", async () => {
+    const response = await rawApi("GET", "/api/roster/export.csv?includeDeleted=true", { cookie: staffCookie });
+    const rows = parseCsv(await response.text());
+    expect(rows[0].at(-1)).toBe("deleted");
+    expect(rows).toHaveLength(7);
+    const deleted = rows.find((row) => row[0] === "6501000005");
+    expect(deleted?.at(-1)).toBe("true");
+    expect(rows.find((row) => row[0] === "6501000001")?.at(-1)).toBe("false");
+  });
+
+  test("emits UTF-8 BOM, preserves Thai, escapes CSV, and neutralizes spreadsheet formulas", async () => {
+    const studentId = "formula-export-fixture";
+    await db.insert(students).values({
+      studentId,
+      firstName: "=SUM(1,1)",
+      lastName: "+คำสั่ง",
+      major: "-อันตราย",
+      groupName: "@กลุ่ม",
+      level: "ข้อความ, \"ทดสอบ\"\nบรรทัดใหม่",
+      admissionYear: 2569,
+      status: "active",
+      email: null,
+      phone: null,
+    });
+
+    try {
+      const response = await rawApi(
+        "GET",
+        `/api/roster/export.csv?search=${encodeURIComponent(studentId)}`,
+        { cookie: staffCookie },
+      );
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      expect(Array.from(bytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);
+      const rows = parseCsv(new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes));
+      expect(rows[1]).toEqual([
+        studentId,
+        "'=SUM(1,1)",
+        "'+คำสั่ง",
+        "'-อันตราย",
+        "'@กลุ่ม",
+        "ข้อความ, \"ทดสอบ\"\nบรรทัดใหม่",
+        "2569",
+        "active",
+        "",
+        "",
+      ]);
+    } finally {
+      await db.delete(students).where(eq(students.studentId, studentId));
+    }
+  });
+
+  test("exports no internal, session, OAuth, audit or system metadata fields", async () => {
+    const response = await rawApi("GET", "/api/roster/export.csv", { cookie: staffCookie });
+    const rows = parseCsv(await response.text());
+    expect(rows[0]).toEqual([
+      "studentId", "firstName", "lastName", "major", "groupName", "level",
+      "admissionYear", "status", "email", "phone",
+    ]);
+    for (const forbidden of [
+      "passwordHash", "session", "oauth", "emailBoundAt", "deletedAt", "createdAt", "updatedAt", "audit",
+    ]) {
+      expect(rows[0]).not.toContain(forbidden);
+    }
   });
 });
 
@@ -878,7 +1140,226 @@ describe("POST /api/roster/students/:id/restore", () => {
   });
 });
 
-// --- 8. login behaviour around soft delete ----------------------------------
+// --- 8. bulk delete / restore -----------------------------------------------
+
+describe("bulk roster mutations", () => {
+  test("bulk deletes 2+ bound or unbound students, revokes sessions, and audits each row", async () => {
+    const first = await createStudent(staffCookie, { status: "active", email: null });
+    const second = await createStudent(staffCookie, {
+      status: "withdrawn",
+      email: `bound.${randomUUID()}@psru.ac.th`,
+    });
+    await db
+      .update(students)
+      .set({ emailBoundAt: new Date("2026-09-20T00:00:00Z") })
+      .where(eq(students.studentId, second));
+    const firstSession = await makeSession(first, "student");
+    const secondSession = await makeSession(second, "student");
+
+    const result = await api("POST", "/api/roster/students/bulk-delete", {
+      cookie: staffCookie,
+      body: { studentIds: [first, second] },
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      requested: [first, second],
+      succeeded: [first, second],
+      conflicted: [],
+      failed: [],
+    });
+    for (const [studentId, expectedStatus] of [[first, "active"], [second, "withdrawn"]] as const) {
+      const [row] = await db.select().from(students).where(eq(students.studentId, studentId));
+      expect(row.deletedAt).not.toBeNull();
+      expect(row.status).toBe(expectedStatus);
+      const audit = (await auditRows(studentId)).filter((entry) => entry.action === "student_soft_delete");
+      expect(audit).toHaveLength(1);
+      expect(audit[0].actorStaffId).toBe(STAFF_ID);
+      expect(audit[0].metadata.bulk).toBe(true);
+      expect(audit[0].metadata.revokedSessions).toBe(1);
+    }
+    expect(await countRows(sessions, eq(sessions.id, firstSession))).toBe(0);
+    expect(await countRows(sessions, eq(sessions.id, secondSession))).toBe(0);
+  });
+
+  test("bulk restores 2+ students without changing academic status and reports repeats", async () => {
+    const first = await createStudent(staffCookie, { status: "graduated" });
+    const second = await createStudent(staffCookie, {
+      status: "withdrawn",
+      email: `restore.bound.${randomUUID()}@psru.ac.th`,
+    });
+    const boundAt = new Date("2026-09-21T00:00:00Z");
+    await db.update(students).set({ emailBoundAt: boundAt }).where(eq(students.studentId, second));
+    const removed = await api("POST", "/api/roster/students/bulk-delete", {
+      cookie: adminCookie,
+      body: { studentIds: [first, second] },
+    });
+    expect(removed.body.succeeded).toEqual([first, second]);
+
+    const restored = await api("POST", "/api/roster/students/bulk-restore", {
+      cookie: adminCookie,
+      body: { studentIds: [first, second] },
+    });
+    expect(restored.status).toBe(200);
+    expect(restored.body).toEqual({
+      requested: [first, second],
+      succeeded: [first, second],
+      conflicted: [],
+      failed: [],
+    });
+    for (const [studentId, expectedStatus] of [[first, "graduated"], [second, "withdrawn"]] as const) {
+      const [row] = await db.select().from(students).where(eq(students.studentId, studentId));
+      expect(row.deletedAt).toBeNull();
+      expect(row.status).toBe(expectedStatus);
+      if (studentId === second) expect(row.emailBoundAt).toEqual(boundAt);
+      const audit = (await auditRows(studentId)).filter((entry) => entry.action === "student_restore");
+      expect(audit).toHaveLength(1);
+      expect(audit[0].actorStaffId).toBe(ADMIN_ID);
+      expect(audit[0].metadata).toMatchObject({ bulk: true, status: expectedStatus });
+    }
+
+    const repeated = await api("POST", "/api/roster/students/bulk-restore", {
+      cookie: staffCookie,
+      body: { studentIds: [first, second] },
+    });
+    expect(repeated.status).toBe(200);
+    expect(repeated.body.succeeded).toEqual([]);
+    expect(repeated.body.conflicted).toEqual([
+      { studentId: first, reason: "already_active" },
+      { studentId: second, reason: "already_active" },
+    ]);
+  });
+
+  test("reports mixed state, duplicate IDs, nonexistent IDs, and repeated delete explicitly", async () => {
+    const active = await createStudent(staffCookie);
+    const deleted = await createStudent(staffCookie);
+    await api("DELETE", `/api/roster/students/${deleted}`, { cookie: staffCookie });
+    const missing = "6599999999";
+    const requested = [active, deleted, missing, active];
+
+    const result = await api("POST", "/api/roster/students/bulk-delete", {
+      cookie: staffCookie,
+      body: { studentIds: requested },
+    });
+    expect(result.status).toBe(200);
+    expect(result.body.requested).toEqual(requested);
+    expect(result.body.succeeded).toEqual([active]);
+    expect(result.body.conflicted).toEqual([
+      { studentId: active, reason: "duplicate_id" },
+      { studentId: deleted, reason: "already_deleted" },
+    ]);
+    expect(result.body.failed).toEqual([{ studentId: missing, reason: "student_not_found" }]);
+
+    const repeated = await api("POST", "/api/roster/students/bulk-delete", {
+      cookie: staffCookie,
+      body: { studentIds: requested },
+    });
+    expect(repeated.status).toBe(200);
+    expect(repeated.body.succeeded).toEqual([]);
+    expect(repeated.body.conflicted).toEqual([
+      { studentId: active, reason: "duplicate_id" },
+      { studentId: active, reason: "already_deleted" },
+      { studentId: deleted, reason: "already_deleted" },
+    ]);
+    expect(repeated.body.failed).toEqual([{ studentId: missing, reason: "student_not_found" }]);
+  });
+
+  test("rolls back rows, session revocation, and audits when one audit insert fails", async () => {
+    const first = await createStudent(staffCookie);
+    const second = await createStudent(staffCookie);
+    const firstSession = await makeSession(first, "student");
+    const secondSession = await makeSession(second, "student");
+
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION roster_test_fail_bulk_audit()
+      RETURNS trigger AS $$
+      BEGIN
+        IF NEW.target_id = '${second}' AND NEW.action = 'student_soft_delete' THEN
+          RAISE EXCEPTION 'forced bulk audit failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER roster_test_fail_bulk_audit_trigger
+      BEFORE INSERT ON audit_logs
+      FOR EACH ROW EXECUTE FUNCTION roster_test_fail_bulk_audit();
+    `);
+
+    try {
+      const result = await api("POST", "/api/roster/students/bulk-delete", {
+        cookie: staffCookie,
+        body: { studentIds: [first, second] },
+      });
+      expect(result.status).toBe(500);
+      expect(result.body).toEqual({
+        requested: [first, second],
+        succeeded: [],
+        conflicted: [],
+        failed: [
+          { studentId: first, reason: "transaction_failed" },
+          { studentId: second, reason: "transaction_failed" },
+        ],
+      });
+
+      for (const studentId of [first, second]) {
+        const [row] = await db.select().from(students).where(eq(students.studentId, studentId));
+        expect(row.deletedAt).toBeNull();
+        expect((await auditRows(studentId)).filter((entry) => entry.action === "student_soft_delete")).toHaveLength(0);
+      }
+      expect(await countRows(sessions, eq(sessions.id, firstSession))).toBe(1);
+      expect(await countRows(sessions, eq(sessions.id, secondSession))).toBe(1);
+    } finally {
+      await pool.query("DROP TRIGGER IF EXISTS roster_test_fail_bulk_audit_trigger ON audit_logs");
+      await pool.query("DROP FUNCTION IF EXISTS roster_test_fail_bulk_audit()");
+    }
+  });
+});
+
+// --- 9. login behaviour around soft delete ----------------------------------
+
+describe("OAuth bind cookie integration", () => {
+  test("unbound callback emits separate state-clear and bind cookies that round-trip", async () => {
+    const studentId = await createStudent(staffCookie, { phone: "0812345678" });
+    // Binding requires the Google email to be <studentId>@psru.ac.th (emailMatchesStudentId).
+    const email = `${studentId}@psru.ac.th`;
+    process.env.DEV_GOOGLE_EMAIL = email;
+
+    const callback = await app.handle(
+      new Request(`${ORIGIN}/api/auth/google/callback?code=bind-code`),
+    );
+    const callbackCookies = responseCookies(callback);
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get("location")).toBe(`${ORIGIN}/auth/bind`);
+    expect(callbackCookies).toHaveLength(2);
+    expect(callbackCookies.filter((cookie) => cookie.startsWith("ua_oauth_state=;"))).toHaveLength(1);
+    expect(callbackCookies.filter((cookie) => cookie.startsWith("ua_oauth_bind=") && !cookie.startsWith("ua_oauth_bind=;"))).toHaveLength(1);
+    expect(callbackCookies.every((cookie) => !(cookie.includes("ua_oauth_state=") && cookie.includes("ua_oauth_bind=")))).toBe(true);
+
+    const bindToken = responseCookieValue(callback, "ua_oauth_bind");
+    expect(bindToken).not.toBeNull();
+    const bindCookie = `ua_oauth_bind=${bindToken}`;
+    const status = await api("GET", "/api/auth/google/bind/session", { cookie: bindCookie });
+    expect(status.status).toBe(200);
+    expect(status.body.valid).toBe(true);
+
+    const bound = await app.handle(
+      new Request(`${ORIGIN}/api/auth/google/bind`, {
+        method: "POST",
+        headers: {
+          cookie: bindCookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ studentId, phone: "0812345678" }),
+      }),
+    );
+    const boundCookies = responseCookies(bound);
+    expect(bound.status).toBe(200);
+    expect(boundCookies).toHaveLength(2);
+    expect(boundCookies.filter((cookie) => cookie.startsWith("ua_oauth_bind=;"))).toHaveLength(1);
+    expect(boundCookies.filter((cookie) => cookie.startsWith("ua_session=") && !cookie.startsWith("ua_session=;"))).toHaveLength(1);
+    expect(boundCookies.every((cookie) => !(cookie.includes("ua_oauth_bind=") && cookie.includes("ua_session=")))).toBe(true);
+  });
+});
 
 describe("OAuth login with roster state", () => {
   test("an active student can sign in and gets a session", async () => {

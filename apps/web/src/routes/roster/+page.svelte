@@ -2,19 +2,22 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { lang } from '$lib/store';
-	import Button from '$lib/components/Button.svelte';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import { bangkokYear } from '$lib/datetime';
 	import { user, loadSession } from '$lib/auth';
 	import { translate, type TKey } from '$lib/i18n';
+	import ImportRosterDialog from '$lib/components/ImportRosterDialog.svelte';
 	import {
+		bulkDeleteRosterStudents,
+		bulkRestoreRosterStudents,
 		createRosterStudent,
+		exportRosterCsv,
 		getRosterStudents,
 		restoreRosterStudent,
 		softDeleteRosterStudent,
 		updateRosterStudent,
 		type RosterRecord,
+		type BulkRosterConflictReason,
+		type BulkRosterFailureReason,
+		type BulkRosterResult,
 		type RosterSortField,
 		type RosterStudentInput,
 		type StudentStatus,
@@ -22,11 +25,13 @@
 	import {
 		ChevronLeft,
 		ChevronRight,
+		Download,
 		Pencil,
 		RefreshCw,
 		RotateCcw,
 		Search,
 		Trash2,
+		Upload,
 		UserPlus,
 		UsersRound,
 		X,
@@ -66,7 +71,7 @@
 			major: '',
 			groupName: '',
 			level: '',
-			admissionYear: bangkokYear() + 543,
+			admissionYear: new Date().getFullYear() + 543,
 			status: 'active',
 			email: '',
 			phone: '',
@@ -93,12 +98,21 @@
 	let deleteTarget: RosterRecord | null = $state(null);
 	let deleting = $state(false);
 	let restoringId: string | null = $state(null);
+	let selectedIds: string[] = $state([]);
+	let bulkAction: 'delete' | 'restore' | null = $state(null);
+	let bulkBusy = $state(false);
+	let bulkResult: (BulkRosterResult & { operation: 'delete' | 'restore' }) | null = $state(null);
+	let bulkError = $state('');
+	let importOpen = $state(false);
+	let exporting = $state(false);
+	let exportError = $state('');
 	let requestId = 0;
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 	let totalPages = $derived(Math.max(1, Math.ceil(total / pageSize)));
 	let firstShown = $derived(total === 0 ? 0 : (page - 1) * pageSize + 1);
 	let lastShown = $derived(Math.min(total, page * pageSize));
+	let allCurrentPageSelected = $derived(rows.length > 0 && rows.every((row) => selectedIds.includes(row.studentId)));
 
 	onMount(async () => {
 		await loadSession();
@@ -132,6 +146,7 @@
 			if (currentRequest !== requestId) return;
 			rows = result.items;
 			total = result.total;
+			selectedIds = selectedIds.filter((studentId) => result.items.some((row) => row.studentId === studentId));
 			if (page > Math.max(1, Math.ceil(result.total / pageSize))) {
 				page = Math.max(1, Math.ceil(result.total / pageSize));
 				await loadRoster();
@@ -140,6 +155,7 @@
 			if (currentRequest !== requestId) return;
 			rows = [];
 			total = 0;
+			selectedIds = [];
 			loadError = translate($lang, 'rosterLoadError');
 		} finally {
 			if (currentRequest === requestId) loading = false;
@@ -148,17 +164,20 @@
 
 	function onSearchInput() {
 		clearTimeout(searchTimer);
+		clearSelection();
 		searchTimer = setTimeout(() => applyFilters(), 350);
 	}
 
 	function applyFilters() {
 		clearTimeout(searchTimer);
+		clearSelection();
 		page = 1;
 		loadRoster();
 	}
 
 	function clearFilters() {
 		clearTimeout(searchTimer);
+		clearSelection();
 		search = '';
 		statusFilter = '';
 		includeDeleted = false;
@@ -170,8 +189,40 @@
 
 	async function goPage(nextPage: number) {
 		if (nextPage < 1 || nextPage > totalPages || nextPage === page) return;
+		clearSelection();
 		page = nextPage;
 		await loadRoster();
+	}
+
+	async function refreshRoster() {
+		clearSelection();
+		await loadRoster();
+	}
+
+	async function exportRoster() {
+		exporting = true;
+		exportError = '';
+		try {
+			const { blob, filename } = await exportRosterCsv({
+				search: search.trim() || undefined,
+				status: statusFilter || undefined,
+				includeDeleted,
+				sort,
+				order,
+			});
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = filename;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			setTimeout(() => URL.revokeObjectURL(url), 0);
+		} catch {
+			exportError = translate($lang, 'exportRosterError');
+		} finally {
+			exporting = false;
+		}
 	}
 
 	function openCreate() {
@@ -179,6 +230,63 @@
 		editing = null;
 		formError = '';
 		modal = 'create';
+	}
+
+	function clearSelection() {
+		selectedIds = [];
+		bulkAction = null;
+	}
+
+	function toggleStudent(studentId: string) {
+		selectedIds = selectedIds.includes(studentId)
+			? selectedIds.filter((id) => id !== studentId)
+			: [...selectedIds, studentId];
+		bulkResult = null;
+		bulkError = '';
+	}
+
+	function toggleCurrentPage() {
+		selectedIds = allCurrentPageSelected ? [] : rows.map((row) => row.studentId);
+		bulkResult = null;
+		bulkError = '';
+	}
+
+	function requestBulkAction(operation: 'delete' | 'restore') {
+		if (selectedIds.length === 0) return;
+		bulkAction = operation;
+	}
+
+	async function confirmBulkAction() {
+		if (!bulkAction || selectedIds.length === 0) return;
+		bulkBusy = true;
+		bulkError = '';
+		const operation = bulkAction;
+		const requestedIds = [...selectedIds];
+		try {
+			const result = operation === 'delete'
+				? await bulkDeleteRosterStudents(requestedIds)
+				: await bulkRestoreRosterStudents(requestedIds);
+			bulkResult = { ...result, operation };
+			selectedIds = [];
+			bulkAction = null;
+			await loadRoster();
+		} catch {
+			bulkError = translate($lang, 'bulkActionError');
+			bulkAction = null;
+		} finally {
+			bulkBusy = false;
+		}
+	}
+
+	function bulkIssueLabel(reason: BulkRosterConflictReason | BulkRosterFailureReason): string {
+		const labels: Record<BulkRosterConflictReason | BulkRosterFailureReason, TKey> = {
+			duplicate_id: 'bulkConflictDuplicate',
+			already_deleted: 'bulkConflictDeleted',
+			already_active: 'bulkConflictActive',
+			student_not_found: 'bulkFailureMissing',
+			transaction_failed: 'bulkFailureTransaction',
+		};
+		return translate($lang, labels[reason]);
 	}
 
 	function openEdit(student: RosterRecord) {
@@ -217,7 +325,6 @@
 			duplicate_student_id: 'duplicateStudentId',
 			duplicate_email: 'duplicateEmail',
 			email_readonly_bound: 'boundEmailHint',
-			email_admin_only: 'emailAdminOnlyHint',
 			student_already_deleted: 'studentAlreadyDeleted',
 			not_deleted: 'studentNotDeleted',
 		};
@@ -266,6 +373,7 @@
 			}
 			modal = null;
 			editing = null;
+			clearSelection();
 			await loadRoster();
 		} catch (error) {
 			formError = errorMessage(error);
@@ -286,6 +394,7 @@
 			await softDeleteRosterStudent(deleteTarget.studentId);
 			deleteTarget = null;
 			showMessage('deletedStudent');
+			clearSelection();
 			await loadRoster();
 		} catch (error) {
 			message = errorMessage(error);
@@ -302,6 +411,7 @@
 		try {
 			await restoreRosterStudent(student.studentId);
 			showMessage('restoredStudent');
+			clearSelection();
 			await loadRoster();
 		} catch (error) {
 			message = errorMessage(error);
@@ -317,30 +427,48 @@
 	}
 
 	function statusClass(status: StudentStatus): string {
-		if (status === 'active') return 'bg-approved-soft text-approved ring-approved-ring';
-		if (status === 'graduated') return 'bg-checked-soft text-checked ring-checked-ring';
-		return 'bg-pending-soft text-pending ring-pending-ring';
+		if (status === 'active') return 'bg-green-50 text-green-700 ring-green-200';
+		if (status === 'graduated') return 'bg-brand-50 text-brand-700 ring-brand-200';
+		return 'bg-amber-50 text-amber-700 ring-amber-200';
 	}
 </script>
 
 <div class="space-y-5">
-	<PageHeader
-		title={translate($lang, 'rosterManagement')}
-		subtitle={translate($lang, 'rosterSubtitle')}
-		icon={UsersRound}
-	>
-		{#snippet actions()}
-			<Button variant="primary" onclick={openCreate}>
-				<UserPlus size={17} aria-hidden="true" />
+	<header class="flex flex-wrap items-start justify-between gap-4">
+		<div>
+			<h1 class="flex items-center gap-2 text-2xl font-bold text-ink-900 sm:text-3xl">
+				<UsersRound size={26} class="text-brand-600" />
+				{translate($lang, 'rosterManagement')}
+			</h1>
+			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'rosterSubtitle')}</p>
+		</div>
+		<div class="flex flex-wrap gap-2">
+			<button type="button" onclick={exportRoster} disabled={exporting} class="flex min-h-10 items-center gap-2 rounded-lg border border-ink-200 bg-surface px-4 py-2 text-sm font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-wait disabled:opacity-60">
+				<Download size={17} />
+				{translate($lang, exporting ? 'exportingRoster' : 'exportRoster')}
+			</button>
+			<button type="button" onclick={() => (importOpen = true)} class="flex min-h-10 items-center gap-2 rounded-lg border border-brand-200 bg-surface px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">
+				<Upload size={17} />
+				{translate($lang, 'importRoster')}
+			</button>
+			<button
+				type="button"
+				onclick={openCreate}
+				class="flex min-h-10 items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700"
+			>
+				<UserPlus size={17} />
 				{translate($lang, 'addStudent')}
-			</Button>
-		{/snippet}
-	</PageHeader>
+			</button>
+		</div>
+	</header>
+	{#if exportError}
+		<div class="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{exportError}</div>
+	{/if}
 
 	<section class="border-y border-ink-100 bg-surface px-0 py-4 sm:px-4" aria-label={translate($lang, 'filters')}>
 		<div class="grid gap-3 md:grid-cols-[minmax(15rem,1fr)_auto_auto] xl:grid-cols-[minmax(18rem,1fr)_12rem_15rem_auto]">
 			<div class="relative">
-				<Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
+				<Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
 				<input
 					bind:value={search}
 					oninput={onSearchInput}
@@ -399,15 +527,75 @@
 		</div>
 	</section>
 
+	{#if !loading && rows.length > 0}
+		<section class="flex flex-wrap items-center justify-between gap-3 border-y border-ink-100 bg-ink-50 px-3 py-3 sm:px-4" aria-label={translate($lang, 'actions')}>
+			<label class="flex min-h-10 items-center gap-2 text-sm font-medium text-ink-700">
+				<input
+					type="checkbox"
+					checked={allCurrentPageSelected}
+					onchange={toggleCurrentPage}
+					class="h-4 w-4 accent-brand-600"
+				/>
+				{translate($lang, 'selectCurrentPage')}
+			</label>
+			<div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+				<span class="mr-auto text-sm font-semibold text-ink-700 sm:mr-2">
+					{translate($lang, 'selectedStudents').replace('{count}', String(selectedIds.length))}
+				</span>
+				<button
+					type="button"
+					onclick={() => requestBulkAction('restore')}
+					disabled={selectedIds.length === 0 || bulkBusy}
+					class="flex min-h-10 items-center gap-2 rounded-lg border border-green-200 bg-surface px-3 py-2 text-sm font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-40"
+				>
+					<RotateCcw size={16} />
+					{translate($lang, 'bulkRestore')}
+				</button>
+				<button
+					type="button"
+					onclick={() => requestBulkAction('delete')}
+					disabled={selectedIds.length === 0 || bulkBusy}
+					class="flex min-h-10 items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+				>
+					<Trash2 size={16} />
+					{translate($lang, 'bulkDelete')}
+				</button>
+			</div>
+		</section>
+	{/if}
+
 	{#if message}
-		<div class={`border px-4 py-3 text-sm ${messageError ? 'border-rejected-ring bg-rejected-soft text-rejected' : 'border-approved-ring bg-approved-soft text-approved'}`}>
+		<div class={`border px-4 py-3 text-sm ${messageError ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
 			{message}
 		</div>
 	{/if}
+	{#if bulkError}
+		<div class="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{bulkError}</div>
+	{/if}
+	{#if bulkResult}
+		<div class={`border px-4 py-3 text-sm ${bulkResult.failed.length > 0 ? 'border-red-200 bg-red-50 text-red-800' : bulkResult.conflicted.length > 0 ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-green-200 bg-green-50 text-green-800'}`}>
+			<p class="font-semibold">
+				{translate($lang, 'bulkResultSummary')
+					.replace('{succeeded}', String(bulkResult.succeeded.length))
+					.replace('{conflicted}', String(bulkResult.conflicted.length))
+					.replace('{failed}', String(bulkResult.failed.length))}
+			</p>
+			{#if bulkResult.conflicted.length > 0 || bulkResult.failed.length > 0}
+				<ul class="mt-2 max-h-40 space-y-1 overflow-y-auto font-mono text-xs">
+					{#each bulkResult.conflicted as issue}
+						<li>{issue.studentId}: {bulkIssueLabel(issue.reason)}</li>
+					{/each}
+					{#each bulkResult.failed as issue}
+						<li>{issue.studentId}: {bulkIssueLabel(issue.reason)}</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+	{/if}
 	{#if loadError}
-		<div class="flex items-center justify-between gap-3 border border-rejected-ring bg-rejected-soft px-4 py-3 text-sm text-rejected">
+		<div class="flex items-center justify-between gap-3 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
 			<span>{loadError}</span>
-			<button type="button" onclick={loadRoster} class="rounded-lg p-2 hover:bg-rejected-soft" aria-label={translate($lang, 'refresh')}>
+			<button type="button" onclick={refreshRoster} class="rounded-lg p-2 hover:bg-red-100" aria-label={translate($lang, 'refresh')}>
 				<RefreshCw size={16} />
 			</button>
 		</div>
@@ -417,6 +605,15 @@
 		<table class="w-full min-w-[980px] text-left text-sm">
 			<thead class="border-b border-ink-100 bg-ink-50 text-xs font-semibold uppercase text-ink-500">
 				<tr>
+					<th class="w-12 px-4 py-3">
+						<input
+							type="checkbox"
+							checked={allCurrentPageSelected}
+							onchange={toggleCurrentPage}
+							class="h-4 w-4 accent-brand-600"
+							aria-label={translate($lang, 'selectCurrentPage')}
+						/>
+					</th>
 					<th class="px-4 py-3">{translate($lang, 'studentId')}</th>
 					<th class="px-4 py-3">{translate($lang, 'nameLabel')}</th>
 					<th class="px-4 py-3">{translate($lang, 'major')}</th>
@@ -427,22 +624,31 @@
 			</thead>
 			<tbody>
 				{#if loading}
-					<tr><td colspan="6" class="px-4 py-12 text-center text-ink-500">{translate($lang, 'submitting')}</td></tr>
+					<tr><td colspan="7" class="px-4 py-12 text-center text-ink-500">{translate($lang, 'submitting')}</td></tr>
 				{:else if rows.length === 0}
-					<tr><td colspan="6" class="px-4 py-6"><EmptyState message={translate($lang, 'noResults')} /></td></tr>
+					<tr><td colspan="7" class="px-4 py-12 text-center text-ink-500">{translate($lang, 'noResults')}</td></tr>
 				{:else}
 					{#each rows as student (student.studentId)}
-						<tr class={`border-b border-ink-50 last:border-0 ${student.deletedAt ? 'bg-rejected-soft/40' : 'hover:bg-ink-50/60'}`}>
+						<tr class={`border-b border-ink-50 last:border-0 ${student.deletedAt ? 'bg-red-50/40' : 'hover:bg-ink-50/60'}`}>
+							<td class="px-4 py-3">
+								<input
+									type="checkbox"
+									checked={selectedIds.includes(student.studentId)}
+									onchange={() => toggleStudent(student.studentId)}
+									class="h-4 w-4 accent-brand-600"
+									aria-label={`${translate($lang, 'studentId')} ${student.studentId}`}
+								/>
+							</td>
 							<td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-ink-700">{student.studentId}</td>
 							<td class="px-4 py-3 font-medium text-ink-900">{student.firstName} {student.lastName}</td>
 							<td class="px-4 py-3 text-ink-600">
 								{student.major}
-								<div class="mt-0.5 text-xs text-ink-500">{student.groupName ?? '-'} · {student.level ?? '-'}</div>
+								<div class="mt-0.5 text-xs text-ink-400">{student.groupName ?? '-'} · {student.level ?? '-'}</div>
 							</td>
 							<td class="px-4 py-3">
 								<div class="flex flex-wrap gap-1.5">
 									<span class={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusClass(student.status)}`}>{statusLabel(student.status)}</span>
-									{#if student.deletedAt}<span class="rounded-full bg-rejected-soft px-2.5 py-1 text-xs font-semibold text-rejected ring-1 ring-rejected-ring">{translate($lang, 'deletedStatus')}</span>{/if}
+									{#if student.deletedAt}<span class="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 ring-1 ring-red-200">{translate($lang, 'deletedStatus')}</span>{/if}
 								</div>
 							</td>
 							<td class="max-w-64 px-4 py-3 text-ink-600">
@@ -453,9 +659,9 @@
 								<div class="flex justify-end gap-1.5">
 									<button type="button" onclick={() => openEdit(student)} class="rounded-lg p-2 text-ink-600 transition hover:bg-brand-50 hover:text-brand-700" title={translate($lang, 'editStudent')}><Pencil size={16} /></button>
 									{#if student.deletedAt}
-										<button type="button" onclick={() => restore(student)} disabled={restoringId === student.studentId} class="rounded-lg p-2 text-approved transition hover:bg-approved-soft disabled:opacity-50" title={translate($lang, 'restoreStudent')}><RotateCcw size={16} class={restoringId === student.studentId ? 'animate-spin' : ''} /></button>
+										<button type="button" onclick={() => restore(student)} disabled={restoringId === student.studentId} class="rounded-lg p-2 text-green-700 transition hover:bg-green-50 disabled:opacity-50" title={translate($lang, 'restoreStudent')}><RotateCcw size={16} class={restoringId === student.studentId ? 'animate-spin' : ''} /></button>
 									{:else}
-										<button type="button" onclick={() => (deleteTarget = student)} class="rounded-lg p-2 text-rejected transition hover:bg-rejected-soft" title={translate($lang, 'deleteStudent')}><Trash2 size={16} /></button>
+										<button type="button" onclick={() => (deleteTarget = student)} class="rounded-lg p-2 text-red-600 transition hover:bg-red-50" title={translate($lang, 'deleteStudent')}><Trash2 size={16} /></button>
 									{/if}
 								</div>
 							</td>
@@ -470,21 +676,30 @@
 		{#if loading}
 			<div class="py-12 text-center text-sm text-ink-500">{translate($lang, 'submitting')}</div>
 		{:else if rows.length === 0}
-			<EmptyState message={translate($lang, 'noResults')} />
+			<div class="py-12 text-center text-sm text-ink-500">{translate($lang, 'noResults')}</div>
 		{:else}
 			{#each rows as student (student.studentId)}
-				<article class={`rounded-lg border p-4 ${student.deletedAt ? 'border-rejected-ring bg-rejected-soft/40' : 'border-ink-100 bg-surface'}`}>
+				<article class={`min-w-0 rounded-lg border p-4 ${student.deletedAt ? 'border-red-200 bg-red-50/40' : 'border-ink-100 bg-surface'}`}>
 					<div class="flex items-start justify-between gap-3">
-						<div class="min-w-0">
+						<div class="flex min-w-0 items-start gap-3">
+							<input
+								type="checkbox"
+								checked={selectedIds.includes(student.studentId)}
+								onchange={() => toggleStudent(student.studentId)}
+								class="mt-1 h-4 w-4 shrink-0 accent-brand-600"
+								aria-label={`${translate($lang, 'studentId')} ${student.studentId}`}
+							/>
+							<div class="min-w-0">
 							<p class="truncate font-semibold text-ink-900">{student.firstName} {student.lastName}</p>
 							<p class="mt-0.5 font-mono text-xs text-ink-500">{student.studentId}</p>
+							</div>
 						</div>
 						<div class="flex shrink-0 gap-1">
 							<button type="button" onclick={() => openEdit(student)} class="rounded-lg p-2 text-ink-600 hover:bg-ink-50" aria-label={translate($lang, 'editStudent')}><Pencil size={16} /></button>
 							{#if student.deletedAt}
-								<button type="button" onclick={() => restore(student)} disabled={restoringId === student.studentId} class="rounded-lg p-2 text-approved hover:bg-approved-soft disabled:opacity-50" aria-label={translate($lang, 'restoreStudent')}><RotateCcw size={16} /></button>
+								<button type="button" onclick={() => restore(student)} disabled={restoringId === student.studentId} class="rounded-lg p-2 text-green-700 hover:bg-green-50 disabled:opacity-50" aria-label={translate($lang, 'restoreStudent')}><RotateCcw size={16} /></button>
 							{:else}
-								<button type="button" onclick={() => (deleteTarget = student)} class="rounded-lg p-2 text-rejected hover:bg-rejected-soft" aria-label={translate($lang, 'deleteStudent')}><Trash2 size={16} /></button>
+								<button type="button" onclick={() => (deleteTarget = student)} class="rounded-lg p-2 text-red-600 hover:bg-red-50" aria-label={translate($lang, 'deleteStudent')}><Trash2 size={16} /></button>
 							{/if}
 						</div>
 					</div>
@@ -492,7 +707,7 @@
 						<span class="col-span-2">{student.major}</span>
 						<span>{student.groupName ?? '-'}</span><span>{student.level ?? '-'}</span>
 						<span class={`w-fit rounded-full px-2 py-1 font-semibold ring-1 ${statusClass(student.status)}`}>{statusLabel(student.status)}</span>
-						{#if student.deletedAt}<span class="w-fit rounded-full bg-rejected-soft px-2 py-1 font-semibold text-rejected ring-1 ring-rejected-ring">{translate($lang, 'deletedStatus')}</span>{/if}
+						{#if student.deletedAt}<span class="w-fit rounded-full bg-red-50 px-2 py-1 font-semibold text-red-700 ring-1 ring-red-200">{translate($lang, 'deletedStatus')}</span>{/if}
 					</div>
 				</article>
 			{/each}
@@ -538,40 +753,83 @@
 						{#each statusOptions as value}<option value={value}>{statusLabel(value)}</option>{/each}
 					</select>
 				</label>
-				<label class="text-sm font-medium text-ink-700">{translate($lang, 'group')} <span class="font-normal text-ink-500">({translate($lang, 'optionalField')})</span>
+				<label class="text-sm font-medium text-ink-700">{translate($lang, 'group')} <span class="font-normal text-ink-400">({translate($lang, 'optionalField')})</span>
 					<input bind:value={form.groupName} class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm" />
 				</label>
-				<label class="text-sm font-medium text-ink-700">{translate($lang, 'level')} <span class="font-normal text-ink-500">({translate($lang, 'optionalField')})</span>
+				<label class="text-sm font-medium text-ink-700">{translate($lang, 'level')} <span class="font-normal text-ink-400">({translate($lang, 'optionalField')})</span>
 					<input bind:value={form.level} class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm" />
 				</label>
-				<label class="text-sm font-medium text-ink-700">{translate($lang, 'email')} <span class="font-normal text-ink-500">({translate($lang, 'optionalField')})</span>
-					<input bind:value={form.email} type="email" disabled={Boolean(editing?.emailBoundAt) || (editing !== null && $user?.role !== 'admin')} class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm disabled:cursor-not-allowed disabled:text-ink-500" />
-					{#if editing?.emailBoundAt}<span class="mt-1 block text-xs text-brand-600">{translate($lang, 'boundEmailHint')}</span>
-					{:else if editing && $user?.role !== 'admin'}<span class="mt-1 block text-xs text-brand-600">{translate($lang, 'emailAdminOnlyHint')}</span>{/if}
+				<label class="text-sm font-medium text-ink-700">{translate($lang, 'email')} <span class="font-normal text-ink-400">({translate($lang, 'optionalField')})</span>
+					<input bind:value={form.email} type="email" disabled={Boolean(editing?.emailBoundAt)} class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm disabled:cursor-not-allowed disabled:text-ink-500" />
+					{#if editing?.emailBoundAt}<span class="mt-1 block text-xs text-brand-600">{translate($lang, 'boundEmailHint')}</span>{/if}
 				</label>
-				<label class="text-sm font-medium text-ink-700">{translate($lang, 'phone')} <span class="font-normal text-ink-500">({translate($lang, 'optionalField')})</span>
+				<label class="text-sm font-medium text-ink-700">{translate($lang, 'phone')} <span class="font-normal text-ink-400">({translate($lang, 'optionalField')})</span>
 					<input bind:value={form.phone} type="tel" class="mt-1.5 h-10 w-full rounded-lg border border-ink-200 bg-ink-50 px-3 text-sm" />
 				</label>
 			</div>
 
-			{#if formError}<p class="mt-4 border border-rejected-ring bg-rejected-soft px-3 py-2 text-sm text-rejected">{formError}</p>{/if}
+			{#if formError}<p class="mt-4 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</p>{/if}
 			<div class="mt-6 flex justify-end gap-2 border-t border-ink-100 pt-4">
-				<Button onclick={closeModal}>{translate($lang, 'cancel')}</Button>
-				<Button type="submit" variant="primary" disabled={saving}>{saving ? translate($lang, 'submitting') : translate($lang, 'save')}</Button>
+				<button type="button" onclick={closeModal} class="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50">{translate($lang, 'cancel')}</button>
+				<button type="submit" disabled={saving} class="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">{saving ? translate($lang, 'submitting') : translate($lang, 'save')}</button>
 			</div>
 		</form>
 	</div>
 {/if}
+
+<ImportRosterDialog
+	open={importOpen}
+	onclose={() => (importOpen = false)}
+	oncommitted={async () => {
+		clearSelection();
+		await loadRoster();
+	}}
+/>
 
 {#if deleteTarget}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="alertdialog" aria-modal="true">
 		<div class="w-full max-w-md rounded-lg bg-surface p-6 shadow-lift">
 			<h2 class="text-lg font-bold text-ink-900">{translate($lang, 'deleteStudent')}</h2>
 			<p class="mt-2 text-sm text-ink-600">{deleteTarget.firstName} {deleteTarget.lastName} · {deleteTarget.studentId}</p>
-			<p class="mt-4 text-sm text-rejected">{translate($lang, 'confirmDeleteStudent')}</p>
+			<p class="mt-4 text-sm text-red-700">{translate($lang, 'confirmDeleteStudent')}</p>
 			<div class="mt-6 flex justify-end gap-2">
-				<Button onclick={() => (deleteTarget = null)} disabled={deleting}>{translate($lang, 'cancel')}</Button>
-				<Button variant="danger" onclick={confirmDelete} disabled={deleting}>{deleting ? translate($lang, 'submitting') : translate($lang, 'delete')}</Button>
+				<button type="button" onclick={() => (deleteTarget = null)} disabled={deleting} class="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50">{translate($lang, 'cancel')}</button>
+				<button type="button" onclick={confirmDelete} disabled={deleting} class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{deleting ? translate($lang, 'submitting') : translate($lang, 'delete')}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if bulkAction}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="alertdialog" aria-modal="true">
+		<div class="w-full max-w-md rounded-lg bg-surface p-6 shadow-lift">
+			<h2 class="text-lg font-bold text-ink-900">
+				{translate($lang, bulkAction === 'delete' ? 'bulkDelete' : 'bulkRestore')}
+			</h2>
+			<p class={`mt-4 text-sm ${bulkAction === 'delete' ? 'text-red-700' : 'text-ink-600'}`}>
+				{translate($lang, bulkAction === 'delete' ? 'confirmBulkDelete' : 'confirmBulkRestore')
+					.replace('{count}', String(selectedIds.length))}
+			</p>
+			<div class="mt-4 max-h-32 overflow-y-auto border-y border-ink-100 py-2 font-mono text-xs text-ink-500">
+				{selectedIds.join(', ')}
+			</div>
+			<div class="mt-6 flex flex-wrap justify-end gap-2">
+				<button
+					type="button"
+					onclick={() => (bulkAction = null)}
+					disabled={bulkBusy}
+					class="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-50"
+				>
+					{translate($lang, 'cancel')}
+				</button>
+				<button
+					type="button"
+					onclick={confirmBulkAction}
+					disabled={bulkBusy}
+					class={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${bulkAction === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-700 hover:bg-green-800'}`}
+				>
+					{bulkBusy ? translate($lang, 'submitting') : translate($lang, 'confirm')}
+				</button>
 			</div>
 		</div>
 	</div>

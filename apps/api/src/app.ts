@@ -23,6 +23,7 @@ import { sessionPlugin } from "./session-plugin";
 import { hashPassword, verifyPassword } from "@ua/db/auth-helpers";
 import { roster } from "./roster";
 import { getSubmissionStats, listSubmissionStudents, type SubmissionState } from "./submission";
+import { rosterImport } from "./roster-import";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
 const SUPABASE_URL = process.env.PUBLIC_SUPABASE_URL || "";
@@ -230,7 +231,8 @@ export const app = new Elysia()
   .use(auth)
   .use(roster)
   .use(sessionPlugin)
-.get("/health", () => ({ status: "ok", ts: Date.now() }))
+  .use(rosterImport)
+  .get("/health", () => ({ status: "ok", ts: Date.now() }))
 
   // ===== Upload (via server-side service_role) =====
   .post(

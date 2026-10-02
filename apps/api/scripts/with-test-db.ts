@@ -38,6 +38,8 @@ const mode = process.argv[2] ?? "roster";
 const command =
   mode === "roster"
     ? [process.execPath, "test", "./scripts/roster-crud.integration.test.ts"]
+    : mode === "roster-import"
+      ? [process.execPath, "test", "./scripts/roster-import.integration.test.ts"]
     : mode === "requests"
       ? [process.execPath, "test", "./scripts/request-routes.integration.test.ts"]
       : mode === "stats"
@@ -46,7 +48,7 @@ const command =
         ? [process.execPath, "./scripts/gate-smoke.ts"]
         : null;
 if (!command) {
-  throw new Error(`[test-db] unknown mode "${mode}" (expected roster | requests | stats | gate-smoke)`);
+  throw new Error(`[test-db] unknown mode "${mode}" (expected roster | roster-import | requests | stats | gate-smoke)`);
 }
 
 // Every suite starts from an empty database (schema kept). The suites share one throwaway

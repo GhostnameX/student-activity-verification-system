@@ -71,10 +71,11 @@ type SetHeader = Record<string, string | string[] | number | undefined>;
  * one header that cannot be comma-joined — it must be sent as separate lines.
  */
 export function appendSetCookie(setHeaders: SetHeader, cookie: string): void {
-  const current = setHeaders["Set-Cookie"];
-  if (!current) setHeaders["Set-Cookie"] = [cookie];
+  // Elysia only preserves separate array entries under the canonical lowercase key.
+  const current = setHeaders["set-cookie"];
+  if (!current) setHeaders["set-cookie"] = [cookie];
   else if (Array.isArray(current)) current.push(cookie);
-  else setHeaders["Set-Cookie"] = [String(current), cookie];
+  else setHeaders["set-cookie"] = [String(current), cookie];
 }
 
 /** Minimal surface of the Drizzle executor needed by session writes. */

@@ -88,6 +88,7 @@
 
 	async function openBell() {
 		bellOpen = !bellOpen;
+		if (bellOpen) userMenuOpen = false;
 		if (bellOpen) {
 			await loadNotifications();
 		}
@@ -181,7 +182,7 @@
 				</nav>
 			{/if}
 
-			<div class="flex items-center gap-1.5 sm:gap-2.5">
+			<div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
 				{#if $user}
 					<button
 						onclick={() => (mobileNavOpen = !mobileNavOpen)}
@@ -354,7 +355,7 @@
 
 	{#if $user}
 		<button
-			class={`fixed inset-x-0 bottom-0 top-16 z-40 bg-ink-900/30 backdrop-blur-[1px] transition-opacity duration-200 md:hidden ${
+			class={`fixed inset-x-0 bottom-0 top-16 z-40 bg-ink-900/30 backdrop-blur-[1px] transition-opacity duration-200 xl:hidden ${
 				mobileNavOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
 			}`}
 			onclick={closeMobileNav}
@@ -363,7 +364,7 @@
 		></button>
 		<aside
 			id="mobile-navigation"
-			class={`fixed bottom-0 left-0 top-16 z-50 flex w-[min(82vw,20rem)] flex-col border-r border-ink-100 bg-surface shadow-lift transition-transform duration-200 ease-out md:hidden ${
+			class={`fixed bottom-0 left-0 top-16 z-50 flex w-[min(82vw,20rem)] flex-col border-r border-ink-100 bg-surface shadow-lift transition-transform duration-200 ease-out xl:hidden ${
 				mobileNavOpen ? 'translate-x-0' : '-translate-x-full'
 			}`}
 			aria-label="Mobile navigation"

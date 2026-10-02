@@ -14,6 +14,7 @@
     "test:roster": "bun scripts/with-test-db.ts",
     "test:requests": "bun scripts/with-test-db.ts requests",
     "test:stats": "bun scripts/with-test-db.ts stats",
+    "test:roster-import": "bun scripts/with-test-db.ts roster-import",
     "test:gate-smoke": "bun scripts/with-test-db.ts gate-smoke",
     "storage:private-request-attachments": "bun scripts/configure-private-request-attachments.ts"
   },
@@ -22,8 +23,10 @@
     "@pdf-lib/fontkit": "^1.1.1",
     "@supabase/supabase-js": "^2.112.2",
     "@ua/db": "workspace:*",
+    "csv-parse": "^7.0.3",
     "drizzle-orm": "^0.38.3",
     "elysia": "^1.2.5",
+    "exceljs": "^4.4.0",
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {

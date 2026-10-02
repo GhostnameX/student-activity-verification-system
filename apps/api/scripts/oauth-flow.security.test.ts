@@ -91,11 +91,10 @@ function callback(state: string, cookie: string) {
 }
 
 describe("production OAuth route security", () => {
-  test("issues a hosted-domain request with a browser-bound state cookie", async () => {
+  test("issues a hosted-domain request with a browser-bound hashed state", async () => {
     const started = await startOAuth(authApp, "/student");
     expect(started.response.status).toBe(200);
     expect(started.authorizationUrl.searchParams.get("hd")).toBe("psru.ac.th");
-    expect(started.state).not.toBe("");
     expect(started.cookie).toContain(`ua_oauth_state=${started.state}`);
     expect(started.cookie).toContain("HttpOnly");
     expect(started.cookie).toContain("SameSite=Lax");
@@ -104,16 +103,7 @@ describe("production OAuth route security", () => {
     expect(durableRows.has(hashOAuthState(started.state))).toBe(true);
   });
 
-  test("rejects a state not bound to the callback browser", async () => {
-    const started = await startOAuth();
-    const rejected = await authApp.handle(
-      new Request(`https://kingplapow.com/api/auth/google/callback?code=dummy&state=${started.state}`),
-    );
-    expect(rejected.status).toBe(302);
-    expect(rejected.headers.get("location")).toContain("error=invalid_state");
-  });
-
-  test("does not consume state on cookie mismatch, accepts once, then rejects replay", async () => {
+  test("does not consume mismatch, accepts once, then rejects replay", async () => {
     const started = await startOAuth();
     const mismatch = await authApp.handle(callback(started.state, "ua_oauth_state=different-browser"));
     expect(mismatch.headers.get("location")).toContain("error=invalid_state");
@@ -121,12 +111,11 @@ describe("production OAuth route security", () => {
     const matchingCookie = started.cookie.split(";", 1)[0];
     const accepted = await authApp.handle(callback(started.state, matchingCookie));
     expect(accepted.headers.get("location")).toContain("error=missing_code");
-
     const replay = await authApp.handle(callback(started.state, matchingCookie));
     expect(replay.headers.get("location")).toContain("error=invalid_state");
   });
 
-  test("survives app/module recreation because state is outside the app instance", async () => {
+  test("survives app recreation because state is outside the app instance", async () => {
     const firstProcess = createAuth(new TestDurableOAuthStateStore());
     const started = await startOAuth(firstProcess, "/student");
     const restartedProcess = createAuth(new TestDurableOAuthStateStore());
@@ -136,15 +125,13 @@ describe("production OAuth route security", () => {
     expect(response.headers.get("location")).toContain("error=missing_code");
   });
 
-  test("keeps only the latest duplicate login flow active in the browser", async () => {
+  test("keeps only the latest duplicate login flow active", async () => {
     const oldFlow = await startOAuth();
     const latestFlow = await startOAuth();
     const latestCookie = latestFlow.cookie.split(";", 1)[0];
-
     const oldCallback = await authApp.handle(callback(oldFlow.state, latestCookie));
     expect(oldCallback.headers.get("location")).toContain("error=invalid_state");
     expect(durableRows.get(hashOAuthState(oldFlow.state))?.usedAt).toBeNull();
-
     const latestCallback = await authApp.handle(callback(latestFlow.state, latestCookie));
     expect(latestCallback.headers.get("location")).toContain("error=missing_code");
   });

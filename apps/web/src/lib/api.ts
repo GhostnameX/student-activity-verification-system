@@ -443,7 +443,7 @@ export interface RosterStudentInput {
   phone?: string | null;
 }
 
-export async function getRosterStudents(params: {
+export interface RosterQueryParams {
   page?: number;
   pageSize?: number;
   search?: string;
@@ -451,17 +451,41 @@ export async function getRosterStudents(params: {
   includeDeleted?: boolean;
   sort?: RosterSortField;
   order?: "asc" | "desc";
-} = {}): Promise<RosterListResponse> {
+}
+
+function rosterQuery(params: RosterQueryParams, includePagination: boolean): string {
   const q = new URLSearchParams();
-  if (params.page) q.set("page", String(params.page));
-  if (params.pageSize) q.set("pageSize", String(params.pageSize));
+  if (includePagination && params.page) q.set("page", String(params.page));
+  if (includePagination && params.pageSize) q.set("pageSize", String(params.pageSize));
   if (params.search) q.set("search", params.search);
   if (params.status) q.set("status", params.status);
   if (params.includeDeleted) q.set("includeDeleted", "true");
   if (params.sort) q.set("sort", params.sort);
   if (params.order) q.set("order", params.order);
-  const qs = q.toString();
+  return q.toString();
+}
+
+export async function getRosterStudents(params: RosterQueryParams = {}): Promise<RosterListResponse> {
+  const qs = rosterQuery(params, true);
   return apiFetch(`/api/roster/students${qs ? `?${qs}` : ""}`);
+}
+
+export async function exportRosterCsv(
+  params: Omit<RosterQueryParams, "page" | "pageSize"> = {},
+): Promise<{ blob: Blob; filename: string }> {
+  const qs = rosterQuery(params, false);
+  const response = await fetch(`${API_BASE}/api/roster/export.csv${qs ? `?${qs}` : ""}`, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(data?.error ?? `request_failed_${response.status}`);
+  }
+
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const serverName = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  const filename = serverName?.replace(/[\\/:*?"<>|]/g, "") || "student-roster.csv";
+  return { blob: await response.blob(), filename };
 }
 
 export async function createRosterStudent(body: RosterStudentInput): Promise<RosterRecord> {
@@ -492,6 +516,130 @@ export async function restoreRosterStudent(studentId: string): Promise<RosterRec
     method: "POST",
     body: JSON.stringify({}),
   });
+}
+
+export type BulkRosterConflictReason = "duplicate_id" | "already_deleted" | "already_active";
+export type BulkRosterFailureReason = "student_not_found" | "transaction_failed";
+
+export interface BulkRosterResult {
+  requested: string[];
+  succeeded: string[];
+  conflicted: Array<{ studentId: string; reason: BulkRosterConflictReason }>;
+  failed: Array<{ studentId: string; reason: BulkRosterFailureReason }>;
+}
+
+export async function bulkDeleteRosterStudents(studentIds: string[]): Promise<BulkRosterResult> {
+  return apiFetch("/api/roster/students/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ studentIds }),
+  });
+}
+
+export async function bulkRestoreRosterStudents(studentIds: string[]): Promise<BulkRosterResult> {
+  return apiFetch("/api/roster/students/bulk-restore", {
+    method: "POST",
+    body: JSON.stringify({ studentIds }),
+  });
+}
+
+export type RosterImportClassification = "new" | "unchanged" | "update" | "conflict" | "invalid";
+
+export interface RosterImportStudent {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  major: string;
+  groupName: string;
+  level: string;
+  admissionYear: number;
+  status: StudentStatus;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface RosterImportSnapshot extends RosterImportStudent {
+  deletedAt: string | null;
+  emailBoundAt: string | null;
+  updatedAt: string;
+}
+
+export interface RosterImportRow {
+  rowNumber: number;
+  studentId: string | null;
+  classification: RosterImportClassification;
+  current: RosterImportSnapshot | null;
+  proposed: Partial<RosterImportStudent> | null;
+  changedFields: Array<keyof RosterImportStudent>;
+  warnings: string[];
+  errors: string[];
+}
+
+export interface RosterImportSummary {
+  total: number;
+  valid: number;
+  new: number;
+  updates: number;
+  unchanged: number;
+  conflicts: number;
+  invalid: number;
+}
+
+export interface RosterImportPreview {
+  batchId: string;
+  fileName: string;
+  status: "validated" | "invalid";
+  limits: { maxFileBytes: number; maxRows: number; maxWorksheets: number };
+  ignoredHeaders: string[];
+  summary: RosterImportSummary;
+  rows: RosterImportRow[];
+}
+
+export interface RosterImportCommitResult {
+  kind: "ok";
+  batchId: string;
+  created: number;
+  updated: number;
+  unchanged: number;
+}
+
+export class RosterImportApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    readonly details: Record<string, unknown>,
+  ) {
+    super(code);
+  }
+}
+
+async function rosterImportResponse<T>(response: Response): Promise<T> {
+  const data = await response.json().catch(() => null) as Record<string, unknown> | null;
+  if (!response.ok) {
+    const code = typeof data?.error === "string" ? data.error : `request_failed_${response.status}`;
+    throw new RosterImportApiError(response.status, code, data ?? {});
+  }
+  return data as T;
+}
+
+export async function previewRosterImport(file: File): Promise<RosterImportPreview> {
+  const formData = new FormData();
+  formData.set("file", file);
+  const response = await fetch(`${API_BASE}/api/roster/import/preview`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  return rosterImportResponse<RosterImportPreview>(response);
+}
+
+export async function commitRosterImport(batchId: string): Promise<RosterImportCommitResult> {
+  const response = await fetch(`${API_BASE}/api/roster/import/${encodeURIComponent(batchId)}/commit`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  return rosterImportResponse<RosterImportCommitResult>(response);
 }
 
 export interface StatsResponse {

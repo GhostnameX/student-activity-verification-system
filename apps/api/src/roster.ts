@@ -4,6 +4,7 @@ import {
   asc,
   desc,
   eq,
+  inArray,
   isNotNull,
   isNull,
   sql,
@@ -42,6 +43,7 @@ const ROSTER_ROLES: readonly RosterRole[] = ["admin", "staff"];
 const DEFAULT_SORT: SortableStudentField = "studentId";
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
+const MAX_BULK_SIZE = 100;
 const MIN_ADMISSION_YEAR = 1900;
 const MAX_ADMISSION_YEAR = 2900;
 
@@ -82,6 +84,20 @@ const ROSTER_ITEM_SELECTION = {
   deletedAt: students.deletedAt,
   createdAt: students.createdAt,
   updatedAt: students.updatedAt,
+} as const;
+
+const ROSTER_EXPORT_SELECTION = {
+  studentId: students.studentId,
+  firstName: students.firstName,
+  lastName: students.lastName,
+  major: students.major,
+  groupName: students.groupName,
+  level: students.level,
+  admissionYear: students.admissionYear,
+  status: students.status,
+  email: students.email,
+  phone: students.phone,
+  deletedAt: students.deletedAt,
 } as const;
 
 const ROSTER_AUDIT_ACTIONS = [
@@ -147,6 +163,121 @@ function readPositiveInt(
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) return fallback;
   return max === undefined ? parsed : Math.min(parsed, max);
+}
+
+interface RosterQueryPlan {
+  includeDeleted: boolean;
+  where: SQL | undefined;
+  orderBy: SQL[];
+}
+
+type ParsedRosterQuery =
+  | { ok: true; plan: RosterQueryPlan }
+  | { ok: false; error: "invalid_status" };
+
+function buildRosterQueryPlan(query: unknown): ParsedRosterQuery {
+  const params = (query ?? {}) as Record<string, unknown>;
+  const includeDeleted = readQueryFlag(params, "includeDeleted");
+  const search = readQueryValue(params, "search")?.trim() ?? "";
+  const rawStatus = readQueryValue(params, "status")?.trim().toLowerCase() ?? "";
+  const sortField = readQueryValue(params, "sort")?.trim() ?? "";
+  const sortDesc = readQueryValue(params, "order")?.trim().toLowerCase() === "desc";
+
+  if (rawStatus !== "" && !isStudentStatus(rawStatus)) {
+    return { ok: false, error: "invalid_status" };
+  }
+
+  const conditions: SQL[] = [];
+  if (!includeDeleted) conditions.push(isNull(students.deletedAt));
+  if (rawStatus !== "") conditions.push(eq(students.status, rawStatus));
+
+  if (search !== "") {
+    const like = `%${search}%`;
+    // Phones are stored in the canonical 10-digit form, so also match against
+    // a dash-free comparison to keep "081-234" findable.
+    const phoneDigits = search.replace(/[\s-]+/g, "");
+    conditions.push(sql`(
+      ${students.studentId} ILIKE ${like}
+      OR ${students.firstName} ILIKE ${like}
+      OR ${students.lastName} ILIKE ${like}
+      OR ${students.email} ILIKE ${like}
+      OR ${students.phone} ILIKE ${like}
+      OR replace(${students.phone}, '-', '') ILIKE ${`%${phoneDigits}%`}
+    )`);
+  }
+
+  const sortKey: SortableStudentField = isSortableStudentField(sortField) ? sortField : DEFAULT_SORT;
+  const sortColumn = SORTABLE_STUDENT_COLUMNS[sortKey];
+  const orderBy: SQL[] = [sortDesc ? desc(sortColumn) : asc(sortColumn)];
+  if (sortKey !== "studentId") orderBy.push(asc(students.studentId));
+
+  return {
+    ok: true,
+    plan: {
+      includeDeleted,
+      where: conditions.length > 0 ? and(...conditions) : undefined,
+      orderBy,
+    },
+  };
+}
+
+const CSV_FORMULA_PREFIX = /^[=+\-@]/;
+
+interface RosterExportRow {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  major: string;
+  groupName: string | null;
+  level: string | null;
+  admissionYear: number;
+  status: StudentStatus;
+  email: string | null;
+  phone: string | null;
+  deletedAt: Date | null;
+}
+
+function csvCell(value: string | number | null): string {
+  let text = value === null ? "" : String(value);
+  if (CSV_FORMULA_PREFIX.test(text)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function rosterCsv(
+  rows: RosterExportRow[],
+  includeDeleted: boolean,
+): string {
+  const headers = [
+    "studentId",
+    "firstName",
+    "lastName",
+    "major",
+    "groupName",
+    "level",
+    "admissionYear",
+    "status",
+    "email",
+    "phone",
+    ...(includeDeleted ? ["deleted"] : []),
+  ];
+  const lines = [headers.map(csvCell).join(",")];
+  for (const row of rows) {
+    const values: Array<string | number | null> = [
+      row.studentId,
+      row.firstName,
+      row.lastName,
+      row.major,
+      row.groupName,
+      row.level,
+      row.admissionYear,
+      row.status,
+      row.email,
+      row.phone,
+    ];
+    if (includeDeleted) values.push(row.deletedAt === null ? "false" : "true");
+    lines.push(values.map(csvCell).join(","));
+  }
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
 }
 
 // --- field parsing ----------------------------------------------------------
@@ -300,6 +431,155 @@ async function writeRosterAudit(
   });
 }
 
+type BulkRosterOperation = "delete" | "restore";
+type BulkConflictReason = "duplicate_id" | "already_deleted" | "already_active";
+type BulkFailureReason = "student_not_found" | "transaction_failed";
+
+interface BulkRosterIssue<TReason extends string> {
+  studentId: string;
+  reason: TReason;
+}
+
+interface BulkRosterResult {
+  requested: string[];
+  succeeded: string[];
+  conflicted: BulkRosterIssue<BulkConflictReason>[];
+  failed: BulkRosterIssue<BulkFailureReason>[];
+}
+
+type ParsedBulkIds =
+  | {
+      ok: true;
+      requested: string[];
+      uniqueIds: string[];
+      duplicateConflicts: BulkRosterIssue<"duplicate_id">[];
+    }
+  | { ok: false };
+
+function parseBulkStudentIds(body: unknown): ParsedBulkIds {
+  if (!body || typeof body !== "object") return { ok: false };
+  const rawIds = (body as Record<string, unknown>).studentIds;
+  if (!Array.isArray(rawIds) || rawIds.length < 1 || rawIds.length > MAX_BULK_SIZE) {
+    return { ok: false };
+  }
+
+  const requested: string[] = [];
+  const uniqueIds: string[] = [];
+  const seen = new Set<string>();
+  const duplicateConflicts: BulkRosterIssue<"duplicate_id">[] = [];
+
+  for (const raw of rawIds) {
+    const studentId = readRequiredText(raw);
+    if (studentId === null) return { ok: false };
+    requested.push(studentId);
+    if (seen.has(studentId)) {
+      duplicateConflicts.push({ studentId, reason: "duplicate_id" });
+      continue;
+    }
+    seen.add(studentId);
+    uniqueIds.push(studentId);
+  }
+
+  return { ok: true, requested, uniqueIds, duplicateConflicts };
+}
+
+async function executeBulkRosterMutation(
+  operation: BulkRosterOperation,
+  parsed: Extract<ParsedBulkIds, { ok: true }>,
+  actorStaffId: string,
+): Promise<BulkRosterResult> {
+  return db.transaction(async (tx) => {
+    const existingRows = await tx
+      .select({
+        studentId: students.studentId,
+        deletedAt: students.deletedAt,
+        status: students.status,
+      })
+      .from(students)
+      .where(inArray(students.studentId, parsed.uniqueIds));
+    const existingById = new Map(existingRows.map((row) => [row.studentId, row]));
+
+    const conflicted: BulkRosterResult["conflicted"] = [...parsed.duplicateConflicts];
+    const failed: BulkRosterResult["failed"] = [];
+    const candidateIds: string[] = [];
+
+    for (const studentId of parsed.uniqueIds) {
+      const existing = existingById.get(studentId);
+      if (!existing) {
+        failed.push({ studentId, reason: "student_not_found" });
+      } else if (operation === "delete" && existing.deletedAt !== null) {
+        conflicted.push({ studentId, reason: "already_deleted" });
+      } else if (operation === "restore" && existing.deletedAt === null) {
+        conflicted.push({ studentId, reason: "already_active" });
+      } else {
+        candidateIds.push(studentId);
+      }
+    }
+
+    if (candidateIds.length === 0) {
+      return { requested: parsed.requested, succeeded: [], conflicted, failed };
+    }
+
+    const changedRows = operation === "delete"
+      ? await tx
+          .update(students)
+          .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
+          .where(and(inArray(students.studentId, candidateIds), isNull(students.deletedAt)))
+          .returning({ studentId: students.studentId, deletedAt: students.deletedAt, status: students.status })
+      : await tx
+          .update(students)
+          .set({ deletedAt: null, updatedAt: sql`now()` })
+          .where(and(inArray(students.studentId, candidateIds), isNotNull(students.deletedAt)))
+          .returning({ studentId: students.studentId, deletedAt: students.deletedAt, status: students.status });
+
+    const changedById = new Map(changedRows.map((row) => [row.studentId, row]));
+    const succeeded = candidateIds.filter((studentId) => changedById.has(studentId));
+    for (const studentId of candidateIds) {
+      if (!changedById.has(studentId)) {
+        conflicted.push({
+          studentId,
+          reason: operation === "delete" ? "already_deleted" : "already_active",
+        });
+      }
+    }
+
+    const revokedCounts = new Map<string, number>();
+    if (operation === "delete" && succeeded.length > 0) {
+      const revoked = await tx
+        .delete(sessions)
+        .where(and(inArray(sessions.userId, succeeded), eq(sessions.role, "student")))
+        .returning({ userId: sessions.userId });
+      for (const session of revoked) {
+        revokedCounts.set(session.userId, (revokedCounts.get(session.userId) ?? 0) + 1);
+      }
+    }
+
+    for (const studentId of succeeded) {
+      const changed = changedById.get(studentId)!;
+      const previous = existingById.get(studentId)!;
+      await writeRosterAudit(tx, {
+        actorStaffId,
+        action: operation === "delete" ? "student_soft_delete" : "student_restore",
+        targetId: studentId,
+        metadata: operation === "delete"
+          ? { bulk: true, deletedAt: changed.deletedAt, revokedSessions: revokedCounts.get(studentId) ?? 0 }
+          : { bulk: true, previousDeletedAt: previous.deletedAt, status: changed.status },
+      });
+    }
+
+    return { requested: parsed.requested, succeeded, conflicted, failed };
+  });
+}
+
+function transactionFailureResult(parsed: Extract<ParsedBulkIds, { ok: true }>): BulkRosterResult {
+  return {
+    requested: parsed.requested,
+    succeeded: [],
+    conflicted: [...parsed.duplicateConflicts],
+    failed: parsed.uniqueIds.map((studentId) => ({ studentId, reason: "transaction_failed" })),
+  };
+}
+
 // --- routes -----------------------------------------------------------------
 
 export const roster = new Elysia()
@@ -319,43 +599,12 @@ export const roster = new Elysia()
     const params = (query ?? {}) as Record<string, unknown>;
     const page = readPositiveInt(params, "page", 1);
     const pageSize = readPositiveInt(params, "pageSize", DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const includeDeleted = readQueryFlag(params, "includeDeleted");
-    const search = readQueryValue(params, "search")?.trim() ?? "";
-    const statusFilter = readQueryValue(params, "status")?.trim().toLowerCase() ?? "";
-    const sortField = readQueryValue(params, "sort")?.trim() ?? "";
-    const sortDesc = readQueryValue(params, "order")?.trim().toLowerCase() === "desc";
-
-    if (statusFilter !== "" && !isStudentStatus(statusFilter)) {
+    const parsedQuery = buildRosterQueryPlan(params);
+    if (!parsedQuery.ok) {
       set.status = 400;
-      return { error: "invalid_status" };
+      return { error: parsedQuery.error };
     }
-
-    const conditions: SQL[] = [];
-    if (!includeDeleted) conditions.push(isNull(students.deletedAt));
-    if (statusFilter !== "") conditions.push(eq(students.status, statusFilter));
-
-    if (search !== "") {
-      const like = `%${search}%`;
-      // Phones are stored in the canonical 10-digit form, so also match against
-      // a dash-free comparison to keep "081-234" findable.
-      const phoneDigits = search.replace(/[\s-]+/g, "");
-      conditions.push(sql`(
-        ${students.studentId} ILIKE ${like}
-        OR ${students.firstName} ILIKE ${like}
-        OR ${students.lastName} ILIKE ${like}
-        OR ${students.email} ILIKE ${like}
-        OR ${students.phone} ILIKE ${like}
-        OR replace(${students.phone}, '-', '') ILIKE ${`%${phoneDigits}%`}
-      )`);
-    }
-
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const sortKey: SortableStudentField = isSortableStudentField(sortField) ? sortField : DEFAULT_SORT;
-    const sortColumn = SORTABLE_STUDENT_COLUMNS[sortKey];
-    const orderBy = sortDesc ? [desc(sortColumn)] : [asc(sortColumn)];
-    // Stable pagination: every non-studentId sort needs a tiebreaker.
-    if (sortKey !== "studentId") orderBy.push(asc(students.studentId));
+    const { where, orderBy } = parsedQuery.plan;
 
     const countRows = await db
       .select({ n: sql<number>`count(*)` })
@@ -372,6 +621,45 @@ export const roster = new Elysia()
       .offset((page - 1) * pageSize);
 
     return { total, page, pageSize, items };
+  })
+
+  /**
+   * GET /api/roster/export.csv
+   *
+   * Exports the complete filtered result set on the server. Pagination is
+   * deliberately ignored, while search, status, deleted visibility and the
+   * allow-listed sort match the roster list endpoint exactly.
+   */
+  .get("/api/roster/export.csv", async ({ headers, query, set }) => {
+    const guard = await requireRosterManager(headers);
+    if (!guard.ok) {
+      set.status = guard.status;
+      return { error: guard.error };
+    }
+
+    const parsedQuery = buildRosterQueryPlan(query);
+    if (!parsedQuery.ok) {
+      set.status = 400;
+      return { error: parsedQuery.error };
+    }
+
+    const { includeDeleted, where, orderBy } = parsedQuery.plan;
+    const rows = await db
+      .select(ROSTER_EXPORT_SELECTION)
+      .from(students)
+      .where(where)
+      .orderBy(...orderBy);
+    const filename = `student-roster-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    return new Response(rosterCsv(rows, includeDeleted), {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Type": "text/csv; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
   })
 
   /**
@@ -593,6 +881,61 @@ export const roster = new Elysia()
         return { error: "duplicate_email" };
       }
       throw error;
+    }
+  })
+
+  /**
+   * POST /api/roster/students/bulk-delete
+   *
+   * Soft-deletes every eligible student in one transaction. State conflicts
+   * and missing rows are reported per requested ID; they do not hide or block
+   * eligible changes in the same request.
+   */
+  .post("/api/roster/students/bulk-delete", async ({ headers, body, set }) => {
+    const guard = await requireRosterManager(headers);
+    if (!guard.ok) {
+      set.status = guard.status;
+      return { error: guard.error };
+    }
+
+    const parsed = parseBulkStudentIds(body);
+    if (!parsed.ok) {
+      set.status = 400;
+      return { error: "invalid_student_ids" };
+    }
+
+    try {
+      return await executeBulkRosterMutation("delete", parsed, guard.manager.id);
+    } catch {
+      set.status = 500;
+      return transactionFailureResult(parsed);
+    }
+  })
+
+  /**
+   * POST /api/roster/students/bulk-restore
+   *
+   * Clears only deleted_at (plus the normal updated_at timestamp) for every
+   * eligible row. Academic status and email binding fields are untouched.
+   */
+  .post("/api/roster/students/bulk-restore", async ({ headers, body, set }) => {
+    const guard = await requireRosterManager(headers);
+    if (!guard.ok) {
+      set.status = guard.status;
+      return { error: guard.error };
+    }
+
+    const parsed = parseBulkStudentIds(body);
+    if (!parsed.ok) {
+      set.status = 400;
+      return { error: "invalid_student_ids" };
+    }
+
+    try {
+      return await executeBulkRosterMutation("restore", parsed, guard.manager.id);
+    } catch {
+      set.status = 500;
+      return transactionFailureResult(parsed);
     }
   })
 

@@ -789,7 +789,7 @@ Use in components: `t('newKey')` (imported from `i18n.ts`)
 
 ### Browsing the UI with fake data (`ua_dev_round2`)
 
-`ua_dev_round2` is a local database cloned from `ua_dev` (read-only template) with migrations 0016-0021 and fake data only. It never touches `ua_dev` or production; the scripts refuse anything but loopback port 8520.
+`ua_dev_round2` is a local database cloned from `ua_dev` (read-only template) with migrations 0016-0022 and fake data only. It never touches `ua_dev` or production; the scripts refuse anything but loopback port 8520.
 
 ```bash
 bun run --cwd packages/db devdb:round2-reset   # clone + migrate + seed; writes apps/api/.env.dev-round2.local (git-ignored)

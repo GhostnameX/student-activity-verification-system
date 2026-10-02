@@ -72,6 +72,14 @@
 	--color-tone-red-soft: #fef2f2;
 	--color-tone-red-ring: #fca5a5;
 	--color-tone-red-text: #7f1d1d;
+	/* Submission-rate tiers (red < 30%, amber 30-70%, green > 70%): card fill, bar fill, bar track.
+	   fill is >= 3:1 on its soft card; the level is also written out, never colour alone. */
+	--color-tier-low-fill: #dc2626;
+	--color-tier-low-track: #fecaca;
+	--color-tier-mid-fill: #b45309;
+	--color-tier-mid-track: #fde68a;
+	--color-tier-high-fill: #15803d;
+	--color-tier-high-track: #bbf7d0;
 	/* chart fill / track */
 	--color-bar-fill: #16a34a;
 	--color-bar-track: #fef3c7;
@@ -129,6 +137,12 @@
 	--color-checked-ring: #1f5a7a;
 	--color-bar-fill: #22c55e;
 	--color-bar-track: #3a2e0f;
+	--color-tier-low-fill: #f87171;
+	--color-tier-low-track: #5a2222;
+	--color-tier-mid-fill: #fbbf24;
+	--color-tier-mid-track: #5a4513;
+	--color-tier-high-fill: #4ade80;
+	--color-tier-high-track: #1d4a2c;
 	--color-tone-ink-soft: #1f2233;
 	--color-tone-ink-ring: #383e54;
 	--color-tone-ink-text: #f1f2f8;

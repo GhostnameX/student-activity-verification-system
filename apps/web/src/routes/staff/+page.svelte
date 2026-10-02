@@ -474,7 +474,7 @@
 								</button>
 								<button
 									onclick={() => approve(detail!.id)}
-									class="flex items-center gap-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-green-700"
+									class="flex items-center gap-1 rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-green-800"
 								>
 									<Check size={15} />
 									{translate($lang, 'approve')}

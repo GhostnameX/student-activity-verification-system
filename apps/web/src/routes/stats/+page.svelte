@@ -181,7 +181,7 @@
 				label={translate($lang, 'notSubmittedCount')}
 				value={stats.notSubmitted}
 				icon={UserX}
-				tone="amber"
+				tone="orange"
 				ariaLabel="{translate($lang, 'viewNotSubmitted')}: {stats.notSubmitted}"
 				onclick={() => navigate({ state: 'not_submitted' })}
 			/>

@@ -118,7 +118,7 @@
 	);
 
 	function ratePct(rate: number) {
-		return `${Math.round(rate * 100)}%`;
+		return `${rate >= 1 ? 100 : Math.min(99, Math.round(rate * 100))}%`;
 	}
 
 	let crumbGroupLabel = $derived(

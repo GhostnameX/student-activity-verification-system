@@ -250,6 +250,13 @@ describe("roster lists match the stats numbers for every filter", () => {
     expect((await list("not-submitted", `&search=${encodeURIComponent("_")}`)).total).toBe(0);
   });
 
+  test("fractional or junk paging parameters do not cause a 500", async () => {
+    for (const qs of ["page=1.5", "pageSize=2.7", "page=abc&pageSize=-3", "page=0"]) {
+      const res = await api(`/api/roster/submitted?${qs}`, staffCookie);
+      expect({ qs, status: res.status }).toEqual({ qs, status: 200 });
+    }
+  });
+
   test("student gets 403, anonymous 401", async () => {
     for (const kind of ["submitted", "not-submitted"]) {
       expect((await api(`/api/roster/${kind}`, studentCookie)).status).toBe(403);

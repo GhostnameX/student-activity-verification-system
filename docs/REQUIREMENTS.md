@@ -23,7 +23,7 @@
 - **Student ห้ามเข้าถึง Roster API** — roster all endpoints ต้อง 403 เมื่อ role=student
 - **แก้ `email` นักศึกษาผ่าน `PATCH /api/roster/students/:id` ได้เฉพาะ Admin** — staff ที่ส่งฟิลด์ `email` มาต้องได้ 403 `email_admin_only` (ฟิลด์อื่น staff แก้ได้เหมือนเดิม; email ที่ bind แล้วยังคง 409 `email_readonly_bound`) — ดู Decisions Log 2026-10-02 (audit P-4)
 - **Upload ไฟล์ ได้เฉพาะ Student** — `POST /api/upload` ต้อง 403 เมื่อ role ไม่ใช่ student
-- **`includeInactive` ของ activities เฉพาะ Admin** — student/staff เห็นเฉพาะ activities ที่ active
+- ~~`includeInactive` ของ activities~~ — ล้าสมัย: เอนทิตี Activities ถูกลบแล้ว (migration 0019, ยังไม่รันบน production — ดู `docs/DEPLOY-ROUND2.md`)
 - นักศึกษาที่ `status != 'active'` (graduated/withdrawn) **ห้ามล็อกอินและห้ามมี session** — ต้องถูก block ทั้งตอน OAuth callback และตอน `getSession`
 
 ---
@@ -168,3 +168,4 @@ revision_required
 | 2026-10-01 | D8/D9: PDF ใช้ `submitted_at` (ยื่นครั้งแรก) แทนเวลาอนุมัติ; ชื่อ `(ชื่อ นามสกุล)` ใต้เส้นลายเซ็น ไม่มีคำนำหน้า |
 | 2026-10-02 | Audit P-1: bind flow ต้องให้ local-part ของอีเมล = รหัสนักศึกษา และโดเมน = psru.ac.th (ผู้กำหนดงานยืนยันรูปแบบ `<รหัส>@psru.ac.th`) — 403 `email_student_mismatch` |
 | 2026-10-02 | ผู้กำหนดงานยืนยัน 2026-10-02: เวลายื่นอยู่บรรทัดวันที่ของช่องผู้ตรวจสอบ (ไม่ใช่ใต้ช่องนักศึกษา); วันที่ด้านบนมาจาก `reviewed_at`; ยกเลิกบรรทัด "ยื่นคำร้องเมื่อ" ใต้ลายเซ็นนักศึกษา และเส้นประกลับตำแหน่งเดิม (แก้ D8) |
+| 2026-10-02 | Phase 6 review: staff-check เขียน audit log + notification ใน transaction เดียวกับการตั้ง `staff_checked_*` ตาม §8 (ต่างจาก approve/reject ที่เป็น best-effort หลัง commit); เปอร์เซ็นต์ในกราฟ/การ์ดไม่แสดง 100% ถ้ายังมีคนไม่ยื่น |

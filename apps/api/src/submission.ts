@@ -45,6 +45,11 @@ export function escapeLike(value: string): string {
 
 const collator = new Intl.Collator("th", { numeric: true });
 
+function trailingNumber(name: string): number | null {
+  const m = /(\d{1,9})\s*$/.exec(name);
+  return m ? Number(m[1]) : null;
+}
+
 export interface GroupSubmissionStats {
   /** null = students without a group ("ไม่ระบุกลุ่ม"). */
   groupName: string | null;
@@ -109,6 +114,12 @@ export async function getSubmissionStats(): Promise<SubmissionStats> {
       groupStats.sort((a, b) => {
         if (a.groupName === null) return b.groupName === null ? 0 : 1;
         if (b.groupName === null) return -1;
+        // Same order as the roster list SQL: trailing number first, then the name.
+        const na = trailingNumber(a.groupName);
+        const nb = trailingNumber(b.groupName);
+        if (na !== null && nb !== null && na !== nb) return na - nb;
+        if (na !== null && nb === null) return -1;
+        if (na === null && nb !== null) return 1;
         return collator.compare(a.groupName, b.groupName);
       });
       const total = groupStats.reduce((n, g) => n + g.total, 0);
@@ -179,7 +190,7 @@ export async function listSubmissionStudents(q: SubmissionListQuery) {
       .orderBy(
         students.major,
         sql`${students.groupName} is null`,
-        sql`nullif(substring(${students.groupName} from ${String.raw`(\d+)\s*$`}), '')::int`,
+        sql`nullif(substring(${students.groupName} from ${String.raw`(\d{1,9})\s*$`}), '')::int`,
         students.groupName,
         students.studentId,
       )

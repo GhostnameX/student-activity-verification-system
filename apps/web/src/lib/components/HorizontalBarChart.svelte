@@ -23,7 +23,10 @@
 	let { items, valueText, ariaLabel, onselect }: Props = $props();
 
 	function percentOf(item: BarItem): number {
-		return item.total > 0 ? Math.round((item.value / item.total) * 100) : 0;
+		if (item.total <= 0) return 0;
+		if (item.value >= item.total) return 100;
+		// Never show 100% while someone is still missing.
+		return Math.min(99, Math.round((item.value / item.total) * 100));
 	}
 </script>
 

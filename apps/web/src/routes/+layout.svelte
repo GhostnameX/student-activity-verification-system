@@ -290,7 +290,6 @@
 						<button
 							type="button"
 							onclick={() => (userMenuOpen = !userMenuOpen)}
-							aria-haspopup="menu"
 							aria-expanded={userMenuOpen}
 							aria-label={$user.name}
 							class="flex h-10 items-center gap-2 rounded-xl border border-ink-200 bg-surface py-1 pl-1 pr-2.5 transition hover:bg-ink-50"
@@ -315,7 +314,6 @@
 						</button>
 						{#if userMenuOpen}
 							<div
-								role="menu"
 								class="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-ink-100 bg-surface shadow-lift"
 							>
 								<div class="border-b border-ink-100 px-4 py-3">
@@ -326,7 +324,6 @@
 								</div>
 								<a
 									href="/profile"
-									role="menuitem"
 									onclick={() => (userMenuOpen = false)}
 									class="flex min-h-11 items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
 								>
@@ -335,7 +332,6 @@
 								</a>
 								<a
 									href="/auth/signout"
-									role="menuitem"
 									class="flex min-h-11 items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-rejected transition hover:bg-rejected-soft"
 								>
 									<LogOut size={16} aria-hidden="true" />

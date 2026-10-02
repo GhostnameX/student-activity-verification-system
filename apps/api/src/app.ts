@@ -212,8 +212,8 @@ function submissionListHandler(state: SubmissionState) {
       major: query.major?.trim() || undefined,
       group: query.group?.trim() || undefined,
       search: query.search?.trim() || undefined,
-      page: Math.max(1, Number(query.page) || 1),
-      pageSize: Math.min(100, Math.max(1, Number(query.pageSize) || 50)),
+      page: Math.max(1, Math.floor(Number(query.page)) || 1),
+      pageSize: Math.min(100, Math.max(1, Math.floor(Number(query.pageSize)) || 50)),
     });
   };
 }
@@ -808,7 +808,23 @@ export const app = new Elysia()
           ),
         )
         .returning({ staffCheckedAt: requests.staffCheckedAt });
-      return claimed ?? null;
+      if (!claimed) return null;
+      // REQUIREMENTS §8: check + audit log + student notification commit together or not at all.
+      await tx.insert(auditLogs).values({
+        actorStaffId: user.id,
+        action: "staff_check",
+        targetType: "request",
+        targetId: params.id,
+        metadata: { status: "pending" },
+      });
+      await tx.insert(notifications).values({
+        studentId: existing.studentId,
+        type: "request_status_change",
+        title: "เจ้าหน้าที่ตรวจสอบเอกสารแล้ว",
+        body: "เจ้าหน้าที่ตรวจสอบเอกสารในคำร้องของคุณแล้ว อยู่ระหว่างรอการพิจารณา",
+        requestId: params.id,
+      });
+      return claimed;
     });
     if (!checked) {
       // Lost a race: another check or a decision committed between the read and the claim.
@@ -823,23 +839,6 @@ export const app = new Elysia()
       set.status = 409;
       return { error: "already_checked" };
     }
-
-    // best-effort หลัง commit เหมือน approve/reject (audit S-5): การตรวจถูกบันทึกแล้ว
-    await Promise.all([
-      notifyUser({
-        studentId: existing.studentId,
-        title: "เจ้าหน้าที่ตรวจสอบเอกสารแล้ว",
-        body: "เจ้าหน้าที่ตรวจสอบเอกสารในคำร้องของคุณแล้ว อยู่ระหว่างรอการพิจารณา",
-        requestId: params.id,
-      }),
-      writeAuditLog({
-        actorStaffId: user.id,
-        action: "staff_check",
-        targetType: "request",
-        targetId: params.id,
-        metadata: { status: "pending" },
-      }),
-    ]).catch((e) => console.log(`[staff-check] notify/audit failed: ${e}`));
 
     return { id: params.id, staffCheckedAt: checked.staffCheckedAt };
   })

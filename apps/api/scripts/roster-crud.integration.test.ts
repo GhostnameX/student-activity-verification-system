@@ -15,7 +15,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "crypto";
-import { count, eq, sql } from "drizzle-orm";
+import { count, eq, inArray, sql } from "drizzle-orm";
 
 const TEST_DATABASE = "ua_roster_test";
 const TEST_DATABASE_PORT = 8520;
@@ -37,11 +37,15 @@ process.env.WEB_ORIGIN = ORIGIN;
 
 const { app } = await import("../src/app");
 const { getSession } = await import("../src/auth/session");
+const { createPostgresOAuthStateStore } = await import("../src/auth/oauth-state-store");
+const { hashOAuthState } = await import("../src/auth/oauth-security");
 const { db, pool } = await import("@ua/db/client");
 const {
   attachmentUploads,
   auditLogs,
   notifications,
+  oauthBindSessions,
+  oauthLoginStates,
   requestAttachmentRevisions,
   requestAttachments,
   requests,
@@ -176,10 +180,10 @@ async function makeSession(userId: string, role: "student" | "staff" | "admin"):
 
 const STAFF_ID = "p3-staff";
 const ADMIN_ID = "p3-admin";
-const LEGACY_ACTIVITY_ID = "p3-roster-fixture";
 let staffCookie = "";
 let adminCookie = "";
 let studentCookie = "";
+const oauthStateHashes: string[] = [];
 
 /**
  * Read-only dataset for the list/search/filter/sort tests. Never mutated by any
@@ -285,23 +289,7 @@ beforeAll(async () => {
   await db.execute(sql`
     TRUNCATE students, staff, sessions, oauth_bind_sessions, oauth_login_states,
       audit_logs, requests, request_attachments,
-      request_attachment_revisions, attachment_uploads, notifications, activities CASCADE
-  `);
-
-  // The deployed database still retains the legacy NOT NULL activity_id
-  // column on requests. Keep this compatibility fixture in raw SQL without
-  // reintroducing the removed Activities subsystem to the application schema.
-  await db.execute(sql`
-    INSERT INTO activities (id, title, title_en, type, organizer, date, location)
-    VALUES (
-      ${LEGACY_ACTIVITY_ID},
-      'Roster integration fixture',
-      'Roster integration fixture',
-      'test',
-      'test',
-      '2026-09-01T00:00:00Z',
-      'test'
-    )
+      request_attachment_revisions, attachment_uploads, notifications CASCADE
   `);
 
   await db.insert(staff).values([
@@ -329,6 +317,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (oauthStateHashes.length > 0) {
+    await db.delete(oauthLoginStates).where(inArray(oauthLoginStates.stateHash, oauthStateHashes));
+  }
   await pool.end();
 });
 
@@ -394,6 +385,72 @@ describe("roster authorization", () => {
       expect(restore.status).toBe(200);
       expect(restore.body.conflicted).toEqual([{ studentId: "6501000001", reason: "already_active" }]);
     }
+  });
+});
+
+describe("roster statistics authorization", () => {
+  test("staff and admin can read submission stats and the not-submitted roster", async () => {
+    for (const cookie of [staffCookie, adminCookie]) {
+      const stats = await api("GET", "/api/stats/submission", { cookie });
+      expect(stats.status).toBe(200);
+
+      const roster = await api("GET", "/api/roster/not-submitted", { cookie });
+      expect(roster.status).toBe(200);
+    }
+  });
+
+  test("students receive 403 from both roster statistics endpoints", async () => {
+    for (const path of ["/api/stats/submission", "/api/roster/not-submitted"]) {
+      const res = await api("GET", path, { cookie: studentCookie });
+      expect({ path, status: res.status, error: res.body.error }).toEqual({
+        path,
+        status: 403,
+        error: "staff_admin_only",
+      });
+    }
+  });
+
+  test("missing sessions receive 401 from both roster statistics endpoints", async () => {
+    for (const path of ["/api/stats/submission", "/api/roster/not-submitted"]) {
+      const res = await api("GET", path);
+      expect({ path, status: res.status, error: res.body.error }).toEqual({
+        path,
+        status: 401,
+        error: "unauthorized",
+      });
+    }
+  });
+});
+
+describe("roster statistics correctness", () => {
+  test("submission stats exclude soft-deleted students while retaining active status semantics", async () => {
+    const res = await api("GET", "/api/stats/submission", { cookie: staffCookie });
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(3);
+    expect(res.body.submitted).toBe(0);
+    expect(res.body.notSubmitted).toBe(3);
+    expect(res.body.byMajor.reduce((sum: number, row: any) => sum + row.total, 0)).toBe(3);
+  });
+
+  test("not-submitted list excludes soft-deleted students and paginates", async () => {
+    const first = await api("GET", "/api/roster/not-submitted?page=1&pageSize=2", {
+      cookie: staffCookie,
+    });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ total: 3, page: 1, pageSize: 2 });
+    expect(first.body.items).toHaveLength(2);
+
+    const second = await api("GET", "/api/roster/not-submitted?page=2&pageSize=2", {
+      cookie: staffCookie,
+    });
+    expect(second.status).toBe(200);
+    expect(second.body).toMatchObject({ total: 3, page: 2, pageSize: 2 });
+    expect(second.body.items).toHaveLength(1);
+
+    const ids = [...first.body.items, ...second.body.items].map((row: any) => row.studentId);
+    expect(ids).not.toContain("6501000005");
+    expect(ids.sort()).toEqual(["6501000001", "6501000002", "6501000006"]);
   });
 });
 
@@ -788,7 +845,7 @@ describe("PATCH /api/roster/students/:id", () => {
 
   test("refuses to touch an email that is bound to a Google account", async () => {
     const res = await api("PATCH", "/api/roster/students/6501000006", {
-      cookie: staffCookie,
+      cookie: adminCookie,
       body: { email: "hijack@psru.ac.th" },
     });
     expect(res.status).toBe(409);
@@ -797,24 +854,52 @@ describe("PATCH /api/roster/students/:id", () => {
     // Even resending the identical bound value is rejected, so a client cannot
     // silently write to a field it does not own.
     const same = await api("PATCH", "/api/roster/students/6501000006", {
-      cookie: staffCookie,
+      cookie: adminCookie,
       body: { email: "bound@psru.ac.th" },
     });
     expect(same.status).toBe(409);
   });
 
-  test("allows email changes while unbound and blocks a collision", async () => {
+  test("staff cannot change an email (403) but can change other fields (audit P-4)", async () => {
+    const studentId = await createStudent(staffCookie, { email: "keep@psru.ac.th" });
+
+    const denied = await api("PATCH", `/api/roster/students/${studentId}`, {
+      cookie: staffCookie,
+      body: { email: "staff-set@psru.ac.th" },
+    });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error).toBe("email_admin_only");
+
+    // A mixed body is refused as a whole: nothing is written.
+    const mixed = await api("PATCH", `/api/roster/students/${studentId}`, {
+      cookie: staffCookie,
+      body: { email: "staff-set@psru.ac.th", lastName: "ไม่ควรเปลี่ยน" },
+    });
+    expect(mixed.status).toBe(403);
+    const [row] = await db.select().from(students).where(eq(students.studentId, studentId));
+    expect(row.email).toBe("keep@psru.ac.th");
+    expect(row.lastName).toBe("ระบบ");
+
+    const other = await api("PATCH", `/api/roster/students/${studentId}`, {
+      cookie: staffCookie,
+      body: { lastName: "แก้โดยสตาฟ" },
+    });
+    expect(other.status).toBe(200);
+    expect(other.body.lastName).toBe("แก้โดยสตาฟ");
+  });
+
+  test("allows admin email changes while unbound and blocks a collision", async () => {
     const studentId = await createStudent(staffCookie);
 
     const ok = await api("PATCH", `/api/roster/students/${studentId}`, {
-      cookie: staffCookie,
+      cookie: adminCookie,
       body: { email: "free@psru.ac.th" },
     });
     expect(ok.status).toBe(200);
     expect(ok.body.email).toBe("free@psru.ac.th");
 
     const collision = await api("PATCH", `/api/roster/students/${studentId}`, {
-      cookie: staffCookie,
+      cookie: adminCookie,
       body: { email: "one@psru.ac.th" },
     });
     expect(collision.status).toBe(409);
@@ -831,16 +916,61 @@ describe("PATCH /api/roster/students/:id", () => {
   });
 });
 
+// --- 4b. reject guard (audit S-1, S-2) --------------------------------------
+
+describe("POST /api/requests/:id/reject", () => {
+  async function seedRequest(status: "pending" | "approved", note: string | null): Promise<string> {
+    const studentId = await createStudent(staffCookie);
+    const id = `p3-rej-${studentId}`;
+    await db.insert(requests).values({ id, studentId, status, note });
+    return id;
+  }
+
+  test("refuses an already approved request and leaves it approved", async () => {
+    const id = await seedRequest("approved", "หมายเหตุนักศึกษา");
+
+    const res = await api("POST", `/api/requests/${id}/reject`, {
+      cookie: adminCookie,
+      body: { reason: "too late" },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("already_reviewed");
+
+    const [row] = await db.select().from(requests).where(eq(requests.id, id));
+    expect(row.status).toBe("approved");
+    expect(row.rejectionReason).toBeNull();
+    expect(row.note).toBe("หมายเหตุนักศึกษา");
+  });
+
+  test("rejecting writes rejection_reason and keeps the student's note", async () => {
+    const withReason = await seedRequest("pending", "หมายเหตุนักศึกษา");
+    const ok = await api("POST", `/api/requests/${withReason}/reject`, {
+      cookie: adminCookie,
+      body: { reason: "เอกสารไม่ครบ" },
+    });
+    expect(ok.status).toBe(200);
+    const [rejected] = await db.select().from(requests).where(eq(requests.id, withReason));
+    expect(rejected.status).toBe("rejected");
+    expect(rejected.rejectionReason).toBe("เอกสารไม่ครบ");
+    expect(rejected.note).toBe("หมายเหตุนักศึกษา");
+
+    // No reason given: the note must not be nulled out either.
+    const noReason = await seedRequest("pending", "อีกหนึ่งหมายเหตุ");
+    const ok2 = await api("POST", `/api/requests/${noReason}/reject`, { cookie: adminCookie, body: {} });
+    expect(ok2.status).toBe(200);
+    const [rejected2] = await db.select().from(requests).where(eq(requests.id, noReason));
+    expect(rejected2.status).toBe("rejected");
+    expect(rejected2.note).toBe("อีกหนึ่งหมายเหตุ");
+  });
+});
+
 // --- 5. soft delete ---------------------------------------------------------
 
 describe("DELETE /api/roster/students/:id", () => {
   test("soft deletes a student with history without touching dependent rows", async () => {
     const studentId = await createStudent(staffCookie, { status: "active" });
 
-    await db.execute(sql`
-      INSERT INTO requests (id, student_id, activity_id, status)
-      VALUES (${`p3-req-${studentId}`}, ${studentId}, ${LEGACY_ACTIVITY_ID}, 'approved')
-    `);
+    await db.insert(requests).values({ id: `p3-req-${studentId}`, studentId, status: "approved" });
     await db.insert(requestAttachments).values({ id: `p3-att-${studentId}`, requestId: `p3-req-${studentId}`, fileName: "proof.pdf", storagePath: `uploads/${studentId}/proof.pdf` });
     await db.insert(requestAttachmentRevisions).values({
       id: `p3-rev-${studentId}`,
@@ -1190,7 +1320,8 @@ describe("bulk roster mutations", () => {
 describe("OAuth bind cookie integration", () => {
   test("unbound callback emits separate state-clear and bind cookies that round-trip", async () => {
     const studentId = await createStudent(staffCookie, { phone: "0812345678" });
-    const email = `bind.${randomUUID()}@psru.ac.th`;
+    // Binding requires the Google email to be <studentId>@psru.ac.th (emailMatchesStudentId).
+    const email = `${studentId}@psru.ac.th`;
     process.env.DEV_GOOGLE_EMAIL = email;
 
     const callback = await app.handle(
@@ -1278,5 +1409,153 @@ describe("OAuth login with roster state", () => {
     expect(result.status).toBe(302);
     expect(result.location).not.toContain("error=");
     expect(result.sessionId).not.toBeNull();
+  });
+});
+
+describe("durable OAuth login state", () => {
+  test("survives store recreation, persists only a hash, and consumes exactly once", async () => {
+    const state = `oauth-state-${randomUUID()}`;
+    const stateHash = hashOAuthState(state);
+    oauthStateHashes.push(stateHash);
+
+    const issuingProcess = createPostgresOAuthStateStore(db);
+    await issuingProcess.create({
+      state,
+      redirectPath: "/student",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const persisted = await db
+      .select()
+      .from(oauthLoginStates)
+      .where(eq(oauthLoginStates.stateHash, stateHash));
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.stateHash).toBe(stateHash);
+    expect(persisted[0]?.stateHash).not.toBe(state);
+
+    const restartedProcess = createPostgresOAuthStateStore(db);
+    expect(await restartedProcess.consumeByHash(stateHash, new Date())).toEqual({
+      redirectPath: "/student",
+    });
+    expect(await restartedProcess.consumeByHash(stateHash, new Date())).toBeNull();
+  });
+
+  test("rejects expired, used, and missing rows", async () => {
+    const store = createPostgresOAuthStateStore(db);
+    const expiredState = `oauth-expired-${randomUUID()}`;
+    const expiredHash = hashOAuthState(expiredState);
+    oauthStateHashes.push(expiredHash);
+    await store.create({
+      state: expiredState,
+      expiresAt: new Date(Date.now() - 1),
+    });
+
+    expect(await store.consumeByHash(expiredHash, new Date())).toBeNull();
+    expect(await store.consumeByHash(hashOAuthState(`missing-${randomUUID()}`), new Date())).toBeNull();
+  });
+
+  test("cleans up expired and old used rows after the retention window", async () => {
+    const store = createPostgresOAuthStateStore(db);
+    const state = `oauth-cleanup-${randomUUID()}`;
+    const stateHash = hashOAuthState(state);
+    oauthStateHashes.push(stateHash);
+    await store.create({
+      state,
+      expiresAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+    });
+
+    await store.cleanup(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const remaining = await db
+      .select({ stateHash: oauthLoginStates.stateHash })
+      .from(oauthLoginStates)
+      .where(eq(oauthLoginStates.stateHash, stateHash));
+    expect(remaining).toHaveLength(0);
+  });
+});
+
+describe("first-login bind requires <studentId>@psru.ac.th (audit P-1)", () => {
+  /** Dev-bypass Google login for an email that is in no roster row -> bind cookie. */
+  async function startBind(email: string): Promise<string> {
+    const result = await app.handle(await bindStart(email));
+    const cookie = cookieValue(result.headers.get("set-cookie") ?? "", "ua_oauth_bind");
+    expect(result.headers.get("location")).toContain("/auth/bind");
+    expect(cookie).not.toBeNull();
+    return `ua_oauth_bind=${cookie}`;
+  }
+
+  async function bindStart(email: string): Promise<Request> {
+    process.env.DEV_GOOGLE_EMAIL = email;
+    const start = await app.handle(new Request(`${ORIGIN}/api/auth/google/url`));
+    const body = (await start.json()) as { redirectUrl: string };
+    expect(body.redirectUrl).toContain("code=dev");
+    return new Request(`${ORIGIN}/api/auth/google/callback?code=dev`);
+  }
+
+  async function bind(cookie: string, studentId: string) {
+    return api("POST", "/api/auth/google/bind", { cookie, body: { studentId, phone: "0812345678" } });
+  }
+
+  async function studentRow(studentId: string) {
+    const [row] = await db.select().from(students).where(eq(students.studentId, studentId));
+    return row;
+  }
+
+  test("matching email and student id binds", async () => {
+    const studentId = await createStudent(staffCookie);
+    const cookie = await startBind(`${studentId}@psru.ac.th`);
+    const result = await bind(cookie, studentId);
+    expect(result.status).toBe(200);
+    expect(result.body.user.studentId).toBe(studentId);
+    expect((await studentRow(studentId)).email).toBe(`${studentId}@psru.ac.th`);
+  });
+
+  test("case and whitespace differences still bind", async () => {
+    const studentId = await createStudent(staffCookie);
+    const cookie = await startBind(`${studentId}@PSRU.ac.th`);
+    const result = await bind(cookie, `  ${studentId}  `);
+    expect(result.status).toBe(200);
+    expect((await studentRow(studentId)).email).toBe(`${studentId}@psru.ac.th`);
+  });
+
+  test("another student's id is rejected with 403 and nothing is bound", async () => {
+    const mine = await createStudent(staffCookie);
+    const victim = await createStudent(staffCookie);
+    const cookie = await startBind(`${mine}@psru.ac.th`);
+    const result = await bind(cookie, victim);
+    expect(result.status).toBe(403);
+    expect(result.body.error).toBe("email_student_mismatch");
+    expect((await studentRow(victim)).email).toBeNull();
+  });
+
+  test("a non-student psru.ac.th mailbox can never bind to any student", async () => {
+    const victim = await createStudent(staffCookie);
+    const cookie = await startBind("somchai.k@psru.ac.th");
+    const result = await bind(cookie, victim);
+    expect(result.status).toBe(403);
+    expect(result.body.error).toBe("email_student_mismatch");
+    expect((await studentRow(victim)).email).toBeNull();
+  });
+
+  test("a mismatch counts as a failed attempt and exhausts the bind session", async () => {
+    const victim = await createStudent(staffCookie);
+    const cookie = await startBind("teacher.x@psru.ac.th");
+    expect((await bind(cookie, victim)).status).toBe(403);
+    expect((await bind(cookie, victim)).status).toBe(403);
+    const third = await bind(cookie, victim);
+    expect(third.status).toBe(429);
+    expect(third.body.error).toBe("too_many_attempts");
+    // Even the right-looking request is dead now.
+    expect((await bind(cookie, victim)).status).toBe(401);
+    expect((await studentRow(victim)).email).toBeNull();
+    const rows = await db.select().from(oauthBindSessions).where(eq(oauthBindSessions.email, "teacher.x@psru.ac.th"));
+    expect(rows.every((r) => r.usedAt !== null && r.attempts >= 3)).toBe(true);
+  });
+
+  test("the mismatch answer does not depend on whether the student exists", async () => {
+    const cookieA = await startBind("teacher.y@psru.ac.th");
+    const real = await bind(cookieA, await createStudent(staffCookie));
+    const cookieB = await startBind("teacher.z@psru.ac.th");
+    const missing = await bind(cookieB, "9999999999");
+    expect([real.status, real.body.error]).toEqual([missing.status, missing.body.error]);
   });
 });

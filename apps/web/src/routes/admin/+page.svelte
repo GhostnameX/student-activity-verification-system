@@ -3,6 +3,12 @@
 	import { lang } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
+	import { formatBangkokDateTime } from '$lib/datetime';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import StatCard from '$lib/components/StatCard.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { goto } from '$app/navigation';
 	import {
 		getRequests,
@@ -30,6 +36,7 @@
 		UserPlus,
 		KeyRound,
 		Power,
+		RotateCcw,
 	} from 'lucide-svelte';
 
 	let requests: RequestItem[] = $state([]);
@@ -82,36 +89,36 @@
 		}
 	}
 
-	function statusClass(status: string) {
-		if (status === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
-		if (status === 'rejected') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
-		return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
-	}
-
 	const statCards = $derived([
 		{
 			label: 'totalRequests',
 			value: stats?.total ?? 0,
 			icon: FileText,
-			classes: 'from-ink-500 to-ink-700',
+			tone: 'ink' as const,
 		},
 		{
 			label: 'totalPending',
 			value: stats?.pending ?? 0,
 			icon: Clock,
-			classes: 'from-amber-400 to-amber-600',
+			tone: 'amber' as const,
+		},
+		{
+			label: 'totalRevision',
+			value: stats?.revisionRequired ?? 0,
+			icon: RotateCcw,
+			tone: 'orange' as const,
 		},
 		{
 			label: 'totalApproved',
 			value: stats?.approved ?? 0,
 			icon: CircleCheck,
-			classes: 'from-green-500 to-green-700',
+			tone: 'green' as const,
 		},
 		{
 			label: 'totalRejected',
 			value: stats?.rejected ?? 0,
 			icon: CircleX,
-			classes: 'from-red-500 to-red-700',
+			tone: 'red' as const,
 		},
 	]);
 
@@ -119,6 +126,7 @@
 		const map: Record<string, string> = {
 			approve: $lang === 'th' ? 'อนุมัติ' : 'Approve',
 			reject: $lang === 'th' ? 'ไม่อนุมัติ' : 'Reject',
+			staff_check: translate($lang, 'staffCheckAuditAction'),
 		};
 		return map[action] ?? action;
 	}
@@ -194,19 +202,12 @@
 </script>
 
 <div class="space-y-6">
-	<div class="flex flex-wrap items-center justify-between gap-3">
-		<div>
-			<h1 class="flex items-center gap-2 text-3xl font-extrabold tracking-tight text-ink-900">
-				<LayoutDashboard size={26} class="text-brand-600" />
-				{translate($lang, 'dashboard')}
-			</h1>
-			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'stats')}</p>
-		</div>
-		<div class="flex items-center gap-2">
-			<div class="flex items-center gap-1 rounded-2xl border border-ink-100 bg-surface p-1 shadow-soft">
+	<PageHeader title={translate($lang, 'dashboard')} subtitle={translate($lang, 'stats')} icon={LayoutDashboard}>
+		{#snippet actions()}
+			<div class="flex max-w-full flex-wrap items-center gap-1 rounded-2xl border border-ink-100 bg-surface p-1 shadow-soft">
 				<button
 					onclick={() => (activeTab = 'stats')}
-					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+					class={`min-h-11 rounded-xl px-4 py-2 text-sm font-medium transition ${
 						activeTab === 'stats' ? 'bg-ink-900 text-ink-50 shadow-soft' : 'text-ink-600 hover:bg-ink-50'
 					}`}
 				>
@@ -214,7 +215,7 @@
 				</button>
 				<button
 					onclick={() => (activeTab = 'audit')}
-					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+					class={`min-h-11 rounded-xl px-4 py-2 text-sm font-medium transition ${
 						activeTab === 'audit' ? 'bg-ink-900 text-ink-50 shadow-soft' : 'text-ink-600 hover:bg-ink-50'
 					}`}
 				>
@@ -222,22 +223,19 @@
 				</button>
 				<button
 					onclick={() => (activeTab = 'staff')}
-					class={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+					class={`min-h-11 rounded-xl px-4 py-2 text-sm font-medium transition ${
 						activeTab === 'staff' ? 'bg-ink-900 text-ink-50 shadow-soft' : 'text-ink-600 hover:bg-ink-50'
 					}`}
 				>
 					{translate($lang, 'staffManagement')}
 				</button>
 			</div>
-			<button
-				onclick={refresh}
-				class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
-			>
-				<RefreshCw size={15} />
+			<Button onclick={refresh}>
+				<RefreshCw size={15} aria-hidden="true" />
 				{translate($lang, 'refresh')}
-			</button>
-		</div>
-	</div>
+			</Button>
+		{/snippet}
+	</PageHeader>
 
 	{#if loading}
 		<div class="flex items-center gap-2 py-12 text-sm text-ink-500">
@@ -245,22 +243,14 @@
 			{translate($lang, 'submitting')}
 		</div>
 	{:else if activeTab === 'stats'}
-		<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+		<div class="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
 			{#each statCards as s (s.label)}
-				<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
-					<div
-						class={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${s.classes} text-white shadow-soft`}
-					>
-						<s.icon size={19} />
-					</div>
-					<p class="text-sm text-ink-500">{translate($lang, s.label as 'stats')}</p>
-					<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{s.value}</p>
-				</div>
+				<StatCard label={translate($lang, s.label as 'stats')} value={s.value} icon={s.icon} tone={s.tone} />
 			{/each}
 		</div>
 
 		<div>
-			<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
+			<div class="rounded-card border border-ink-100 bg-surface p-6 shadow-soft">
 				<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
 					<Users size={18} class="text-brand-600" />
 					{translate($lang, 'byFaculty')}
@@ -268,13 +258,15 @@
 				{#if stats && stats.byFaculty.length === 0}
 					<p class="text-sm text-ink-500">{translate($lang, 'noRequests')}</p>
 				{:else}
-					<div class="overflow-x-auto">
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex (scrollable region must be keyboard reachable) -->
+					<div class="overflow-x-auto" tabindex="0" role="region" aria-label={translate($lang, 'stats')}>
 						<table class="w-full text-left text-sm">
 							<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
 								<tr>
 									<th class="px-3 py-2">{translate($lang, 'faculty')}</th>
 									<th class="px-3 py-2 text-right">{translate($lang, 'totalRequests')}</th>
 									<th class="px-3 py-2 text-right">{translate($lang, 'totalPending')}</th>
+									<th class="px-3 py-2 text-right">{translate($lang, 'totalRevision')}</th>
 									<th class="px-3 py-2 text-right">{translate($lang, 'totalApproved')}</th>
 									<th class="px-3 py-2 text-right">{translate($lang, 'totalRejected')}</th>
 								</tr>
@@ -284,9 +276,10 @@
 									<tr class="border-b border-ink-50 last:border-0">
 										<td class="px-3 py-2.5 font-medium text-ink-900">{f.faculty}</td>
 										<td class="px-3 py-2.5 text-right text-ink-700">{f.total}</td>
-										<td class="px-3 py-2.5 text-right text-amber-600">{f.pending}</td>
-										<td class="px-3 py-2.5 text-right text-green-600">{f.approved}</td>
-										<td class="px-3 py-2.5 text-right text-red-600">{f.rejected}</td>
+										<td class="px-3 py-2.5 text-right text-pending">{f.pending}</td>
+										<td class="px-3 py-2.5 text-right text-revision">{f.revisionRequired}</td>
+										<td class="px-3 py-2.5 text-right text-approved">{f.approved}</td>
+										<td class="px-3 py-2.5 text-right text-rejected">{f.rejected}</td>
 									</tr>
 								{/each}
 							</tbody>
@@ -296,7 +289,8 @@
 			</div>
 		</div>
 
-		<div class="overflow-x-auto rounded-3xl border border-ink-100 bg-surface shadow-soft">
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex (scrollable region must be keyboard reachable) -->
+		<div class="overflow-x-auto rounded-card border border-ink-100 bg-surface shadow-soft" tabindex="0" role="region" aria-label={translate($lang, 'allRequests')}>
 			<table class="w-full text-left text-sm">
 				<thead class="border-b border-ink-100 bg-ink-50/70 text-xs font-semibold uppercase tracking-wide text-ink-500">
 					<tr>
@@ -318,14 +312,10 @@
 								{r.student?.faculty ?? '-'}
 							</td>
 							<td class="hidden px-5 py-4 text-ink-600 lg:table-cell">
-								{new Date(r.submittedAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
+								{formatBangkokDateTime(r.submittedAt, $lang)}
 							</td>
 							<td class="px-5 py-4">
-								<span
-									class={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusClass(r.status)}`}
-								>
-									{translate($lang, r.status as 'pending')}
-								</span>
+								<StatusBadge kind={r.status} />
 							</td>
 						</tr>
 					{/each}
@@ -333,7 +323,7 @@
 			</table>
 		</div>
 	{:else if activeTab === 'audit'}
-		<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
+		<div class="rounded-card border border-ink-100 bg-surface p-6 shadow-soft">
 			<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
 				<ScrollText size={18} class="text-brand-600" />
 				{translate($lang, 'auditLog')}
@@ -341,7 +331,8 @@
 			{#if auditLogs.length === 0}
 				<p class="text-sm text-ink-500">{translate($lang, 'noAuditLogs')}</p>
 			{:else}
-				<div class="overflow-x-auto">
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex (scrollable region must be keyboard reachable) -->
+				<div class="overflow-x-auto" tabindex="0" role="region" aria-label={translate($lang, 'stats')}>
 					<table class="w-full text-left text-sm">
 						<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
 							<tr>
@@ -354,16 +345,16 @@
 						<tbody>
 							{#each auditLogs as log (log.id)}
 								<tr class="border-b border-ink-50 last:border-0">
-									<td class="px-3 py-2.5 whitespace-nowrap text-ink-600">
-										{new Date(log.createdAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
+									<td class="min-w-36 px-3 py-2.5 text-ink-600">
+										{formatBangkokDateTime(log.createdAt, $lang)}
 									</td>
-									<td class="px-3 py-2.5 text-ink-700">{log.actorId ? log.actorId.slice(0, 8) : '-'}</td>
+									<td class="px-3 py-2.5 whitespace-nowrap text-ink-700">{log.actorName ?? (log.actorStaffId ? log.actorStaffId.slice(0, 8) : '-')}</td>
 									<td class="px-3 py-2.5 font-medium text-ink-900">{actionLabel(log.action)}</td>
 									<td class="px-3 py-2.5 text-ink-600">
 										<span class="rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-600">
 											{log.targetType}
 										</span>
-										<span class="ml-2 font-mono text-xs text-ink-400">{log.targetId.slice(0, 8)}</span>
+										<span class="ml-2 font-mono text-xs text-ink-500">{log.targetId.slice(0, 8)}</span>
 									</td>
 								</tr>
 							{/each}
@@ -373,7 +364,7 @@
 			{/if}
 		</div>
 	{:else if activeTab === 'staff'}
-		<div class="rounded-3xl border border-ink-100 bg-surface p-6 shadow-soft">
+		<div class="rounded-card border border-ink-100 bg-surface p-6 shadow-soft">
 			<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
 				<h2 class="flex items-center gap-2 text-lg font-bold text-ink-900">
 					<Users size={18} class="text-brand-600" />
@@ -388,14 +379,15 @@
 				</button>
 			</div>
 			{#if staffMsg}
-				<div class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+				<div class="mb-4 rounded-xl border border-pending-ring bg-pending-soft px-4 py-3 text-sm text-pending">
 					{staffMsg}
 				</div>
 			{/if}
 			{#if staffList.length === 0}
 				<p class="text-sm text-ink-500">{translate($lang, 'noResults')}</p>
 			{:else}
-				<div class="overflow-x-auto">
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex (scrollable region must be keyboard reachable) -->
+				<div class="overflow-x-auto" tabindex="0" role="region" aria-label={translate($lang, 'stats')}>
 					<table class="w-full text-left text-sm">
 						<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
 							<tr>
@@ -429,7 +421,7 @@
 									<td class="px-3 py-2.5">
 										<span
 											class={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-												s.isActive ? 'bg-green-50 text-green-700 ring-1 ring-green-200' : 'bg-red-50 text-red-700 ring-1 ring-red-200'
+												s.isActive ? 'bg-approved-soft text-approved ring-1 ring-approved-ring' : 'bg-rejected-soft text-rejected ring-1 ring-rejected-ring'
 											}`}
 										>
 											{translate($lang, s.isActive ? 'accountActive' : 'accountDisabled')}
@@ -448,7 +440,7 @@
 												onclick={() => toggleStaffActive(s)}
 												title={translate($lang, s.isActive ? 'disableAccount' : 'enableAccount')}
 												class={`rounded-lg p-2 transition ${
-													s.isActive ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-green-50 text-green-600 hover:bg-green-100'
+													s.isActive ? 'bg-rejected-soft text-rejected hover:bg-rejected-soft' : 'bg-approved-soft text-approved hover:bg-approved-soft'
 												}`}
 											>
 												<Power size={15} />
@@ -473,7 +465,7 @@
 			tabindex="-1"
 			onkeydown={(e) => { if (e.key === 'Escape') closeStaffModal(); }}
 		>
-			<div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-ink-100 bg-surface p-6 shadow-lift">
+			<div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-card border border-ink-100 bg-surface p-6 shadow-lift">
 				<h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-ink-900">
 					<UserPlus size={19} class="text-brand-600" />
 					{translate($lang, staffModal === 'add' ? 'createStaff' : 'editStaff')}
@@ -555,7 +547,7 @@
 						</label>
 					{/if}
 					{#if staffMsg}
-						<p class="text-sm text-red-600">{staffMsg}</p>
+						<p class="text-sm text-rejected">{staffMsg}</p>
 					{/if}
 					<div class="flex justify-end gap-2 border-t border-ink-100 pt-4">
 						<button
@@ -567,7 +559,7 @@
 						<button
 							onclick={saveStaff}
 							disabled={savingStaff}
-							class="flex items-center gap-1.5 rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+							class="flex items-center gap-1.5 rounded-xl bg-brand-solid px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-solid-hover disabled:cursor-not-allowed disabled:opacity-60"
 						>
 							{savingStaff ? translate($lang, 'submitting') : translate($lang, 'save')}
 						</button>

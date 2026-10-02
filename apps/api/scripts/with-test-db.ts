@@ -40,11 +40,47 @@ const command =
     ? [process.execPath, "test", "./scripts/roster-crud.integration.test.ts"]
     : mode === "roster-import"
       ? [process.execPath, "test", "./scripts/roster-import.integration.test.ts"]
-    : mode === "gate-smoke"
-      ? [process.execPath, "./scripts/gate-smoke.ts"]
-      : null;
+    : mode === "requests"
+      ? [process.execPath, "test", "./scripts/request-routes.integration.test.ts"]
+      : mode === "stats"
+        ? [process.execPath, "test", "./scripts/submission-stats.integration.test.ts"]
+        : mode === "gate-smoke"
+        ? [process.execPath, "./scripts/gate-smoke.ts"]
+        : null;
 if (!command) {
-  throw new Error(`[test-db] unknown mode "${mode}" (expected roster | roster-import | gate-smoke)`);
+  throw new Error(`[test-db] unknown mode "${mode}" (expected roster | roster-import | requests | stats | gate-smoke)`);
+}
+
+// Every suite starts from an empty database (schema kept). The suites share one throwaway
+// database and used to leave rows and counters behind, so results depended on run order:
+// e.g. after test:requests, approved requests holding certificate numbers 1..n made
+// gate-smoke collide on requests_cert_number_uidx once counters were reset, and with the
+// counters left alone gate-smoke 10f failed whenever the certificate number happened to equal
+// the request sequence (8 == 8). The target is re-verified on the server before truncating.
+{
+  const url = new URL(testEnv.TEST_DATABASE_URL);
+  if (
+    !["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname) ||
+    url.port !== "8520" ||
+    url.pathname !== "/ua_roster_test"
+  ) {
+    throw new Error(`[test-db] REFUSED reset on ${url.hostname}:${url.port}${url.pathname}`);
+  }
+  const sql = new Bun.SQL(testEnv.TEST_DATABASE_URL);
+  try {
+    const [id] = await sql`select current_database() as database, host(inet_server_addr()) as address, inet_server_port() as port`;
+    if (id.database !== "ua_roster_test" || !["127.0.0.1", "::1"].includes(id.address) || Number(id.port) !== 8520) {
+      throw new Error(`[test-db] REFUSED reset on ${id.address}:${id.port}/${id.database}`);
+    }
+    const tables = await sql`
+      select quote_ident(tablename) as t from pg_tables
+       where schemaname = 'public' and tablename not like '\_\_drizzle%'`;
+    if (tables.length > 0) {
+      await sql.unsafe(`truncate ${tables.map((r: { t: string }) => r.t).join(", ")} restart identity cascade`);
+    }
+  } finally {
+    await sql.close();
+  }
 }
 
 const child = Bun.spawn(
@@ -58,7 +94,7 @@ const child = Bun.spawn(
       DATABASE_URL: "",
       AUTH_BYPASS_GOOGLE: mode === "gate-smoke" ? "true" : process.env.AUTH_BYPASS_GOOGLE,
       GATE_SMOKE_EXCLUSIVE_DB: mode === "gate-smoke" ? "1" : "",
-      GATE_SMOKE_MOCK_STORAGE: mode === "gate-smoke" ? "1" : "",
+      GATE_SMOKE_MOCK_STORAGE: mode === "gate-smoke" || mode === "requests" || mode === "stats" ? "1" : "",
       GOOGLE_CLIENT_ID: mode === "gate-smoke" ? "gate-smoke-client" : process.env.GOOGLE_CLIENT_ID,
       GOOGLE_CLIENT_SECRET:
         mode === "gate-smoke" ? "gate-smoke-secret" : process.env.GOOGLE_CLIENT_SECRET,

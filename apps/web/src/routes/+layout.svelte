@@ -5,6 +5,7 @@
 	import { lang, dark } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
 	import { translate, type Lang } from '$lib/i18n';
+	import { bangkokYear, formatBangkokDateTime } from '$lib/datetime';
 	import {
 		Languages,
 		GraduationCap,
@@ -20,6 +21,7 @@
 		Sun,
 		Menu,
 		X,
+		BadgeCheck,
 		ChevronDown,
 	} from 'lucide-svelte';
 	import {
@@ -48,8 +50,10 @@
 	let bellOpen = $state(false);
 	let mobileNavOpen = $state(false);
 	let userMenuOpen = $state(false);
-	let userMenuElement = $state<HTMLDivElement | null>(null);
-	let userMenuButton = $state<HTMLButtonElement | null>(null);
+
+	function handleWindowClick(event: MouseEvent) {
+		if (!(event.target as Element | null)?.closest('[data-user-menu]')) userMenuOpen = false;
+	}
 
 	function isNavActive(href: string) {
 		return page.url.pathname === href || page.url.pathname.startsWith(`${href}/`);
@@ -60,24 +64,10 @@
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape') return;
-		closeMobileNav();
-		bellOpen = false;
-		if (userMenuOpen) {
-			userMenuOpen = false;
-			userMenuButton?.focus();
-		}
-	}
-
-	function handleWindowClick(event: MouseEvent) {
-		if (userMenuOpen && userMenuElement && !userMenuElement.contains(event.target as Node)) {
+		if (event.key === 'Escape') {
+			closeMobileNav();
 			userMenuOpen = false;
 		}
-	}
-
-	function toggleUserMenu() {
-		userMenuOpen = !userMenuOpen;
-		if (userMenuOpen) bellOpen = false;
 	}
 
 	$effect(() => {
@@ -128,6 +118,9 @@
 			$user?.role === 'admin'
 				? { href: '/staff', label: translate($lang, 'allRequests'), icon: Inbox }
 				: null,
+			$user?.role === 'staff'
+				? { href: '/review', label: translate($lang, 'staffReviewTitle'), icon: BadgeCheck }
+				: null,
 			$user?.role === 'staff' || $user?.role === 'admin'
 				? { href: '/stats', label: translate($lang, 'submissionStats'), icon: LayoutDashboard }
 				: null,
@@ -140,6 +133,9 @@
 			$user ? { href: '/profile', label: translate($lang, 'profile'), icon: User } : null,
 		].filter((x): x is { href: string; label: string; icon: typeof FileText } => x !== null),
 	);
+
+	// Profile lives in the user menu on desktop, so the top bar keeps one line of links.
+	const desktopNav = $derived(nav.filter((item) => item.href !== '/profile'));
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} onclick={handleWindowClick} />
@@ -150,35 +146,37 @@
 
 <div class="flex min-h-screen flex-col bg-ink-50">
 	<header class="sticky top-0 z-40 border-b border-ink-100 bg-surface/90 backdrop-blur">
-		<div class="mx-auto flex h-16 max-w-[1600px] items-center gap-2 px-4 sm:gap-3 sm:px-6 xl:px-10">
-			<a
-				href="/"
-				class="group flex min-w-0 flex-1 items-center gap-2.5 xl:max-w-sm"
-				title={translate($lang, 'appName')}
-				aria-label={translate($lang, 'appName')}
-			>
+		<div class="mx-auto flex h-16 max-w-[1600px] items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 xl:px-10">
+			<a href="/" class="group flex min-w-0 items-center gap-2.5" aria-label={translate($lang, 'appName')}>
 				<span
 					class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft transition-transform group-hover:scale-105"
 				>
 					<GraduationCap size={22} />
 				</span>
-				<span class="min-w-0 truncate whitespace-nowrap text-base font-bold tracking-tight text-ink-900 max-sm:hidden">
-					{translate($lang, 'navbarAppName')}
+				<span
+					class="min-w-0 truncate text-lg font-bold tracking-tight text-ink-900 {$user ? 'hidden 2xl:block' : 'max-sm:hidden'}"
+				>
+					{translate($lang, 'appName')}
 				</span>
 			</a>
 
 			{#if $user}
-				<nav class="hidden shrink-0 items-center gap-0.5 rounded-2xl border border-ink-100 bg-ink-50/60 p-1 xl:flex">
-					{#each nav as item (item.href)}
+				<nav
+					class="hidden min-w-0 items-center gap-1 rounded-2xl border border-ink-100 bg-ink-50/60 p-1 md:flex"
+					aria-label="Main navigation"
+				>
+					{#each desktopNav as item (item.href)}
 						<a
 							href={item.href}
+							title={item.label}
+							aria-label={item.label}
 							aria-current={isNavActive(item.href) ? 'page' : undefined}
-							class={`flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition hover:bg-surface hover:text-ink-900 hover:shadow-soft ${
-								isNavActive(item.href) ? 'bg-surface text-brand-700 shadow-soft' : 'text-ink-600'
-							}`}
+							class="flex min-h-10 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition hover:bg-surface hover:text-ink-900 hover:shadow-soft {isNavActive(item.href)
+								? 'bg-surface text-brand-700 shadow-soft'
+								: 'text-ink-600'}"
 						>
-							<item.icon size={16} />
-							<span>{item.label}</span>
+							<item.icon size={16} aria-hidden="true" />
+							<span class="hidden lg:inline">{item.label}</span>
 						</a>
 					{/each}
 				</nav>
@@ -187,12 +185,8 @@
 			<div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
 				{#if $user}
 					<button
-						onclick={() => {
-							mobileNavOpen = !mobileNavOpen;
-							bellOpen = false;
-							userMenuOpen = false;
-						}}
-						class="flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 xl:hidden"
+						onclick={() => (mobileNavOpen = !mobileNavOpen)}
+						class="flex h-11 w-11 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 md:hidden"
 						aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
 						aria-expanded={mobileNavOpen}
 						aria-controls="mobile-navigation"
@@ -208,13 +202,13 @@
 					<div class="relative">
 						<button
 							onclick={openBell}
-							class="relative flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50"
+							class="relative flex h-11 w-11 items-center justify-center rounded-xl border border-ink-200 md:h-10 md:w-10 bg-surface text-ink-700 transition hover:bg-ink-50"
 							aria-label={translate($lang, 'notifications')}
 						>
 							<Bell size={16} />
 							{#if unread > 0}
 								<span
-									class="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white"
+									class="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rejected-soft0 px-1 text-[10px] font-bold text-white"
 								>
 									{unread > 99 ? '99+' : unread}
 								</span>
@@ -260,7 +254,7 @@
 												</div>
 												<p class="mt-0.5 line-clamp-2 text-xs text-ink-500">{n.body}</p>
 												<p class="mt-1 text-[10px] uppercase tracking-wide text-ink-400">
-													{new Date(n.createdAt).toLocaleString($lang === 'th' ? 'th-TH' : 'en-US')}
+													{formatBangkokDateTime(n.createdAt, $lang)}
 												</p>
 											</button>
 										{/each}
@@ -273,15 +267,16 @@
 
 				<button
 					onclick={toggleLang}
-					class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-2.5 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50 sm:px-3.5"
+					class="flex h-11 items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-3 text-sm font-medium text-ink-700 transition hover:bg-ink-50 md:h-10 xl:px-3.5"
 					title={translate($lang, 'language')}
+					aria-label={translate($lang, 'language')}
 				>
 					<Languages size={16} />
-					<span class="max-lg:hidden">{$lang === 'th' ? 'English' : 'ไทย'}</span>
+					<span class="max-xl:hidden">{$lang === 'th' ? 'English' : 'ไทย'}</span>
 				</button>
 				<button
 					onclick={toggleTheme}
-					class="flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 max-sm:hidden"
+					class="flex h-11 w-11 items-center justify-center rounded-xl border border-ink-200 bg-surface text-ink-700 transition hover:bg-ink-50 max-sm:hidden md:h-10 md:w-10"
 					aria-label="Toggle dark mode"
 					title="Dark mode"
 				>
@@ -292,21 +287,18 @@
 					{/if}
 				</button>
 				{#if $user}
-					<div class="relative hidden sm:block" bind:this={userMenuElement}>
+					<div class="relative hidden md:block" data-user-menu>
 						<button
-							bind:this={userMenuButton}
-							onclick={toggleUserMenu}
-							class="flex h-10 items-center gap-1 rounded-xl border border-ink-200 bg-surface p-1 pr-1.5 text-ink-700 transition hover:bg-ink-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
-							aria-label={`${translate($lang, 'profile')}: ${$user.name}`}
-							aria-haspopup="menu"
+							type="button"
+							onclick={() => (userMenuOpen = !userMenuOpen)}
 							aria-expanded={userMenuOpen}
-							aria-controls="user-navigation-menu"
-							title={`${$user.name} · ${translate($lang, $user.role as 'student')}`}
+							aria-label={$user.name}
+							class="flex h-10 items-center gap-2 rounded-xl border border-ink-200 bg-surface py-1 pl-1 pr-2.5 transition hover:bg-ink-50"
 						>
 							{#if $user.avatarUrl}
 								<img
 									src={avatarUrl($user.avatarUrl)}
-									alt={translate($lang, 'avatar')}
+									alt=""
 									class="h-8 w-8 rounded-lg border border-ink-100 object-cover"
 								/>
 							{:else}
@@ -316,50 +308,43 @@
 									{$user.name.trim().charAt(0).toUpperCase()}
 								</span>
 							{/if}
-							<ChevronDown
-								size={15}
-								class={`transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
-							/>
+							<span class="hidden max-w-40 truncate text-sm font-semibold text-ink-900 xl:block">
+								{$user.name}
+							</span>
+							<ChevronDown size={15} class="text-ink-500" aria-hidden="true" />
 						</button>
-
 						{#if userMenuOpen}
 							<div
-								id="user-navigation-menu"
-								role="menu"
-								class="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-ink-100 bg-surface shadow-lift"
+								class="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-ink-100 bg-surface shadow-lift"
 							>
 								<div class="border-b border-ink-100 px-4 py-3">
-									<p class="truncate text-sm font-semibold text-ink-900">{$user.name}</p>
-									<p class="mt-0.5 text-xs capitalize text-ink-400">
+									<p class="break-words text-sm font-semibold text-ink-900">{$user.name}</p>
+									<p class="mt-0.5 text-xs capitalize text-ink-500">
 										{translate($lang, $user.role as 'student')}
 									</p>
 								</div>
-								<div class="p-1.5">
-									<a
-										href="/profile"
-										role="menuitem"
-										onclick={() => (userMenuOpen = false)}
-										class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-700 transition hover:bg-ink-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-									>
-										<User size={16} />
-										<span>{translate($lang, 'profile')}</span>
-									</a>
-									<a
-										href="/auth/signout"
-										role="menuitem"
-										class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
-									>
-										<LogOut size={16} />
-										<span>{translate($lang, 'logout')}</span>
-									</a>
-								</div>
+								<a
+									href="/profile"
+									onclick={() => (userMenuOpen = false)}
+									class="flex min-h-11 items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+								>
+									<User size={16} aria-hidden="true" />
+									{translate($lang, 'profile')}
+								</a>
+								<a
+									href="/auth/signout"
+									class="flex min-h-11 items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-rejected transition hover:bg-rejected-soft"
+								>
+									<LogOut size={16} aria-hidden="true" />
+									{translate($lang, 'logout')}
+								</a>
 							</div>
 						{/if}
 					</div>
 				{:else}
 					<a
 						href="/auth/signin"
-						class="rounded-xl bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-soft transition hover:bg-brand-700 sm:px-5"
+						class="rounded-xl bg-brand-solid px-3.5 py-2 text-sm font-medium text-white shadow-soft transition hover:bg-brand-solid-hover sm:px-5"
 					>
 						{translate($lang, 'login')}
 					</a>
@@ -403,10 +388,24 @@
 					</a>
 				{/each}
 			</nav>
-			<div class="border-t border-ink-100 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+			<div class="space-y-1 border-t border-ink-100 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+				{#if $user}
+					<div class="px-3 pb-2">
+						<p class="break-words text-sm font-semibold text-ink-900">{$user.name}</p>
+						<p class="text-xs capitalize text-ink-500">{translate($lang, $user.role as 'student')}</p>
+					</div>
+				{/if}
+				<button
+					type="button"
+					onclick={toggleTheme}
+					class="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-600 transition hover:bg-ink-50 sm:hidden"
+				>
+					{#if $dark}<Sun size={19} aria-hidden="true" />{:else}<Moon size={19} aria-hidden="true" />{/if}
+					<span>{$dark ? 'Light mode' : 'Dark mode'}</span>
+				</button>
 				<a
 					href="/auth/signout"
-					class="flex min-h-12 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
+					class="flex min-h-12 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-rejected transition hover:bg-rejected-soft"
 				>
 					<LogOut size={19} />
 					<span>{translate($lang, 'logout')}</span>
@@ -415,24 +414,24 @@
 		</aside>
 	{/if}
 
-	<main class="mx-auto w-full max-w-[1600px] flex-1 px-6 py-8 xl:px-10">
+	<main class="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6 sm:py-8 xl:px-10">
 		{@render children()}
 	</main>
 
 	<footer class="border-t border-ink-100 bg-surface py-6">
-		<div class="mx-auto max-w-[1600px] px-6 text-center text-sm text-ink-400 xl:px-10">
-			<p>{translate($lang, 'appName')} &middot; © 2026</p>
-			<p class="mt-1 text-xs text-ink-400/80">
+		<div class="mx-auto max-w-[1600px] px-4 text-center text-sm text-ink-500 sm:px-6 xl:px-10">
+			<div>{translate($lang, 'appName')} &middot; © {bangkokYear()}</div>
+			<div class="mt-1 text-xs text-ink-500">
 				Built by
 				<a
 					href="https://github.com/GhostnameX"
 					target="_blank"
 					rel="noopener noreferrer"
-					class="font-medium text-ink-500 transition hover:text-brand-600 hover:underline"
+					class="transition hover:text-ink-500 hover:underline"
 				>
 					@GhostnameX
 				</a>
-			</p>
+			</div>
 		</div>
 	</footer>
 </div>

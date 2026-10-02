@@ -15,12 +15,14 @@ import {
   staff,
 } from "@ua/db/schema";
 import { db } from "@ua/db/client";
-import { eq, and, desc, sql, isNull, count, countDistinct, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, count, inArray } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { getSession } from "./auth/session";
+import { sessionPlugin } from "./session-plugin";
 import { hashPassword, verifyPassword } from "@ua/db/auth-helpers";
 import { roster } from "./roster";
+import { getSubmissionStats, listSubmissionStudents, type SubmissionState } from "./submission";
 import { rosterImport } from "./roster-import";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN || "http://localhost:5173";
@@ -87,11 +89,6 @@ function avatarPublicUrl(storagePath: string): string {
   return `${SUPABASE_URL}/storage/v1/object/public/avatars/${storagePath}`;
 }
 
-const THAI_MONTHS = [
-  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
-  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
-];
-
 const THAI_TZ = "Asia/Bangkok";
 
 export function thaiDateParts(d: Date = new Date()): { year: number; month: number; day: number } {
@@ -107,15 +104,6 @@ export function thaiDateParts(d: Date = new Date()): { year: number; month: numb
 
 export function thaiBuddhistYear(d: Date = new Date()): number {
   return thaiDateParts(d).year + 543;
-}
-
-function formatBuddhistDate(d: Date): { day: number; month: string; year: number } {
-  const { year, month, day } = thaiDateParts(d);
-  return {
-    day,
-    month: THAI_MONTHS[month - 1],
-    year: year + 543,
-  };
 }
 
 function requestNumberLabel(sequence: number | null, year: number | null): string | null {
@@ -200,6 +188,37 @@ async function notifyUser(opts: {
   }).catch((e) => console.log(`[notify] insert failed: ${e}`));
 }
 
+const submissionListQuery = {
+  query: t.Object({
+    major: t.Optional(t.String()),
+    group: t.Optional(t.String()),
+    search: t.Optional(t.String()),
+    page: t.Optional(t.String()),
+    pageSize: t.Optional(t.String()),
+  }),
+};
+
+function submissionListHandler(state: SubmissionState) {
+  return async ({ user, query, set }: { user: any; query: Record<string, string | undefined>; set: any }) => {
+    if (!user) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    if (user.role !== "admin" && user.role !== "staff") {
+      set.status = 403;
+      return { error: "staff_admin_only" };
+    }
+    return listSubmissionStudents({
+      state,
+      major: query.major?.trim() || undefined,
+      group: query.group?.trim() || undefined,
+      search: query.search?.trim() || undefined,
+      page: Math.max(1, Math.floor(Number(query.page)) || 1),
+      pageSize: Math.min(100, Math.max(1, Math.floor(Number(query.pageSize)) || 50)),
+    });
+  };
+}
+
 export const app = new Elysia()
   .use(
     cors({
@@ -211,14 +230,14 @@ export const app = new Elysia()
   )
   .use(auth)
   .use(roster)
+  .use(sessionPlugin)
   .use(rosterImport)
-.get("/health", () => ({ status: "ok", ts: Date.now() }))
+  .get("/health", () => ({ status: "ok", ts: Date.now() }))
 
   // ===== Upload (via server-side service_role) =====
   .post(
     "/api/upload",
-    async ({ body, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ body, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -330,8 +349,7 @@ export const app = new Elysia()
 
   .get(
     "/api/attachments/:id/signed-url",
-    async ({ params, query, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ params, query, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -353,10 +371,7 @@ export const app = new Elysia()
         set.status = 404;
         return { error: "attachment_not_found" };
       }
-      if (user.role === "staff") {
-        set.status = 403;
-        return { error: "staff_cannot_access" };
-      }
+      // staff may read attachments (round 2, D1); only the owner among students
       if (user.role === "student" && attachment.studentId !== user.id) {
         set.status = 403;
         return { error: "forbidden" };
@@ -419,8 +434,7 @@ export const app = new Elysia()
   )
 
   // ===== Requests =====
-  .get("/api/requests", async ({ headers, query, set }) => {
-    const user = await getSession(headers);
+  .get("/api/requests", async ({ user, query, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -444,6 +458,7 @@ export const app = new Elysia()
           requestYear: requests.requestYear,
           submittedAt: requests.submittedAt,
           reviewedAt: requests.reviewedAt,
+          staffCheckedAt: requests.staffCheckedAt,
         })
         .from(requests)
         .where(where)
@@ -454,11 +469,8 @@ export const app = new Elysia()
       }));
     }
 
-    if (role === "staff") {
-      set.status = 403;
-      return { error: "staff_cannot_access" };
-    }
-
+    // admin and staff share the reviewer list; staff is read-only and gets no
+    // student contact fields (round 2, D1). Both see who checked the documents.
     const list = await db
       .select({
         id: requests.id,
@@ -469,6 +481,8 @@ export const app = new Elysia()
         requestYear: requests.requestYear,
         submittedAt: requests.submittedAt,
         reviewedAt: requests.reviewedAt,
+        staffCheckedAt: requests.staffCheckedAt,
+        staffCheckedByName: staff.fullName,
         student: {
           id: students.studentId,
           name: sql`${students.firstName} || ' ' || ${students.lastName}`,
@@ -479,42 +493,55 @@ export const app = new Elysia()
       })
       .from(requests)
       .innerJoin(students, eq(requests.studentId, students.studentId))
+      .leftJoin(staff, eq(requests.staffCheckedById, staff.id))
       .where(statusWhere)
       .orderBy(desc(requests.submittedAt));
     return list.map((r) => ({
       ...r,
+      student: role === "staff" ? { ...r.student, email: null } : r.student,
       requestNumber: requestNumberLabel(r.requestSequence, r.requestYear),
     }));
   })
 
-  .get("/api/requests/:id", async ({ params, headers, set }) => {
-    const user = await getSession(headers);
+  .get("/api/requests/:id", async ({ params, user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
     }
     const role = user.role;
 
-    const result = await db
-      .select({
-        id: requests.id,
-        status: requests.status,
-        note: requests.note,
-        requestSequence: requests.requestSequence,
-        requestYear: requests.requestYear,
-        submittedAt: requests.submittedAt,
-        reviewedAt: requests.reviewedAt,
-        student: {
-          id: students.studentId,
-          name: sql`${students.firstName} || ' ' || ${students.lastName}`,
-          email: students.email,
-          faculty: students.major,
-          studentId: students.studentId,
-        },
-      })
-      .from(requests)
-      .innerJoin(students, eq(requests.studentId, students.studentId))
-      .where(eq(requests.id, params.id));
+    // ดึง request detail + attachments พร้อมกัน แทนที่จะรอทีละ query
+    const [result, attachments] = await Promise.all([
+      db
+        .select({
+          id: requests.id,
+          status: requests.status,
+          note: requests.note,
+          requestSequence: requests.requestSequence,
+          requestYear: requests.requestYear,
+          submittedAt: requests.submittedAt,
+          reviewedAt: requests.reviewedAt,
+          staffCheckedAt: requests.staffCheckedAt,
+          staffCheckedByName: staff.fullName,
+          student: {
+            id: students.studentId,
+            name: sql`${students.firstName} || ' ' || ${students.lastName}`,
+            email: students.email,
+            faculty: students.major,
+            studentId: students.studentId,
+          },
+        })
+        .from(requests)
+        .innerJoin(students, eq(requests.studentId, students.studentId))
+        .leftJoin(staff, eq(requests.staffCheckedById, staff.id))
+        .where(eq(requests.id, params.id)),
+
+      db
+        .select()
+        .from(requestAttachments)
+        .where(eq(requestAttachments.requestId, params.id))
+        .orderBy(requestAttachments.slot),
+    ]);
 
     if (result.length === 0) {
       set.status = 404;
@@ -526,17 +553,6 @@ export const app = new Elysia()
       set.status = 403;
       return { error: "forbidden" };
     }
-
-    if (role === "staff") {
-      set.status = 403;
-      return { error: "staff_cannot_access" };
-    }
-
-    const attachments = await db
-      .select()
-      .from(requestAttachments)
-      .where(eq(requestAttachments.requestId, params.id))
-      .orderBy(requestAttachments.slot);
 
     const attachmentIds = attachments.map((a) => a.id);
     const revisions = attachmentIds.length > 0
@@ -552,8 +568,17 @@ export const app = new Elysia()
       revisions: revisions.filter((r) => r.attachmentId === a.id),
     }));
 
+    // The student sees when the documents were checked, not who checked them;
+    // staff get no student contact fields.
+    const { staffCheckedByName: _checker, ...withoutChecker } = req;
+    const visible =
+      role === "student"
+        ? withoutChecker
+        : role === "staff"
+          ? { ...req, student: { ...req.student, email: null } }
+          : req;
     return {
-      ...req,
+      ...visible,
       requestNumber: requestNumberLabel(req.requestSequence, req.requestYear),
       attachments: attachmentsWithRevisions,
     };
@@ -561,8 +586,7 @@ export const app = new Elysia()
 
   .post(
     "/api/requests",
-    async ({ body, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ body, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -699,8 +723,7 @@ export const app = new Elysia()
 
   .patch(
     "/api/requests/:id",
-    async ({ params, body, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ params, body, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -741,11 +764,91 @@ export const app = new Elysia()
     },
   )
 
+  // ===== Staff document check (round 2, D1-D5) =====
+  // Staff-only on purpose (admin cannot check on staff's behalf). Touches only the
+  // staff_checked_* columns: never status, reviewed_*, counters or attachment state.
+  .post("/api/requests/:id/staff-check", async ({ params, user, set }) => {
+    if (!user) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    if (user.role !== "staff") {
+      set.status = 403;
+      return { error: "staff_only" };
+    }
+
+    const [existing] = await db
+      .select({
+        status: requests.status,
+        studentId: requests.studentId,
+        staffCheckedAt: requests.staffCheckedAt,
+      })
+      .from(requests)
+      .where(eq(requests.id, params.id));
+    if (!existing) {
+      set.status = 404;
+      return { error: "not_found" };
+    }
+    if (existing.status !== "pending") {
+      set.status = 400;
+      return { error: "not_pending" };
+    }
+    if (existing.staffCheckedAt) {
+      set.status = 409;
+      return { error: "already_checked" };
+    }
+
+    const checked = await db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .update(requests)
+        .set({ staffCheckedAt: sql`now()`, staffCheckedById: user.id })
+        .where(
+          and(
+            eq(requests.id, params.id),
+            eq(requests.status, "pending"),
+            isNull(requests.staffCheckedAt),
+          ),
+        )
+        .returning({ staffCheckedAt: requests.staffCheckedAt });
+      if (!claimed) return null;
+      // REQUIREMENTS §8: check + audit log + student notification commit together or not at all.
+      await tx.insert(auditLogs).values({
+        actorStaffId: user.id,
+        action: "staff_check",
+        targetType: "request",
+        targetId: params.id,
+        metadata: { status: "pending" },
+      });
+      await tx.insert(notifications).values({
+        studentId: existing.studentId,
+        type: "request_status_change",
+        title: "เจ้าหน้าที่ตรวจสอบเอกสารแล้ว",
+        body: "เจ้าหน้าที่ตรวจสอบเอกสารในคำร้องของคุณแล้ว อยู่ระหว่างรอการพิจารณา",
+        requestId: params.id,
+      });
+      return claimed;
+    });
+    if (!checked) {
+      // Lost a race: another check or a decision committed between the read and the claim.
+      const [current] = await db
+        .select({ status: requests.status })
+        .from(requests)
+        .where(eq(requests.id, params.id));
+      if (current && current.status !== "pending") {
+        set.status = 400;
+        return { error: "not_pending" };
+      }
+      set.status = 409;
+      return { error: "already_checked" };
+    }
+
+    return { id: params.id, staffCheckedAt: checked.staffCheckedAt };
+  })
+
   // ===== Staff review actions =====
   .post(
     "/api/requests/:id/approve",
-    async ({ params, headers, set }) => {
-    const user = await getSession(headers);
+    async ({ params, user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -814,6 +917,8 @@ export const app = new Elysia()
           requestYear: requests.requestYear,
           certificateNumber: requests.certificateNumber,
           certificateYear: requests.certificateYear,
+          submittedAt: requests.submittedAt,
+          reviewedAt: requests.reviewedAt,
         })
         .from(requests)
         .where(eq(requests.id, params.id));
@@ -832,81 +937,82 @@ export const app = new Elysia()
           .where(inArray(requestAttachmentRevisions.id, approvedRevIds));
       }
 
-      return { ...row, requestNumber };
+      // ดึง student detail ใน transaction เดียวกัน ไม่ต้อง SELECT ซ้ำหลัง commit
+      const [studentDetail] = await tx
+        .select({
+          studentId: students.studentId,
+          studentName: sql<string>`${students.firstName} || ' ' || ${students.lastName}`,
+          studentEmail: students.email,
+          studentFaculty: students.major,
+          studentCode: students.studentId,
+          studentPhone: students.phone,
+        })
+        .from(students)
+        .where(eq(students.studentId, row.studentId))
+        .limit(1);
+
+      return { ...row, requestNumber, studentDetail: studentDetail ?? null };
     });
     if (!approved) {
       set.status = 400;
       return { error: "already_reviewed" };
     }
 
-    const detail = await db
-      .select({
-        studentId: requests.studentId,
-        studentName: sql<string>`${students.firstName} || ' ' || ${students.lastName}`,
-        studentEmail: students.email,
-        studentFaculty: students.major,
-        studentCode: students.studentId,
-        studentPhone: students.phone,
-      })
-      .from(requests)
-      .innerJoin(students, eq(requests.studentId, students.studentId))
-      .where(eq(requests.id, params.id));
+    if (approved.studentDetail) {
+      const d = approved.studentDetail;
+      // ส่ง notification + audit log ก่อน return เพราะสำคัญ
+      await Promise.all([
+        notifyUser({
+          studentId: d.studentId,
+          title: "คำร้องได้รับการอนุมัติ",
+          body: "คำร้องของคุณได้รับการอนุมัติแล้ว",
+          requestId: params.id,
+        }),
+        writeAuditLog({
+          actorStaffId: user.id,
+          action: "approve",
+          targetType: "request",
+          targetId: params.id,
+          metadata: {
+            status: "approved",
+            requestNumber: requestNumberLabel(approved.requestSequence, approved.requestYear),
+            certificateNumber: approved.requestNumber,
+            certificateYear: approved.certificateYear,
+          },
+        }),
+      ]);
 
-    if (detail.length > 0) {
-      const d = detail[0];
-      await notifyUser({
-        studentId: d.studentId,
-        title: "คำร้องได้รับการอนุมัติ",
-        body: "คำร้องของคุณได้รับการอนุมัติแล้ว",
-        requestId: params.id,
-      });
-      await writeAuditLog({
-        actorStaffId: user.id,
-        action: "approve",
-        targetType: "request",
-        targetId: params.id,
-        metadata: {
-          status: "approved",
-          requestNumber: requestNumberLabel(approved.requestSequence, approved.requestYear),
-          certificateNumber: approved.requestNumber,
-          certificateYear: approved.certificateYear,
-        },
-      });
-
-      let attachment: { filename: string; content: string } | undefined;
-      try {
-        const now = new Date();
-        const buddhist = formatBuddhistDate(now);
-        const thaiNow = thaiDateParts(now);
-        const reviewedDate = `${String(thaiNow.day).padStart(2, "0")}/${String(thaiNow.month).padStart(2, "0")}/${thaiNow.year + 543}`;
-        if (approved.certificateYear == null) throw new Error("approved request has no certificate year");
-        attachment = await generateCertificatePDFForEmail({
-          requestNumber: approved.requestSequence ?? approved.requestNumber,
-          requestYear: approved.requestYear ?? approved.certificateYear,
-          certificateNumber: approved.requestNumber,
-          certificateYear: approved.certificateYear,
-          location: process.env.CERTIFICATE_LOCATION || "พิษณุโลก",
-          dateDay: buddhist.day,
-          dateMonth: buddhist.month,
-          dateYear: buddhist.year,
-          studentName: d.studentName,
-          studentId: d.studentCode,
-          faculty: d.studentFaculty,
-          phone: d.studentPhone,
-          approved: true,
-          reason: null,
-          reviewedDate,
-        });
-      } catch (e) {
-        console.log(`[certificate] generation failed: ${e}`);
-      }
-
+      // PDF + email หนักและไม่ urgent — รัน background ไม่ block response
       if (d.studentEmail) {
-        await sendStatusEmail({
-          to: d.studentEmail,
-          studentName: d.studentName,
-          status: "approved",
-          attachments: attachment ? [attachment] : undefined,
+        setImmediate(async () => {
+          let attachment: { filename: string; content: string } | undefined;
+          try {
+            if (approved.certificateYear == null) throw new Error("approved request has no certificate year");
+            if (approved.reviewedAt == null) throw new Error("approved request has no reviewed_at");
+            attachment = await generateCertificatePDFForEmail({
+              requestNumber: approved.requestSequence ?? approved.requestNumber,
+              requestYear: approved.requestYear ?? approved.certificateYear,
+              certificateNumber: approved.requestNumber,
+              certificateYear: approved.certificateYear,
+              location: process.env.CERTIFICATE_LOCATION || "พิษณุโลก",
+              studentName: d.studentName,
+              studentId: d.studentCode,
+              faculty: d.studentFaculty,
+              phone: d.studentPhone,
+              approved: true,
+              reason: null,
+              submittedAt: approved.submittedAt,
+              reviewedAt: approved.reviewedAt,
+            });
+          } catch (e) {
+            console.log(`[certificate] generation failed: ${e}`);
+          }
+          await sendStatusEmail({
+            to: d.studentEmail!,
+            studentName: d.studentName,
+            status: "approved",
+            attachments: attachment ? [attachment] : undefined,
+          }).catch((e) => console.log(`[email] send failed: ${e}`));
         });
       }
     }
@@ -916,8 +1022,7 @@ export const app = new Elysia()
 
   .post(
     "/api/requests/:id/reject",
-    async ({ params, body, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ params, body, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -945,17 +1050,16 @@ export const app = new Elysia()
         .update(requests)
         .set({
           status: "rejected",
-          note: body.reason ?? null,
           rejectionReason: body.reason ?? null,
           reviewedById: user.id,
           reviewedAt: sql`now()`,
           updatedAt: sql`now()`,
         })
-        .where(eq(requests.id, params.id))
+        .where(and(eq(requests.id, params.id), eq(requests.status, "pending")))
         .returning();
       if (!updated) {
-        set.status = 404;
-        return { error: "not_found" };
+        set.status = 400;
+        return { error: "already_reviewed" };
       }
 
       const detail = await db
@@ -970,25 +1074,31 @@ export const app = new Elysia()
 
       if (detail.length > 0) {
         const d = detail[0];
-        await notifyUser({
-          studentId: d.studentId,
-          title: "คำร้องถูกไม่อนุมัติ",
-          body: `คำร้องของคุณถูกไม่อนุมัติ${body.reason ? `\nเหตุผล: ${body.reason}` : ""}`,
-          requestId: params.id,
-        });
-        await writeAuditLog({
-          actorStaffId: user.id,
-          action: "reject",
-          targetType: "request",
-          targetId: params.id,
-          metadata: { status: "rejected", reason: body.reason ?? null },
-        });
+        // best-effort หลัง commit เหมือน approve: สถานะ rejected ถูกบันทึกแล้ว ความล้มเหลวตรงนี้ต้องไม่ทำให้คำขอพัง
+        await Promise.all([
+          notifyUser({
+            studentId: d.studentId,
+            title: "คำร้องถูกไม่อนุมัติ",
+            body: `คำร้องของคุณถูกไม่อนุมัติ${body.reason ? `\nเหตุผล: ${body.reason}` : ""}`,
+            requestId: params.id,
+          }),
+          writeAuditLog({
+            actorStaffId: user.id,
+            action: "reject",
+            targetType: "request",
+            targetId: params.id,
+            metadata: { status: "rejected", reason: body.reason ?? null },
+          }),
+        ]).catch((e) => console.log(`[reject] notify/audit failed: ${e}`));
         if (d.studentEmail) {
-          await sendStatusEmail({
-            to: d.studentEmail,
-            studentName: d.studentName,
-            status: "rejected",
-            reason: body.reason,
+          const to = d.studentEmail;
+          setImmediate(() => {
+            sendStatusEmail({
+              to,
+              studentName: d.studentName,
+              status: "rejected",
+              reason: body.reason,
+            }).catch((e) => console.log(`[email] send failed: ${e}`));
           });
         }
       }
@@ -1003,8 +1113,7 @@ export const app = new Elysia()
 
   .post(
     "/api/requests/:id/request-revision",
-    async ({ params, body, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ params, body, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -1105,8 +1214,7 @@ export const app = new Elysia()
 
   .post(
     "/api/requests/:id/resubmit",
-    async ({ params, body, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ params, body, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -1261,6 +1369,9 @@ export const app = new Elysia()
               status: "pending",
               reviewedById: null,
               reviewedAt: null,
+              // documents changed: staff must check again (D3)
+              staffCheckedAt: null,
+              staffCheckedById: null,
               updatedAt: sql`now()`,
             })
             .where(
@@ -1309,16 +1420,14 @@ export const app = new Elysia()
     },
   )
 
-  .get("/api/me", async ({ headers }) => {
-    const user = await getSession(headers);
+  .get("/api/me", async ({ user }) => {
     if (!user) return { user: null };
     return { user };
   })
 
   .patch(
     "/api/me",
-    async ({ headers, body, set }) => {
-      const user = await getSession(headers);
+    async ({ user, body, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -1381,8 +1490,7 @@ export const app = new Elysia()
   // ===== Profile avatar =====
   .post(
     "/api/me/avatar",
-    async ({ body, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ body, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -1474,8 +1582,7 @@ export const app = new Elysia()
     },
   )
 
-  .delete("/api/me/avatar", async ({ headers, set }) => {
-    const user = await getSession(headers);
+  .delete("/api/me/avatar", async ({ user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -1513,8 +1620,7 @@ export const app = new Elysia()
   // ===== Change own password (staff + admin) =====
   .post(
     "/api/me/password",
-    async ({ body, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ body, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -1563,8 +1669,7 @@ export const app = new Elysia()
   )
 
   // ===== Notifications =====
-  .get("/api/notifications", async ({ headers, set }) => {
-    const user = await getSession(headers);
+  .get("/api/notifications", async ({ user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -1578,8 +1683,7 @@ export const app = new Elysia()
       .limit(50);
   })
 
-  .post("/api/notifications/:id/read", async ({ params, headers, set }) => {
-    const user = await getSession(headers);
+  .post("/api/notifications/:id/read", async ({ params, user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -1601,8 +1705,7 @@ export const app = new Elysia()
     return updated;
   })
 
-  .post("/api/notifications/read-all", async ({ headers, set }) => {
-    const user = await getSession(headers);
+  .post("/api/notifications/read-all", async ({ user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -1620,8 +1723,7 @@ export const app = new Elysia()
   })
 
   // ===== Audit log (admin only) =====
-  .get("/api/audit", async ({ headers, set }) => {
-    const user = await getSession(headers);
+  .get("/api/audit", async ({ user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -1631,16 +1733,17 @@ export const app = new Elysia()
       set.status = 403;
       return { error: "admin_only" };
     }
-    return await db
-      .select()
+    const rows = await db
+      .select({ log: auditLogs, actorName: staff.fullName })
       .from(auditLogs)
+      .leftJoin(staff, eq(auditLogs.actorStaffId, staff.id))
       .orderBy(desc(auditLogs.createdAt))
       .limit(200);
+    return rows.map((r) => ({ ...r.log, actorName: r.actorName }));
   })
 
   // ===== Staff management (admin only) =====
-  .get("/api/admin/staff", async ({ headers, set }) => {
-    const user = await getSession(headers);
+  .get("/api/admin/staff", async ({ user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -1667,8 +1770,7 @@ export const app = new Elysia()
 
   .post(
     "/api/admin/staff",
-    async ({ body, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ body, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -1744,8 +1846,7 @@ export const app = new Elysia()
 
   .patch(
     "/api/admin/staff/:id",
-    async ({ params, body, headers, set }) => {
-      const user = await getSession(headers);
+    async ({ params, body, user, set }) => {
       if (!user) {
         set.status = 401;
         return { error: "unauthorized" };
@@ -1875,8 +1976,7 @@ export const app = new Elysia()
   )
 
   // ===== Stats (admin only) =====
-  .get("/api/stats", async ({ headers, set }) => {
-    const user = await getSession(headers);
+  .get("/api/stats", async ({ user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -1887,42 +1987,64 @@ export const app = new Elysia()
       return { error: "admin_only" };
     }
 
-    const all = await db
-      .select({
-        id: requests.id,
-        status: requests.status,
-        faculty: students.major,
-      })
-      .from(requests)
-      .innerJoin(students, eq(requests.studentId, students.studentId));
+    // นับ total + per-status ใน DB แทนที่จะโหลดทุก row มา filter ใน JS
+    const [statusRows, facultyRows] = await Promise.all([
+      db
+        .select({
+          status: requests.status,
+          n: count(requests.id).mapWith(Number),
+        })
+        .from(requests)
+        .groupBy(requests.status),
 
-    const countBy = (status?: string) =>
-      status ? all.filter((r) => r.status === status).length : all.length;
+      db
+        .select({
+          faculty: sql<string>`COALESCE(${students.major}, 'ไม่ระบุ')`,
+          status: requests.status,
+          n: count(requests.id).mapWith(Number),
+        })
+        .from(requests)
+        .innerJoin(students, eq(requests.studentId, students.studentId))
+        .groupBy(sql`COALESCE(${students.major}, 'ไม่ระบุ')`, requests.status),
+    ]);
 
-    const byFacultyMap = new Map<string, { faculty: string; total: number; pending: number; approved: number; rejected: number }>();
+    // total = pending + revisionRequired + approved + rejected (every status has its own field)
+    let total = 0, pending = 0, revisionRequired = 0, approved = 0, rejected = 0;
+    for (const r of statusRows) {
+      total += r.n;
+      if (r.status === "pending") pending = r.n;
+      else if (r.status === "revision_required") revisionRequired = r.n;
+      else if (r.status === "approved") approved = r.n;
+      else if (r.status === "rejected") rejected = r.n;
+    }
 
-    for (const r of all) {
-      const f = r.faculty ?? "ไม่ระบุ";
-      const b = byFacultyMap.get(f) ?? { faculty: f, total: 0, pending: 0, approved: 0, rejected: 0 };
-      b.total++;
-      if (r.status === "pending") b.pending++;
-      else if (r.status === "approved") b.approved++;
-      else b.rejected++;
+    const byFacultyMap = new Map<
+      string,
+      { faculty: string; total: number; pending: number; revisionRequired: number; approved: number; rejected: number }
+    >();
+    for (const r of facultyRows) {
+      const f = r.faculty;
+      const b = byFacultyMap.get(f) ?? { faculty: f, total: 0, pending: 0, revisionRequired: 0, approved: 0, rejected: 0 };
+      b.total += r.n;
+      if (r.status === "pending") b.pending += r.n;
+      else if (r.status === "revision_required") b.revisionRequired += r.n;
+      else if (r.status === "approved") b.approved += r.n;
+      else if (r.status === "rejected") b.rejected += r.n;
       byFacultyMap.set(f, b);
     }
 
     return {
-      total: countBy(),
-      pending: countBy("pending"),
-      approved: countBy("approved"),
-      rejected: countBy("rejected"),
+      total,
+      pending,
+      revisionRequired,
+      approved,
+      rejected,
       byFaculty: [...byFacultyMap.values()],
     };
   })
 
   // ===== Submission stats vs roster (staff + admin) =====
-  .get("/api/stats/submission", async ({ headers, set }) => {
-    const user = await getSession(headers);
+  .get("/api/stats/submission", async ({ user, set }) => {
     if (!user) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -1933,136 +2055,12 @@ export const app = new Elysia()
       return { error: "staff_admin_only" };
     }
 
-    const submittedSub = db
-      .selectDistinct({ studentId: requests.studentId })
-      .from(requests)
-      .as("submitted_students");
-
-    const perMajor = await db
-      .select({
-        major: students.major,
-        total: count(students.studentId).mapWith(Number),
-        submitted: countDistinct(submittedSub.studentId).mapWith(Number),
-      })
-      .from(students)
-      .leftJoin(submittedSub, eq(submittedSub.studentId, students.studentId))
-      .where(
-        and(
-          eq(students.status, "active"),
-          isNull(students.deletedAt),
-        ),
-      )
-      .groupBy(students.major)
-      .orderBy(students.major);
-
-    const groupRows = await db
-      .selectDistinct({
-        major: students.major,
-        groupName: students.groupName,
-      })
-      .from(students)
-      .where(
-        and(
-          eq(students.status, "active"),
-          isNull(students.deletedAt),
-          sql`${students.groupName} is not null`,
-        ),
-      )
-      .orderBy(students.major, students.groupName);
-
-    const groupsByMajor = new Map<string, string[]>();
-    for (const g of groupRows) {
-      const arr = groupsByMajor.get(g.major) ?? [];
-      arr.push(g.groupName as string);
-      groupsByMajor.set(g.major, arr);
-    }
-
-    const byMajor = perMajor.map((m) => ({
-      major: m.major,
-      total: m.total,
-      submitted: m.submitted,
-      notSubmitted: m.total - m.submitted,
-      rate: m.total > 0 ? m.submitted / m.total : 0,
-      groups: groupsByMajor.get(m.major) ?? [],
-    }));
-
-    const total = byMajor.reduce((sum, m) => sum + m.total, 0);
-    const submitted = byMajor.reduce((sum, m) => sum + m.submitted, 0);
-    const notSubmitted = total - submitted;
-    const rate = total > 0 ? submitted / total : 0;
-
-    return { total, submitted, notSubmitted, rate, byMajor };
+    return getSubmissionStats();
   })
 
-  // ===== Not-submitted roster list (staff + admin) =====
-  .get(
-    "/api/roster/not-submitted",
-    async ({ headers, query, set }) => {
-      const user = await getSession(headers);
-      if (!user) {
-        set.status = 401;
-        return { error: "unauthorized" };
-      }
-      const role = user.role;
-      if (role !== "admin" && role !== "staff") {
-        set.status = 403;
-        return { error: "staff_admin_only" };
-      }
-
-      const major = query.major?.trim() || undefined;
-      const group = query.group?.trim() || undefined;
-      const search = query.search?.trim() || undefined;
-      const page = Math.max(1, Number(query.page) || 1);
-      const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 50));
-
-      const submittedSub = db
-        .selectDistinct({ studentId: requests.studentId })
-        .from(requests)
-        .as("submitted_students");
-
-      const conds: any[] = [
-        eq(students.status, "active"),
-        isNull(students.deletedAt),
-        isNull(submittedSub.studentId),
-      ];
-      if (major) conds.push(eq(students.major, major));
-      if (group) conds.push(eq(students.groupName, group));
-      if (search) {
-        const like = `%${search}%`;
-        conds.push(sql`(${students.firstName} || ' ' || ${students.lastName} ILIKE ${like} OR ${students.studentId} ILIKE ${like})`);
-      }
-
-      const where = and(...conds);
-
-      const countRes = await db
-        .select({ n: sql<number>`count(*)` })
-        .from(students)
-        .leftJoin(submittedSub, eq(submittedSub.studentId, students.studentId))
-        .where(where);
-
-      const rows = await db
-        .select({
-          studentId: students.studentId,
-          firstName: students.firstName,
-          lastName: students.lastName,
-          major: students.major,
-          groupName: students.groupName,
-          level: students.level,
-        })
-        .from(students)
-        .leftJoin(submittedSub, eq(submittedSub.studentId, students.studentId))
-        .where(where)
-        .orderBy(students.major, students.groupName, students.studentId)
-        .limit(pageSize)
-        .offset((page - 1) * pageSize);
-
-      return {
-        total: Number(countRes[0]?.n ?? 0),
-        page,
-        pageSize,
-        items: rows,
-      };
-    },
-  );
+  // ===== Submitted / not-submitted roster lists (staff + admin) =====
+  // Both share submission.ts with /api/stats/submission, so list length == card number.
+  .get("/api/roster/not-submitted", submissionListHandler("not_submitted"), submissionListQuery)
+  .get("/api/roster/submitted", submissionListHandler("submitted"), submissionListQuery);
 
 export type App = typeof app;

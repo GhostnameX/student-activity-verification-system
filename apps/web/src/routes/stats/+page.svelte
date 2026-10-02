@@ -1,27 +1,29 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { lang } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
 	import { translate } from '$lib/i18n';
-	import { goto } from '$app/navigation';
 	import {
 		getSubmissionStats,
-		getNotSubmitted,
+		NO_GROUP,
+		type SubmissionState,
 		type SubmissionStats,
-		type MajorSubmissionStats,
-		type RosterStudent,
 	} from '$lib/api';
+	import HorizontalBarChart, { type BarItem } from '$lib/components/HorizontalBarChart.svelte';
+	import SubmissionRoster from '$lib/components/SubmissionRoster.svelte';
+	import StatCard from '$lib/components/StatCard.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 	import {
 		RefreshCw,
 		Users,
 		CircleCheck,
-		CircleX,
 		TrendingUp,
 		LayoutDashboard,
-		ChevronLeft,
 		ChevronRight,
-		Search,
-		X,
 		Clock,
 		UserX,
 	} from 'lucide-svelte';
@@ -30,17 +32,22 @@
 	let loading: boolean = $state(true);
 	let errorMsg: string = $state('');
 
-	let modalOpen: boolean = $state(false);
-	let modalLoading: boolean = $state(false);
-	let filterMajor: string = $state('');
-	let filterGroup: string = $state('');
-	let search: string = $state('');
-	let roster: RosterStudent[] = $state([]);
-	let rosterTotal: number = $state(0);
-	let rosterPage: number = $state(1);
-	const pageSize = 20;
-	let rosterReqId = 0;
-	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+	// Navigation state lives in the URL so the browser back button works:
+	//   /stats                      level 1: bars per major
+	//   /stats?major=M              level 2: bars per group of M
+	//   /stats?major=M&group=G      level 3: student list (G may be the "no group" key)
+	//   /stats?state=submitted      student list from a card (any major), filters adjustable
+	let major = $derived(page.url.searchParams.get('major') ?? '');
+	let group = $derived(page.url.searchParams.get('group') ?? '');
+	let listState = $derived<SubmissionState | ''>(
+		page.url.searchParams.get('state') === 'submitted'
+			? 'submitted'
+			: page.url.searchParams.get('state') === 'not_submitted'
+				? 'not_submitted'
+				: '',
+	);
+	let showRoster = $derived(group !== '' || listState !== '');
+	let selectedMajor = $derived(stats?.byMajor.find((m) => m.major === major) ?? null);
 
 	onMount(async () => {
 		await loadSession();
@@ -50,8 +57,6 @@
 		}
 		await refresh();
 	});
-
-	onDestroy(() => clearTimeout(searchTimer));
 
 	async function refresh() {
 		loading = true;
@@ -65,110 +70,91 @@
 		}
 	}
 
-	function ratePct(rate: number) {
-		return `${Math.round(rate * 100)}%`;
+	function navigate(params: { major?: string; group?: string; state?: string }) {
+		const q = new URLSearchParams();
+		if (params.major) q.set('major', params.major);
+		if (params.group) q.set('group', params.group);
+		if (params.state) q.set('state', params.state);
+		const qs = q.toString();
+		goto(`/stats${qs ? `?${qs}` : ''}`, { noScroll: true, keepFocus: true });
 	}
 
-	async function openModal(major?: string) {
-		filterMajor = major ?? '';
-		filterGroup = '';
-		search = '';
-		rosterPage = 1;
-		modalOpen = true;
-		await loadRoster();
+	function onRosterChange(patch: { view?: SubmissionState; major?: string; group?: string }) {
+		navigate({
+			major: patch.major ?? major,
+			group: patch.group ?? group,
+			state: patch.view ?? (listState || 'not_submitted'),
+		});
 	}
 
-	async function loadRoster() {
-		const reqId = ++rosterReqId;
-		modalLoading = true;
-		try {
-			const res = await getNotSubmitted({
-				major: filterMajor || undefined,
-				group: filterGroup || undefined,
-				search: search || undefined,
-				page: rosterPage,
-				pageSize,
-			});
-			if (reqId !== rosterReqId) return;
-			roster = res.items;
-			rosterTotal = res.total;
-		} catch (e) {
-			if (reqId !== rosterReqId) return;
-			roster = [];
-			rosterTotal = 0;
-			errorMsg = e instanceof Error ? e.message : String(e);
-		} finally {
-			if (reqId === rosterReqId) modalLoading = false;
-		}
+	function groupText(g: string | null) {
+		return g === null
+			? translate($lang, 'ungroupedLabel')
+			: translate($lang, 'groupOf').replace('{group}', g);
 	}
 
-	function onSearchInput() {
-		clearTimeout(searchTimer);
-		searchTimer = setTimeout(() => {
-			rosterPage = 1;
-			loadRoster();
-		}, 350);
+	function valueText(item: BarItem, pct: number) {
+		return translate($lang, 'submittedOfTotal')
+			.replace('{submitted}', String(item.value))
+			.replace('{total}', String(item.total))
+			.replace('{pct}', String(pct));
 	}
 
-	function applySearch() {
-		clearTimeout(searchTimer);
-		rosterPage = 1;
-		loadRoster();
-	}
-
-	function changeMajor() {
-		filterGroup = '';
-		rosterPage = 1;
-		loadRoster();
-	}
-
-	function changeGroup() {
-		rosterPage = 1;
-		loadRoster();
-	}
-
-	async function goPage(p: number) {
-		if (p < 1 || p > totalPages) return;
-		rosterPage = p;
-		await loadRoster();
-	}
-
-	let selectedMajor = $derived(
-		stats?.byMajor.find((m) => m.major === filterMajor) ?? null,
+	let majorBars = $derived<BarItem[]>(
+		(stats?.byMajor ?? []).map((m) => ({
+			key: m.major,
+			label: m.major,
+			value: m.submitted,
+			total: m.total,
+		})),
+	);
+	let groupBars = $derived<BarItem[]>(
+		(selectedMajor?.groupStats ?? []).map((g) => ({
+			key: g.groupName ?? NO_GROUP,
+			label: groupText(g.groupName),
+			value: g.submitted,
+			total: g.total,
+		})),
 	);
 
-	let totalPages = $derived(Math.max(1, Math.ceil(rosterTotal / pageSize)));
-
-	let isFiltered = $derived(filterMajor !== '' || filterGroup !== '' || search !== '');
-
-	function fullName(s: RosterStudent) {
-		return `${s.firstName} ${s.lastName}`;
+	function ratePct(rate: number) {
+		return `${rate >= 1 ? 100 : Math.min(99, Math.round(rate * 100))}%`;
 	}
+
+	let crumbGroupLabel = $derived(
+		group === NO_GROUP ? groupText(null) : group ? groupText(group) : '',
+	);
+	let level = $derived(showRoster ? 3 : major ? 2 : 1);
+
 </script>
 
 <div class="space-y-6">
-	<div class="flex flex-wrap items-center justify-between gap-3">
-		<div>
-			<h1 class="flex items-center gap-2 text-3xl font-extrabold tracking-tight text-ink-900">
-				<LayoutDashboard size={26} class="text-brand-600" />
-				{translate($lang, 'submissionStats')}
-			</h1>
-			<p class="mt-1 text-sm text-ink-500">
-				{stats ? `${stats.total} ${translate($lang, 'studentsUnit')}` : translate($lang, 'stats')}
-			</p>
-		</div>
-		<button
-			onclick={refresh}
-			class="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 shadow-soft transition hover:bg-ink-50"
-		>
-			<RefreshCw size={15} />
-			{translate($lang, 'refresh')}
-		</button>
-	</div>
+	<PageHeader
+		title={translate($lang, 'submissionStats')}
+		subtitle={stats ? `${stats.total} ${translate($lang, 'studentsUnit')}` : translate($lang, 'stats')}
+		icon={LayoutDashboard}
+	>
+		{#snippet actions()}
+			<Button onclick={refresh}>
+				<RefreshCw size={15} aria-hidden="true" />
+				{translate($lang, 'refresh')}
+			</Button>
+		{/snippet}
+	</PageHeader>
 
 	{#if errorMsg}
-		<div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-			{errorMsg}
+		<div
+			class="flex flex-wrap items-center justify-between gap-3 rounded-control border border-rejected-ring bg-rejected-soft px-4 py-3 text-sm text-rejected"
+			role="alert"
+		>
+			<span>{errorMsg}</span>
+			<button
+				onclick={refresh}
+				class="flex min-h-11 items-center gap-1.5 rounded-lg border border-rejected-ring bg-surface px-3 py-1.5 font-semibold"
+			>
+				<RefreshCw size={14} />
+				{translate($lang, 'refresh')}
+			</button>
 		</div>
 	{/if}
 
@@ -179,224 +165,121 @@
 		</div>
 	{:else if stats}
 		<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-			<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
-				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-ink-500 to-ink-700 text-white shadow-soft">
-					<Users size={19} />
-				</div>
-				<p class="text-sm text-ink-500">{translate($lang, 'eligibleStudents')}</p>
-				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{stats.total}</p>
-			</div>
-			<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
-				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-green-700 text-white shadow-soft">
-					<CircleCheck size={19} />
-				</div>
-				<p class="text-sm text-ink-500">{translate($lang, 'submittedCount')}</p>
-				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{stats.submitted}</p>
-			</div>
-			<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
-				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-white shadow-soft">
-					<UserX size={19} />
-				</div>
-				<p class="text-sm text-ink-500">{translate($lang, 'notSubmittedCount')}</p>
-				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{stats.notSubmitted}</p>
-			</div>
-			<div class="rounded-3xl border border-ink-100 bg-surface p-5 shadow-soft transition hover:shadow-lift">
-				<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
-					<TrendingUp size={19} />
-				</div>
-				<p class="text-sm text-ink-500">{translate($lang, 'submissionRate')}</p>
-				<p class="mt-1 text-3xl font-extrabold tracking-tight text-ink-900">{ratePct(stats.rate)}</p>
-			</div>
+			<StatCard
+				label={translate($lang, 'eligibleStudents')}
+				value={stats.total}
+				icon={Users}
+				tone="ink"
+				onclick={() => navigate({})}
+			/>
+			<StatCard
+				label={translate($lang, 'submittedCount')}
+				value={stats.submitted}
+				icon={CircleCheck}
+				tone="green"
+				ariaLabel="{translate($lang, 'viewSubmitted')}: {stats.submitted}"
+				onclick={() => navigate({ state: 'submitted' })}
+			/>
+			<StatCard
+				label={translate($lang, 'notSubmittedCount')}
+				value={stats.notSubmitted}
+				icon={UserX}
+				tone="amber"
+				ariaLabel="{translate($lang, 'viewNotSubmitted')}: {stats.notSubmitted}"
+				onclick={() => navigate({ state: 'not_submitted' })}
+			/>
+			<StatCard
+				label={translate($lang, 'submissionRate')}
+				value={ratePct(stats.rate)}
+				icon={TrendingUp}
+				tone="brand"
+			/>
 		</div>
 
-		<div class="overflow-x-auto rounded-3xl border border-ink-100 bg-surface shadow-soft">
-			<div class="flex items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
-				<h2 class="flex items-center gap-2 text-lg font-bold text-ink-900">
-					<Users size={18} class="text-brand-600" />
-					{translate($lang, 'byMajor')}
-				</h2>
-				<button
-					onclick={() => openModal()}
-					class="flex items-center gap-1.5 rounded-xl bg-ink-900 px-4 py-2 text-sm font-semibold text-ink-50 shadow-soft transition hover:bg-ink-800"
-				>
-					<UserX size={15} />
-					{translate($lang, 'viewNotSubmitted')}
-				</button>
-			</div>
-			<table class="w-full text-left text-sm">
-				<thead class="border-b border-ink-100 bg-ink-50/70 text-xs font-semibold uppercase tracking-wide text-ink-500">
-					<tr>
-						<th class="px-5 py-3.5">{translate($lang, 'major')}</th>
-						<th class="px-5 py-3.5 text-right">{translate($lang, 'eligibleStudents')}</th>
-						<th class="px-5 py-3.5 text-right">{translate($lang, 'submittedCount')}</th>
-						<th class="px-5 py-3.5 text-right">{translate($lang, 'notSubmittedCount')}</th>
-						<th class="px-5 py-3.5 text-right">{translate($lang, 'submissionRate')}</th>
-						<th class="px-5 py-3.5 text-right">{translate($lang, 'actions')}</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each stats.byMajor as m (m.major)}
-						<tr class="border-b border-ink-50 transition last:border-0 hover:bg-ink-50/50">
-							<td class="px-5 py-4 font-medium text-ink-900">{m.major}</td>
-							<td class="px-5 py-4 text-right text-ink-700">{m.total}</td>
-							<td class="px-5 py-4 text-right text-green-600">{m.submitted}</td>
-							<td class="px-5 py-4 text-right text-amber-600">{m.notSubmitted}</td>
-							<td class="px-5 py-4 text-right text-ink-700">{ratePct(m.rate)}</td>
-							<td class="px-5 py-4 text-right">
-								{#if m.notSubmitted > 0}
-									<button
-										onclick={() => openModal(m.major)}
-										class="inline-flex items-center gap-1 rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-xs font-semibold text-ink-700 transition hover:border-brand-300 hover:text-brand-700"
-									>
-										<Search size={13} />
-										{translate($lang, 'viewNotSubmitted')}
-									</button>
-								{:else}
-									<span class="text-xs text-ink-300">-</span>
-								{/if}
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
-</div>
+		{#if level > 1}
+			<nav aria-label={translate($lang, 'breadcrumbLabel')}>
+				<ol class="flex flex-wrap items-center gap-1.5 text-sm">
+					<li>
+						<button
+							type="button"
+							onclick={() => navigate({})}
+							class="min-h-11 rounded-lg px-2 font-medium text-brand-700 hover:bg-brand-50"
+						>
+							{translate($lang, 'allMajors')}
+						</button>
+					</li>
+					{#if major}
+						<li aria-hidden="true"><ChevronRight size={14} class="text-ink-400" /></li>
+						<li>
+							{#if group}
+								<button
+									type="button"
+									onclick={() => navigate({ major })}
+									class="min-h-11 rounded-lg px-2 text-left font-medium text-brand-700 hover:bg-brand-50"
+								>
+									{major}
+								</button>
+							{:else}
+								<span class="break-words px-2 font-semibold text-ink-900" aria-current="page">{major}</span>
+							{/if}
+						</li>
+					{/if}
+					{#if group}
+						<li aria-hidden="true"><ChevronRight size={14} class="text-ink-400" /></li>
+						<li>
+							<span class="px-2 font-semibold text-ink-900" aria-current="page">{crumbGroupLabel}</span>
+						</li>
+					{:else if showRoster}
+						<li aria-hidden="true"><ChevronRight size={14} class="text-ink-400" /></li>
+						<li>
+							<span class="px-2 font-semibold text-ink-900" aria-current="page">
+								{translate($lang, 'rosterTitle')}
+							</span>
+						</li>
+					{/if}
+				</ol>
+			</nav>
+		{/if}
 
-{#if modalOpen}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-		role="dialog"
-		aria-modal="true"
-		tabindex="-1"
-		onkeydown={(e) => { if (e.key === 'Escape') modalOpen = false; }}
-	>
-		<div class="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-surface shadow-lift">
-			<div class="flex items-start justify-between gap-3 border-b border-ink-100 px-6 py-5">
+		{#if showRoster}
+			<SubmissionRoster
+				view={listState || 'not_submitted'}
+				{major}
+				{group}
+				majors={stats.byMajor}
+				onchange={onRosterChange}
+			/>
+		{:else if major && !selectedMajor}
+			<EmptyState message={translate($lang, 'noResults')} />
+		{:else}
+			<section class="space-y-3">
 				<div>
-					<h3 class="flex items-center gap-2 text-lg font-bold text-ink-900">
-						<UserX size={19} class="text-amber-500" />
-						{translate($lang, 'notSubmittedCount')}
-					</h3>
+					<h2 class="flex items-center gap-2 text-lg font-bold text-ink-900">
+						<Users size={18} class="text-brand-600" />
+						{major ? translate($lang, 'chartGroupTitle') : translate($lang, 'chartMajorTitle')}
+					</h2>
 					<p class="mt-0.5 text-sm text-ink-500">
-						{selectedMajor ? selectedMajor.major : translate($lang, 'allMajors')}
-						&middot; {rosterTotal} {translate($lang, 'studentsUnit')}
+						{major ? translate($lang, 'chartGroupHint') : translate($lang, 'chartMajorHint')}
 					</p>
 				</div>
-				<button
-					onclick={() => (modalOpen = false)}
-					class="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700"
-					aria-label={translate($lang, 'cancel')}
-				>
-					<X size={18} />
-				</button>
-			</div>
-
-			<div class="flex flex-wrap items-center gap-3 border-b border-ink-100 px-6 py-4">
-				<div class="relative min-w-52 flex-1">
-					<Search size={15} class="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-					<input
-						bind:value={search}
-						type="text"
-						placeholder={translate($lang, 'searchPlaceholder')}
-						oninput={onSearchInput}
-						onkeydown={(e) => { if (e.key === 'Enter') applySearch(); }}
-						class="w-full rounded-xl border border-ink-200 bg-ink-50 py-2 pl-9 pr-3.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
+				{#if (major ? groupBars : majorBars).length === 0}
+					<EmptyState message={translate($lang, 'noResults')} />
+				{:else if major}
+					<HorizontalBarChart
+						items={groupBars}
+						{valueText}
+						ariaLabel={translate($lang, 'chartGroupTitle')}
+						onselect={(key) => navigate({ major, group: key, state: 'not_submitted' })}
 					/>
-				</div>
-				<select
-					bind:value={filterMajor}
-					onchange={changeMajor}
-					class="rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
-				>
-					<option value="">{translate($lang, 'allMajors')}</option>
-					{#each stats?.byMajor ?? [] as m (m.major)}
-						<option value={m.major}>{m.major}</option>
-					{/each}
-				</select>
-				<select
-					bind:value={filterGroup}
-					onchange={changeGroup}
-					class="rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100"
-				>
-					<option value="">{translate($lang, 'allGroups')}</option>
-					{#each selectedMajor?.groups ?? [] as g (g)}
-						<option value={g}>{translate($lang, 'groupOf').replace('{group}', g)}</option>
-					{/each}
-				</select>
-				<button
-					onclick={applySearch}
-					class="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-ink-50 shadow-soft transition hover:bg-brand-700"
-				>
-					{translate($lang, 'search')}
-				</button>
-			</div>
-
-			<div class="flex-1 overflow-y-auto">
-				{#if modalLoading}
-					<div class="flex items-center gap-2 py-12 text-sm text-ink-500">
-						<Clock size={16} class="animate-spin" />
-						{translate($lang, 'submitting')}
-					</div>
-				{:else if roster.length === 0}
-					<div class="px-6 py-12 text-center text-sm text-ink-500">
-						{isFiltered ? translate($lang, 'noResults') : translate($lang, 'rosterEmpty')}
-					</div>
 				{:else}
-					<div class="overflow-x-auto">
-						<table class="w-full text-left text-sm">
-							<thead class="sticky top-0 border-b border-ink-100 bg-ink-50/90 text-xs font-semibold uppercase tracking-wide text-ink-500 backdrop-blur">
-								<tr>
-									<th class="px-6 py-3">{translate($lang, 'studentId')}</th>
-									<th class="px-6 py-3">{translate($lang, 'nameLabel')}</th>
-									<th class="hidden px-6 py-3 md:table-cell">{translate($lang, 'major')}</th>
-									<th class="hidden px-6 py-3 md:table-cell">{translate($lang, 'group')}</th>
-									<th class="hidden px-6 py-3 lg:table-cell">{translate($lang, 'level')}</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each roster as s (s.studentId)}
-									<tr class="border-b border-ink-50 last:border-0">
-										<td class="whitespace-nowrap px-6 py-3 font-mono text-xs text-ink-600">{s.studentId}</td>
-										<td class="px-6 py-3 font-medium text-ink-900">{fullName(s)}</td>
-										<td class="hidden px-6 py-3 text-ink-600 md:table-cell">{s.major}</td>
-										<td class="hidden px-6 py-3 text-ink-600 md:table-cell">
-											<span class="rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-600">
-												{translate($lang, 'groupOf').replace('{group}', s.groupName)}
-											</span>
-										</td>
-										<td class="hidden px-6 py-3 text-ink-600 lg:table-cell">{s.level}</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
+					<HorizontalBarChart
+						items={majorBars}
+						{valueText}
+						ariaLabel={translate($lang, 'chartMajorTitle')}
+						onselect={(key) => navigate({ major: key })}
+					/>
 				{/if}
-			</div>
-
-			<div class="flex items-center justify-between gap-3 border-t border-ink-100 px-6 py-4">
-				<p class="text-sm text-ink-500">
-					{translate($lang, 'pageInfo').replace('{page}', String(rosterPage)).replace('{total}', String(totalPages))}
-				</p>
-				<div class="flex items-center gap-2">
-					<button
-						onclick={() => goPage(rosterPage - 1)}
-						disabled={rosterPage <= 1}
-						class="flex items-center gap-1 rounded-xl border border-ink-200 bg-surface px-3 py-2 text-sm font-medium text-ink-700 transition enabled:hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
-					>
-						<ChevronLeft size={15} />
-						{translate($lang, 'prev')}
-					</button>
-					<button
-						onclick={() => goPage(rosterPage + 1)}
-						disabled={rosterPage >= totalPages}
-						class="flex items-center gap-1 rounded-xl border border-ink-200 bg-surface px-3 py-2 text-sm font-medium text-ink-700 transition enabled:hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
-					>
-						{translate($lang, 'next')}
-						<ChevronRight size={15} />
-					</button>
-				</div>
-			</div>
-		</div>
-	</div>
-{/if}
+			</section>
+		{/if}
+	{/if}
+</div>

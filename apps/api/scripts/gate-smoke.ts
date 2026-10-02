@@ -1,7 +1,7 @@
 import { app, thaiBuddhistYear, thaiDateParts } from "../src/app";
 import { generateCertificatePDFForEmail } from "../src/certificate";
 import { db, pool } from "@ua/db/client";
-import { students, staff, requests, requestAttachments, requestAttachmentRevisions, attachmentUploads, activities, sessions, notifications, auditLogs, requestCounters, certificateCounters } from "@ua/db/schema";
+import { students, staff, requests, requestAttachments, requestAttachmentRevisions, attachmentUploads, sessions, notifications, auditLogs, requestCounters, certificateCounters } from "@ua/db/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { ensureStaff } from "@ua/db/auth-helpers";
@@ -134,13 +134,12 @@ function extractSessionCookie(res: Response): string {
 let created: {
   students: string[];
   staff: string[];
-  activities: string[];
   requests: string[];
   attachments: string[];
   revisions: string[];
   sessions: string[];
   storagePaths: string[];
-} = { students: [], staff: [], activities: [], requests: [], attachments: [], revisions: [], sessions: [], storagePaths: [] };
+} = { students: [], staff: [], requests: [], attachments: [], revisions: [], sessions: [], storagePaths: [] };
 
 // counter rows captured before the run so cleanup can restore them exactly
 let countersSnapshot: { request: { year: number; lastNumber: number }[]; certificate: { year: number; lastNumber: number }[] } = { request: [], certificate: [] };
@@ -178,7 +177,6 @@ async function cleanupCreated(errors: string[]) {
   }
   const stuIds = created.students.filter((id): id is string => !!id);
   const staffIds = created.staff.filter((id): id is string => !!id);
-  const actIds = created.activities.filter((id): id is string => !!id);
   if (stuIds.length) {
     await hush("delete auditLogs(student actor)", db.delete(auditLogs).where(inArray(auditLogs.actorStudentId, stuIds)), errors);
     await hush("delete notifications(student)", db.delete(notifications).where(inArray(notifications.studentId, stuIds)), errors);
@@ -193,7 +191,6 @@ async function cleanupCreated(errors: string[]) {
   if (stuIds.length) {
     await hush("delete attachment uploads(student)", db.delete(attachmentUploads).where(inArray(attachmentUploads.studentId, stuIds)), errors);
   }
-  if (actIds.length) await hush("delete activities", db.delete(activities).where(inArray(activities.id, actIds)), errors);
   if (staffIds.length) await hush("delete staff", db.delete(staff).where(inArray(staff.id, staffIds)), errors);
   if (stuIds.length) await hush("delete students", db.delete(students).where(inArray(students.studentId, stuIds)), errors);
   if (created.sessions.length) await hush("delete sessions", db.delete(sessions).where(inArray(sessions.id, created.sessions)), errors);
@@ -269,7 +266,6 @@ async function collectResidue(): Promise<string[]> {
   const reqIds = created.requests.filter((id): id is string => !!id);
   const stuIds = created.students.filter((id): id is string => !!id);
   const staffIds = created.staff.filter((id): id is string => !!id);
-  const actIds = created.activities.filter((id): id is string => !!id);
   const storagePaths = created.storagePaths.filter((path): path is string => !!path);
   const attIdSet = new Set(created.attachments.filter((id): id is string => !!id));
   if (reqIds.length) {
@@ -283,7 +279,6 @@ async function collectResidue(): Promise<string[]> {
   const attIds = [...attIdSet];
   await countRows("students", db.select().from(students).where(inArray(students.studentId, stuIds)), leftover);
   await countRows("staff", db.select().from(staff).where(inArray(staff.id, staffIds)), leftover);
-  await countRows("activities", db.select().from(activities).where(inArray(activities.id, actIds)), leftover);
   await countRows("requests", db.select().from(requests).where(inArray(requests.id, reqIds)), leftover);
   await countRows("attachments", db.select().from(requestAttachments).where(inArray(requestAttachments.id, attIds)), leftover);
   await countRows("revisions", db.select().from(requestAttachmentRevisions).where(inArray(requestAttachmentRevisions.attachmentId, attIds)), leftover);
@@ -362,7 +357,7 @@ async function main(): Promise<number> {
     countersCaptured = true;
 
     // GATE_SMOKE_SIMULATE_CRASH=1: prove cleanup still runs on crash. Seed a
-    // partial setup (student + staff + activity) and bump request_counters,
+    // partial setup (student + staff) and bump request_counters,
     // then throw — the finally block must wipe it all and restore counters.
     if (simulateCrash) {
       const cr = randomUUID().slice(0, 6);
@@ -379,20 +374,10 @@ async function main(): Promise<number> {
       created.students.push(sid);
       const crashStaff = await ensureStaff({ fullName: "Gate Crash", role: "staff", password: PASSWORD, staffCode: `gate-crash-${cr}` });
       created.staff.push(crashStaff.user.id);
-      const crashAct = await db.insert(activities).values({
-        title: `Gate Crash Activity ${cr}`,
-        titleEn: `Gate Crash Activity ${cr}`,
-        type: "activity",
-        organizer: "Gate",
-        date: new Date(),
-        location: "พิษณุโลก",
-        description: "tmp",
-      }).returning();
-      created.activities.push(crashAct[0].id);
       const crashYear = thaiBuddhistYear(new Date());
       await db.insert(requestCounters).values({ year: crashYear, lastNumber: 1 })
         .onConflictDoUpdate({ target: requestCounters.year, set: { lastNumber: sql`${requestCounters.lastNumber} + 1` } });
-      crashExpected = `GATE_SMOKE_SIMULATE_CRASH after partial setup (${sid}) — cleanup must remove student/staff/activity and restore request_counters`;
+      crashExpected = `GATE_SMOKE_SIMULATE_CRASH after partial setup (${sid}) — cleanup must remove student/staff and restore request_counters`;
       throw new SimulatedCrash(crashExpected);
     }
 
@@ -498,17 +483,9 @@ async function main(): Promise<number> {
   const staffMe = await api("/api/me", { cookie: `ua_session=${cookieStaff}` });
   record("3c-staff-session-identity", staffMe.status === 200 && staffMe.json?.user?.staffCode === plainStaff.user.staffCode && !("email" in (staffMe.json?.user ?? {})), `status=${staffMe.status} code=${staffMe.json?.user?.staffCode}`);
 
-  // --- 3d. staff request API → 403 ---
+  // --- 3d. staff request API: read-only (round 2, D1) ---
   const staffList = await api("/api/requests", { cookie: `ua_session=${cookieStaff}` });
-  record("3d-staff-list-403", staffList.status === 403 && staffList.json?.error === "staff_cannot_access", `status=${staffList.status}`);
-
-  // --- 3e. admin can create activity ---
-  const actRes = await api("/api/activities", {
-    method: "POST", cookie: `ua_session=${cookieAdmin}`,
-    body: { title: `${prefix} กิจกรรมทดสอบ`, titleEn: `${prefix} Test Activity`, type: "อบรม", organizer: "Gate Lab", date: "2026-09-30T00:00:00.000Z", location: "ห้องทดสอบ" },
-  });
-  created.activities.push(actRes.json?.id);
-  record("3e-admin-create-activity", actRes.status === 200 && !!actRes.json?.id, `status=${actRes.status}`);
+  record("3d-staff-list-readonly", staffList.status === 200 && Array.isArray(staffList.json), `status=${staffList.status}`);
 
   // --- upload from student ---
   const uploadedA1 = await uploadAttachment(cookieA, 1);
@@ -579,17 +556,16 @@ async function main(): Promise<number> {
   // ==========================================================
   // Verify 5: Slot validation (create)
   // ==========================================================
-  const activityId = actRes.json.id;
   const badSlots = [0, -1, 3, 99];
   for (const s of badSlots) {
-    const r = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [{ slot: s, fileName: "x.png", fileType: "image/png", fileSize: 100, storagePath: "requests/x" }] } });
+    const r = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [{ slot: s, fileName: "x.png", fileType: "image/png", fileSize: 100, storagePath: "requests/x" }] } });
     record(`5-invalid-slot-${s}`, r.status === 400 && r.json?.error === "slot_must_be_1_or_2", `status=${r.status} err=${r.json?.error}`);
   }
-  const dupSlot = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [{ slot: 1, fileName: "a.png", fileType: "image/png", fileSize: 100, storagePath: "requests/a" }, { slot: 1, fileName: "b.png", fileType: "image/png", fileSize: 100, storagePath: "requests/b" }] } });
+  const dupSlot = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [{ slot: 1, fileName: "a.png", fileType: "image/png", fileSize: 100, storagePath: "requests/a" }, { slot: 1, fileName: "b.png", fileType: "image/png", fileSize: 100, storagePath: "requests/b" }] } });
   record("5-dup-slot", dupSlot.status === 400 && dupSlot.json?.error === "duplicate_slot", `status=${dupSlot.status} err=${dupSlot.json?.error}`);
-  const noSlot1 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [{ slot: 2, fileName: "a.png", fileType: "image/png", fileSize: 100, storagePath: "requests/a" }] } });
+  const noSlot1 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [{ slot: 2, fileName: "a.png", fileType: "image/png", fileSize: 100, storagePath: "requests/a" }] } });
   record("5-missing-slot1", noSlot1.status === 400 && noSlot1.json?.error === "slot1_required", `status=${noSlot1.status} err=${noSlot1.json?.error}`);
-  const emptySlot1 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [] } });
+  const emptySlot1 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [] } });
   record("5-empty-attachments-slot1-required", emptySlot1.status === 400 && emptySlot1.json?.error === "slot1_required", `status=${emptySlot1.status} err=${emptySlot1.json?.error}`);
 
   // ==========================================================
@@ -604,11 +580,11 @@ async function main(): Promise<number> {
   };
   const countBeforeOwnershipFailures = await countStudentRequests();
   const fakePath = `requests/${randomUUID()}.png`;
-  const fakePathReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [{ slot: 1, fileName: "fake.png", fileType: "image/png", fileSize: 68, storagePath: fakePath }] } });
+  const fakePathReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [{ slot: 1, fileName: "fake.png", fileType: "image/png", fileSize: 68, storagePath: fakePath }] } });
   record("8a-fake-path-rejected", fakePathReq.status === 400 && fakePathReq.json?.error === "attachment_ownership_invalid" && fakePathReq.json?.slot === 1, `status=${fakePathReq.status} err=${fakePathReq.json?.error}`);
 
   const uploadedB = await uploadAttachment(cookieB, 1, "student-b.png");
-  const crossOwnerReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [uploadedB.attachment] } });
+  const crossOwnerReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [uploadedB.attachment] } });
   const [crossOwnerLedger] = await db.select().from(attachmentUploads).where(eq(attachmentUploads.storagePath, uploadedB.attachment.storagePath));
   record("8b-cross-owner-path-rejected", crossOwnerReq.status === 400 && crossOwnerReq.json?.error === "attachment_ownership_invalid" && crossOwnerLedger?.consumedAt == null, `status=${crossOwnerReq.status} err=${crossOwnerReq.json?.error} unconsumed=${crossOwnerLedger?.consumedAt == null}`);
   const countAfterOwnershipFailures = await countStudentRequests();
@@ -619,7 +595,7 @@ async function main(): Promise<number> {
   // ==========================================================
   const pathA = upRes.json.storagePath;
   const uploadedA2 = await uploadAttachment(cookieA, 2, "proof2.png");
-  const createdReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [
+  const createdReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [
     { slot: 1, fileName: "spoofed.exe", fileType: "application/octet-stream", fileSize: 1, storagePath: pathA },
     uploadedA2.attachment,
   ] } });
@@ -634,12 +610,12 @@ async function main(): Promise<number> {
   const canonicalA1 = dbAtts.find((a) => a.slot === 1);
   record("8c-server-metadata-canonical", canonicalA1?.fileName === "proof.png" && canonicalA1.fileType === "image/png" && canonicalA1.fileSize === pngBytes.byteLength, `name=${canonicalA1?.fileName} type=${canonicalA1?.fileType} size=${canonicalA1?.fileSize}`);
 
-  const reuseReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [uploadedA1.attachment] } });
+  const reuseReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [uploadedA1.attachment] } });
   const countAfterReuse = await countStudentRequests();
   record("8d-consumed-path-rejected", reuseReq.status === 400 && reuseReq.json?.error === "attachment_ownership_invalid" && countAfterReuse === countAfterOwnershipFailures + 1, `status=${reuseReq.status} err=${reuseReq.json?.error} requests=${countAfterReuse}`);
 
   const concurrentUpload = await uploadAttachment(cookieA, 1, "concurrent.png");
-  const concurrentBody = { activityId, attachments: [concurrentUpload.attachment] };
+  const concurrentBody = { attachments: [concurrentUpload.attachment] };
   const concurrentResults = await Promise.all([
     api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: concurrentBody }),
     api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: concurrentBody }),
@@ -681,7 +657,7 @@ async function main(): Promise<number> {
   const otherStudentSigned = await api(signedPath, { cookie: `ua_session=${cookieB}` });
   record("13-other-student-signed-url-403", otherStudentSigned.status === 403 && otherStudentSigned.json?.error === "forbidden", `status=${otherStudentSigned.status} err=${otherStudentSigned.json?.error}`);
   const staffSigned = await api(signedPath, { cookie: `ua_session=${cookieStaff}` });
-  record("13-staff-signed-url-403", staffSigned.status === 403 && staffSigned.json?.error === "staff_cannot_access", `status=${staffSigned.status} err=${staffSigned.json?.error}`);
+  record("13-staff-signed-url", staffSigned.status === 200 && staffSigned.json?.expiresIn === 600, `status=${staffSigned.status} err=${staffSigned.json?.error}`);
   const anonSigned = await api(signedPath);
   record("13-anon-signed-url-401", anonSigned.status === 401 && anonSigned.json?.error === "unauthorized", `status=${anonSigned.status}`);
   const mismatchedRevision = await api(`${signedPath}?revisionId=${otherRev.id}`, { cookie: `ua_session=${cookieA}` });
@@ -751,7 +727,7 @@ async function main(): Promise<number> {
   const legacyReqId = randomUUID();
   const legacyAttId = randomUUID();
   const legacyRevId = randomUUID();
-  await db.insert(requests).values({ id: legacyReqId, studentId: activeA.studentId, activityId, status: "revision_required", updatedAt: now }).onConflictDoNothing({});
+  await db.insert(requests).values({ id: legacyReqId, studentId: activeA.studentId, status: "revision_required", updatedAt: now }).onConflictDoNothing({});
   await db.insert(requestAttachments).values({ id: legacyAttId, requestId: legacyReqId, slot: 3, fileName: "legacy.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` });
   await db.insert(requestAttachmentRevisions).values({ id: legacyRevId, attachmentId: legacyAttId, revisionNumber: 1, fileName: "legacy.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png`, revisionState: "unchanged" });
   await db.update(requestAttachments).set({ currentRevisionId: legacyRevId }).where(eq(requestAttachments.id, legacyAttId));
@@ -770,7 +746,7 @@ async function main(): Promise<number> {
   // rollback test: flag both slots on a fresh request; resubmit replaces only slot1 → must fail & roll everything back
   const rollUpload1 = await uploadAttachment(cookieA, 1, "roll-a.png");
   const rollUpload2 = await uploadAttachment(cookieA, 2, "roll-b.png");
-  const rollReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [
+  const rollReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [
     rollUpload1.attachment,
     rollUpload2.attachment,
   ] } });
@@ -814,7 +790,7 @@ async function main(): Promise<number> {
 
   // approve from revision_required (use legacyReq? it's pending; create a fresh one and flag it)
   const guardUpload = await uploadAttachment(cookieA, 1, "guard.png");
-  const guardReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [guardUpload.attachment] } });
+  const guardReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [guardUpload.attachment] } });
   const guardReqId = guardReq.json?.id;
   created.requests.push(guardReqId);
   await api(`/api/requests/${guardReqId}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1] } });
@@ -840,7 +816,7 @@ async function main(): Promise<number> {
 
   // approve from pending → ok + current revisions approved (atomic)
   const approveUpload = await uploadAttachment(cookieA, 1, "approve.png");
-  const approveReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: [approveUpload.attachment] } });
+  const approveReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [approveUpload.attachment] } });
   const approveReqId = approveReq.json?.id;
   created.requests.push(approveReqId);
   const approveRes = await api(`/api/requests/${approveReqId}/approve`, { method: "POST", cookie: `ua_session=${cookieAdmin}` });
@@ -860,7 +836,7 @@ async function main(): Promise<number> {
   record("6-exclusive-detail-b-forbidden", otherDetail.status === 403, `status=${otherDetail.status} err=${otherDetail.json?.error}`);
 
   const staffDetail = await api(`/api/requests/${reqId}`, { cookie: `ua_session=${cookieStaff}` });
-  record("6-staff-detail-403", staffDetail.status === 403 && staffDetail.json?.error === "staff_cannot_access", `status=${staffDetail.status}`);
+  record("6-staff-detail-readonly", staffDetail.status === 200 && staffDetail.json?.student?.email === null, `status=${staffDetail.status}`);
 
   const patchOther = await api(`/api/requests/${reqId}`, { method: "PATCH", cookie: `ua_session=${cookieB}`, body: { note: "hacked" } });
   record("6-patch-other-403", patchOther.status === 403, `status=${patchOther.status} err=${patchOther.json?.error}`);
@@ -970,8 +946,8 @@ async function main(): Promise<number> {
   const rnRe = /^\d{3,}\/\d{4}$/; // sequence padded to ≥3 digits + Buddhist year
 
   // 10a. create returns requestNumber; seq persisted, unique per request
-  const rn1 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: await creating(1) } });
-  const rn2 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: await creating(1) } });
+  const rn1 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: await creating(1) } });
+  const rn2 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: await creating(1) } });
   created.requests.push(rn1.json?.id, rn2.json?.id);
   const rn1num = rn1.json?.requestNumber as string | undefined;
   const rn2num = rn2.json?.requestNumber as string | undefined;
@@ -987,7 +963,7 @@ async function main(): Promise<number> {
 
   // 10c. reject → next submit gets a NEW seq (no reuse)
   const rn2Reject = await api(`/api/requests/${rn2.json?.id}/reject`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { reason: "rn test" } });
-  const rn3 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { activityId, attachments: await creating(1) } });
+  const rn3 = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: await creating(1) } });
   created.requests.push(rn3.json?.id);
   const rn2Db = (await db.select().from(requests).where(eq(requests.id, rn2.json?.id)))[0];
   const rn3Db = (await db.select().from(requests).where(eq(requests.id, rn3.json?.id)))[0];
@@ -1012,7 +988,7 @@ async function main(): Promise<number> {
   const legacyRnId = randomUUID();
   const legacyRnAttId = randomUUID();
   const legacyRnRevId = randomUUID();
-  await db.insert(requests).values({ id: legacyRnId, studentId: activeA.studentId, activityId, status: "pending", updatedAt: now }).onConflictDoNothing({});
+  await db.insert(requests).values({ id: legacyRnId, studentId: activeA.studentId, status: "pending", updatedAt: now }).onConflictDoNothing({});
   await db.insert(requestAttachments).values({ id: legacyRnAttId, requestId: legacyRnId, slot: 1, fileName: "legacy.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png` });
   await db.insert(requestAttachmentRevisions).values({ id: legacyRnRevId, attachmentId: legacyRnAttId, revisionNumber: 1, fileName: "legacy.png", fileType: "image/png", fileSize: 100, storagePath: `requests/${randomUUID()}.png`, revisionState: "unchanged" });
   await db.update(requestAttachments).set({ currentRevisionId: legacyRnRevId }).where(eq(requestAttachments.id, legacyRnAttId));
@@ -1027,17 +1003,17 @@ async function main(): Promise<number> {
     requestYear: rn3Approved.requestYear,
     certificateNumber: rn3Approved.certificateNumber,
     certificateYear: rn3Approved.certificateYear,
-    location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: 2569,
+    location: "พิษณุโลก",
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
-    approved: true, reason: null, reviewedDate: "01/01/2569",
+    approved: true, reason: null, submittedAt: new Date("2026-01-01T03:00:00Z"), reviewedAt: new Date("2026-01-02T03:00:00Z"),
   });
   const pdfLegacy = await generateCertificatePDFForEmail({
     requestNumber: legacyRnDb.certificateNumber,
     requestYear: legacyRnDb.certificateYear,
     certificateYear: legacyRnDb.certificateYear,
-    location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: 2569,
+    location: "พิษณุโลก",
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
-    approved: true, reason: null, reviewedDate: "01/01/2569",
+    approved: true, reason: null, submittedAt: new Date("2026-01-01T03:00:00Z"), reviewedAt: new Date("2026-01-02T03:00:00Z"),
   });
   record("10f-pdf-filename-cert-number", pdfNew.filename.includes(`_${rn3Approved.certificateNumber}_`) && pdfLegacy.filename.includes(`_${legacyRnDb.certificateNumber}_`) && !pdfNew.filename.includes(`_${rn3Approved.requestSequence}_`), `new=${pdfNew.filename} legacy=${pdfLegacy.filename}`);
 
@@ -1076,7 +1052,7 @@ async function main(): Promise<number> {
   const crossRequest = await withFixedNow(crossSubmitIso, () => api("/api/requests", {
     method: "POST",
     cookie: `ua_session=${cookieA}`,
-    body: { activityId, attachments: crossAttachments },
+    body: { attachments: crossAttachments },
   }));
   created.requests.push(crossRequest.json?.id);
   const crossBefore = (await db.select().from(requests).where(eq(requests.id, crossRequest.json?.id)))[0];
@@ -1100,13 +1076,13 @@ async function main(): Promise<number> {
     requestYear: crossAfter.requestYear,
     certificateNumber: crossAfter.certificateNumber,
     certificateYear: crossAfter.certificateYear,
-    location: "พิษณุโลก", dateDay: 1, dateMonth: "มกราคม", dateYear: crossAfter.certificateYear,
+    location: "พิษณุโลก",
     studentName: "Gate Active", studentId: activeA.studentId, faculty: activeA.major, phone: null,
-    approved: true, reason: null, reviewedDate: "01/01/2569",
+    approved: true, reason: null, submittedAt: new Date("2026-01-01T03:00:00Z"), reviewedAt: new Date("2026-01-02T03:00:00Z"),
   });
   const crossPdfBytes = Buffer.from(crossPdf.content, "base64");
   const paintedRequest = await inspectPaintedRequestNumber(crossPdfBytes);
-  const expectedPaintedRequest = `${crossAfter.requestSequence}/${crossAfter.requestYear}`;
+  const expectedPaintedRequest = `${crossAfter.requestSequence}`;
   record("11c-cross-year-pdf",
     crossPdfBytes.subarray(0, 5).toString() === "%PDF-"
     && crossPdfBytes.length > 10_000

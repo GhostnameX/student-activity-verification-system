@@ -96,6 +96,11 @@ export const requests = pgTable(
     certificateYear: integer("certificate_year"),
     reviewedById: text("reviewed_by_id").references(() => staff.id),
     reviewedAt: timestamp("reviewed_at"),
+    // Staff document check (round 2, D2): separate from the admin decision above.
+    staffCheckedAt: timestamp("staff_checked_at", { withTimezone: true }),
+    staffCheckedById: text("staff_checked_by_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
     submittedAt: timestamp("submitted_at")
       .default(sql`now()`)
       .notNull(),

@@ -33,6 +33,7 @@ import {
   BindRateLimiter,
   clearOauthBindCookieString,
   generateBindToken,
+  emailMatchesStudentId,
   hashBindToken,
   isBindSessionUsable,
   normalizeThaiPhone,
@@ -363,23 +364,27 @@ export function createAuth(stateStore: OAuthStateStore = oauthStateStore) {
             return { kind: "sessionInvalid" as const };
           }
 
-          const found = await tx
-            .select()
-            .from(students)
-            .where(eq(students.studentId, studentId))
-            .limit(1);
+          // The Google email must be <studentId>@psru.ac.th. Checked before the roster
+          // lookup so the answer never depends on whether the student exists, and a
+          // mismatch burns an attempt exactly like an unknown student does.
+          const emailMatches = emailMatchesStudentId(bind.email, studentId);
+
+          const found = emailMatches
+            ? await tx.select().from(students).where(eq(students.studentId, studentId)).limit(1)
+            : [];
           const student = found[0];
           // One generic error for not-found / inactive / soft-deleted: which of
           // the three it was must not be observable, otherwise this endpoint
           // enumerates the roster. Retries are allowed but capped.
-          if (!student || student.status !== "active" || student.deletedAt) {
+          if (!emailMatches || !student || student.status !== "active" || student.deletedAt) {
             const attempts = bind.attempts + 1;
             const exhausted = attempts >= BIND_MAX_ATTEMPTS;
             await tx
               .update(oauthBindSessions)
               .set({ attempts, usedAt: exhausted ? new Date() : null })
               .where(eq(oauthBindSessions.id, bind.id));
-            return { kind: exhausted ? ("tooManyAttempts" as const) : ("invalidStudent" as const) };
+            if (exhausted) return { kind: "tooManyAttempts" as const };
+            return { kind: emailMatches ? ("invalidStudent" as const) : ("emailMismatch" as const) };
           }
 
           // students.email must still be NULL. The conditional UPDATE is the real
@@ -445,6 +450,10 @@ export function createAuth(stateStore: OAuthStateStore = oauthStateStore) {
         set.status = 429;
         appendSetCookie(set.headers, clearOauthBindCookieString(SECURE_COOKIES));
         return { error: BIND_ERRORS.tooManyAttempts };
+      }
+      if (outcome.kind === "emailMismatch") {
+        set.status = 403;
+        return { error: BIND_ERRORS.emailStudentMismatch };
       }
       if (outcome.kind === "emailAlreadyBound") {
         set.status = 409;

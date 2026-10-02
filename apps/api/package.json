@@ -9,7 +9,11 @@
     "build": "bun build src/index.ts --target bun --outdir dist",
     "build:check": "bun run build && bun scripts/check-dev-bypass.ts",
     "test:oauth-security": "bun test scripts/oauth-security.test.ts scripts/oauth-flow.security.test.ts scripts/google-bind.security.test.ts",
+    "test:certificate": "bun test scripts/certificate-format.test.ts",
+    "dev:round2": "bun scripts/with-dev-round2.ts",
     "test:roster": "bun scripts/with-test-db.ts",
+    "test:requests": "bun scripts/with-test-db.ts requests",
+    "test:stats": "bun scripts/with-test-db.ts stats",
     "test:roster-import": "bun scripts/with-test-db.ts roster-import",
     "test:gate-smoke": "bun scripts/with-test-db.ts gate-smoke",
     "storage:private-request-attachments": "bun scripts/configure-private-request-attachments.ts"

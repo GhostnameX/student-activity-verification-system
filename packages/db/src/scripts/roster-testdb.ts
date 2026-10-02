@@ -6,7 +6,7 @@
  * dev database `ua_dev` is a pre-roster snapshot and must not be migrated, so
  * the tests run against a throwaway clone:
  *
- *   setup     clone ua_dev -> ua_roster_test, apply 0016 + 0017 + 0018 only
+ *   setup     clone ua_dev -> ua_roster_test, apply 0016 through 0021 only
  *   teardown  drop ua_roster_test
  *   fingerprint  print a schema + row-count digest of a database
  *
@@ -14,7 +14,7 @@
  * - The source MUST be a loopback host and the database MUST be named `ua_dev`.
  *   Any other value aborts, so this script can never touch a remote/production
  *   database.
- * - Only 0016, 0017 and 0018 are applied, explicitly, by file. The migration chain is
+ * - Only 0016 through 0021 are applied, explicitly, by file. The migration chain is
  *   never replayed and `drizzle-kit migrate` is never used, so `ua_dev` keeps
  *   its exact schema.
  * - The target database name is a constant and is never taken from the caller.
@@ -37,15 +37,19 @@ const TARGET_DATABASE = "ua_roster_test";
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 /**
- * Applied in this exact order. These are the only three files this script is
+ * Applied in this exact order. These are the only six files this script is
  * allowed to execute: 0016 adds roster soft delete / import / bind tables on
  * top of the 0015 schema, 0017 adds the bind attempt counter, and 0018 removes
- * the obsolete staff email identity.
+ * the obsolete staff email identity, 0019 removes the legacy Activities entity,
+ * 0020 adds durable OAuth login state, and 0021 adds the staff document check columns.
  */
 const MIGRATIONS_TO_APPLY = [
   "0016_roster_soft_delete_import_bind.sql",
   "0017_oauth_bind_attempt_limit.sql",
   "0018_remove_staff_email.sql",
+  "0019_remove_legacy_activities.sql",
+  "0020_durable_oauth_login_state.sql",
+  "0021_staff_document_check.sql",
 ] as const;
 
 // scripts/ -> src/ -> db/ -> packages/ -> repo root

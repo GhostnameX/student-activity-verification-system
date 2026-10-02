@@ -3,6 +3,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
+	/* Thai-first: IBM Plex Sans Thai for Thai glyphs, Inter for Latin/digits. */
 	--font-sans:
 		'Inter', 'IBM Plex Sans Thai', 'Noto Sans Thai', ui-sans-serif, system-ui, sans-serif;
 
@@ -17,20 +18,47 @@
 	--color-brand-800: #1929b8;
 	--color-brand-900: #1b2a90;
 	--color-brand-950: #151b57;
+	/* Filled buttons (white text): >= 4.5:1 in both themes. */
+	--color-brand-solid: #1e40f7;
+	--color-brand-solid-hover: #172fe3;
 
 	--color-ink-50: #f6f7fb;
 	--color-ink-100: #eceef5;
 	--color-ink-200: #d5d9e8;
 	--color-ink-300: #b0b8d2;
-	--color-ink-400: #8690b6;
-	--color-ink-500: #68729f;
-	--color-ink-600: #525a83;
+	/* 400/500/600 are text colours: >= 4.5:1 on white and >= 4.5:1 on ink-50 */
+	--color-ink-400: #5f698f;
+	--color-ink-500: #565f88;
+	--color-ink-600: #4a5176;
 	--color-ink-700: #43496b;
 	--color-ink-800: #3a3e59;
 	--color-ink-900: #34374b;
 	--color-ink-950: #1c1e2c;
 
 	--color-surface: #ffffff;
+
+	/* Status colours (text on soft background >= 6.8:1 in light, >= 8:1 in dark). */
+	--color-pending: #92400e;
+	--color-pending-soft: #fffbeb;
+	--color-pending-ring: #fcd34d;
+	--color-revision: #9a3412;
+	--color-revision-soft: #fff7ed;
+	--color-revision-ring: #fdba74;
+	--color-approved: #166534;
+	--color-approved-soft: #f0fdf4;
+	--color-approved-ring: #86efac;
+	--color-rejected: #991b1b;
+	--color-rejected-soft: #fef2f2;
+	--color-rejected-ring: #fca5a5;
+	--color-checked: #075985;
+	--color-checked-soft: #f0f9ff;
+	--color-checked-ring: #7dd3fc;
+	/* chart fill / track */
+	--color-bar-fill: #16a34a;
+	--color-bar-track: #fef3c7;
+
+	--radius-control: 0.75rem;
+	--radius-card: 1.5rem;
 
 	--shadow-soft: 0 1px 2px rgb(28 30 44 / 0.04), 0 8px 24px -12px rgb(28 30 44 / 0.14);
 	--shadow-lift: 0 2px 4px rgb(28 30 44 / 0.05), 0 16px 40px -16px rgb(28 30 44 / 0.25);
@@ -48,13 +76,15 @@
 	--color-brand-800: #b0c5ff;
 	--color-brand-900: #d7e1ff;
 	--color-brand-950: #edf2ff;
+	--color-brand-solid: #3450d6;
+	--color-brand-solid-hover: #2f4bd0;
 
 	--color-ink-50: #14161f;
 	--color-ink-100: #1c1f2b;
 	--color-ink-200: #272b3b;
 	--color-ink-300: #383e54;
-	--color-ink-400: #5a6280;
-	--color-ink-500: #8b94b5;
+	--color-ink-400: #858eb0;
+	--color-ink-500: #9aa2c2;
 	--color-ink-600: #aeb5cf;
 	--color-ink-700: #c9cee1;
 	--color-ink-800: #e2e5f0;
@@ -63,12 +93,36 @@
 
 	--color-surface: #1c1f2b;
 
+	--color-pending: #fcd34d;
+	--color-pending-soft: #3a2e0f;
+	--color-pending-ring: #6b5316;
+	--color-revision: #fdba74;
+	--color-revision-soft: #3b2312;
+	--color-revision-ring: #6e4020;
+	--color-approved: #86efac;
+	--color-approved-soft: #12301d;
+	--color-approved-ring: #21643a;
+	--color-rejected: #fca5a5;
+	--color-rejected-soft: #3b1616;
+	--color-rejected-ring: #7a2c2c;
+	--color-checked: #7dd3fc;
+	--color-checked-soft: #0f2a3a;
+	--color-checked-ring: #1f5a7a;
+	--color-bar-fill: #22c55e;
+	--color-bar-track: #3a2e0f;
+
 	--shadow-soft: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -12px rgb(0 0 0 / 0.5);
 	--shadow-lift: 0 2px 4px rgb(0 0 0 / 0.35), 0 16px 40px -16px rgb(0 0 0 / 0.6);
 }
 
 html {
 	scroll-behavior: smooth;
+}
+
+/* Visible keyboard focus everywhere; mouse clicks do not show it. */
+:focus-visible {
+	outline: 3px solid var(--color-brand-500);
+	outline-offset: 2px;
 }
 
 body {

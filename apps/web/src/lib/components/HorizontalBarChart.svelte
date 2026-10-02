@@ -11,6 +11,7 @@
 
 <script lang="ts">
 	import { ChevronRight } from 'lucide-svelte';
+	import { displayPercent } from '$lib/percent';
 
 	interface Props {
 		items: BarItem[];
@@ -22,11 +23,9 @@
 
 	let { items, valueText, ariaLabel, onselect }: Props = $props();
 
+	// One shared rule for every percentage on the site: see $lib/percent.
 	function percentOf(item: BarItem): number {
-		if (item.total <= 0) return 0;
-		if (item.value >= item.total) return 100;
-		// Never show 100% while someone is still missing.
-		return Math.min(99, Math.round((item.value / item.total) * 100));
+		return displayPercent(item.value, item.total);
 	}
 </script>
 

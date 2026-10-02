@@ -9,6 +9,25 @@
 
 ---
 
+## 0. ขั้นแรกสุด: ตรวจว่า production รัน migration ไหนไปแล้ว (อ่านอย่างเดียว)
+
+**ห้ามเริ่ม §3–§6 จนกว่าจะรู้ผลข้อนี้** `origin/main` มี migration 0016–0020 ในโฟลเดอร์แล้ว (เนื้อหาตรงกับ branch นี้ byte ต่อ byte; branch นี้เพิ่มแค่ 0021) แต่ "มีไฟล์ใน main" ไม่ได้แปลว่า production DB รันแล้ว — production ไม่เคยใช้ `drizzle-kit migrate` จึงไม่มีตาราง migrations ให้ดู ต้องเช็กจาก schema จริงด้วยคำสั่งใน §2.2 (ข้อเดียวพอ: คอลัมน์ `has_0016_*`, `has_0017`, `has_0020`, `still_has_activity_id`, `still_has_staff_email`, `has_0021`)
+
+หลักฐานที่มีอยู่ (ไม่ใช่การยืนยัน): คอมเมนต์ใน `roster-crud.integration.test.ts` ของ main ระบุว่า "deployed database still retains the legacy NOT NULL activity_id" และ commit `6d6137d` เก็บความเข้ากันได้ไว้ → น่าจะยังไม่รัน 0019 แต่ต้องตรวจจริง
+
+เลือกแผนตามผล:
+
+| ผลที่ตรวจได้ | แผน |
+|---|---|
+| **กรณี A** — production มี 0016, 0017, 0020 แล้ว (`has_0016_*`=true, `has_0017`=true, `has_0020`=true) | ข้าม §4.1–§4.3 ใช้ §4A: รัน 0019 → 0018 → 0021 ตามที่ยังไม่มีจริง (ดูแต่ละตัวว่า `still_has_*` ยังเป็น true ไหม) |
+| **กรณี B** — production ยังไม่มีตัวใดตัวหนึ่งของ 0016/0017/0020 | ใช้ §4 เต็ม: 0016 → 0017 → 0020 → 0019 → 0018 → 0021 |
+| ผลแบบผสม (มีบางตัว) | รันเฉพาะตัวที่ยังไม่มีตามลำดับเดิม **ห้ามข้ามลำดับ** (0020 ก่อน 0019, 0019 ก่อน 0018) และห้ามรันตัวที่มีแล้วเพื่อ "ให้ครบ" |
+| ผลขัดกัน (เช่น มี 0017 แต่ไม่มี 0016) | หยุดและรายงาน ห้ามรันอะไร |
+
+ไม่ว่ากรณีใด: 0019 และ 0018 ยังต้องขออนุมัติแยกด้วยวลีที่มี DESTRUCTIVE และ branch นี้ยังต้องผ่านการ review/merge ก่อน deploy (การ merge เข้า main ไม่ใช่การอนุมัติให้แตะ production)
+
+---
+
 ## 1. สิ่งที่เปลี่ยนในรอบนี้ (แยกตามข้อ)
 
 | ข้อ | งาน | ไฟล์หลัก |
@@ -117,6 +136,8 @@ ROLLBACK;
 ---
 
 ## 4. Migration ที่ production ยังไม่มี — ลำดับที่โค้ดต้องการ
+
+> ส่วนนี้คือ **กรณี B** (production ยังไม่มี 0016/0017/0020) ถ้าเป็น **กรณี A** ดู §4A ด้านล่างแล้วทำเฉพาะตัวที่ยังไม่มี
 
 ลำดับ (audit D-1): **0016 → 0017 → 0020 → 0019 → 0018 → 0021** ทำใน maintenance window เดียวกัน โดย **API เก่าต้องหยุดให้บริการ** (Render → Suspend หรือหน้า maintenance) เพราะหลัง 0019/0018 โค้ดเก่าที่ยังอ้าง `requests.activity_id`/`staff.email` จะพัง และโค้ดใหม่ต้องการ 0016/0019/0020/0021 ครบก่อนเปิด
 
@@ -246,6 +267,16 @@ COMMIT;
 ```
 - Rollback: `ALTER TABLE "requests" DROP COLUMN IF EXISTS "staff_checked_by_id", DROP COLUMN IF EXISTS "staff_checked_at";` (สูญเสียเฉพาะบันทึกการตรวจของ staff หลัง deploy)
 
+### 4A — กรณี A: production มี 0016, 0017, 0020 อยู่แล้ว
+
+SQL และ rollback ของแต่ละตัวเหมือน §4.4–§4.6 ทุกตัวอักษร ต่างกันที่ขั้นตอน:
+1. **ข้าม** §4.1, §4.2, §4.3 (ไม่รันซ้ำ แม้จะเขียนแบบ `IF NOT EXISTS`)
+2. ยืนยันว่า `oauth_login_states` มีจริงก่อนทำต่อ — ถ้าไม่มี แปลว่าไม่ใช่กรณี A ให้กลับไป §0
+3. ลำดับที่เหลือ: **0019 (DESTRUCTIVE) → 0018 → 0021** เฉพาะตัวที่ `still_has_activity_id` / `still_has_staff_email` ยังเป็น true หรือ `has_0021` ยังเป็น false
+4. ถ้า 0019 รันไปแล้วด้วย (`still_has_activity_id=false`) แต่ยังไม่มี 0018/0021 ให้รันเฉพาะที่เหลือ
+5. §3 (backup) ยังต้องทำเต็ม โดยเฉพาะ backup `activities` ก่อน 0019 ถ้าตารางยังอยู่
+6. แผนย้อนกลับ §6.3: แถว "ก่อน §4.4 (0019)" เหลือเพียง "ไม่มี migration ใดที่ต้อง rollback" เพราะ 0016/0017/0020 ไม่ได้ถูกรันในรอบนี้
+
 ### 4.7 (แยก ไม่ใช่ migration ในรอบนี้) — เปิด RLS ให้ 6 ตารางที่ยังไม่เปิด (audit D-3)
 เฉพาะถ้า §2.5 ยืนยันว่ายังไม่เปิด และต้องได้รับอนุมัติแยกตามกติกา "ห้ามแก้สิทธิ์/RLS บน production โดยไม่ถามยืนยันพร้อม SQL ตรงตัว" — backend ใช้ role ที่ bypass RLS จึงไม่ต้องมี policy:
 ```sql
@@ -292,9 +323,9 @@ COMMIT;
 ## 6. ลำดับ deploy, smoke test, ย้อนกลับ
 
 ### 6.1 ลำดับ
-0. §2 (read-only) + §3 (backup) ผ่านครบ → ได้รับอนุมัติทีละ stage
+0. §0 (ตรวจว่ารัน migration ไหนแล้ว) + §2 (read-only) + §3 (backup) ผ่านครบ → ได้รับอนุมัติทีละ stage
 1. ประกาศ maintenance → **Suspend API เก่า** บน Render
-2. DB: 0016 → 0017 → 0020 → 0019 → 0018 → 0021 (§4) ตรวจ §2.2 หลังแต่ละตัว
+2. DB: ตามผล §0 — กรณี B: 0016 → 0017 → 0020 → 0019 → 0018 → 0021 (§4); กรณี A: เฉพาะที่ยังไม่มีของ 0019 → 0018 → 0021 (§4A) ตรวจ §2.2 หลังแต่ละตัว
 3. (ถ้าอนุมัติ) §4.7 RLS
 4. ตั้ง/ตรวจ env บน Render (§5) โดยเฉพาะ `EMAIL_FROM`
 5. Deploy **API** (Render) จาก commit ที่ตรวจแล้ว → ดู log boot ต้องเห็น `DEV_BYPASS=false` และ `[db-target] production remote database allowed`
@@ -356,4 +387,6 @@ COMMIT;
 **ข้อจำกัดของงานรอบนี้:** ตัวเลขสถิติใช้นิยาม "ยื่นแล้ว = มีคำร้อง ≥ 1 รายการ ทุกสถานะ ทุกปี" (D6) ยังไม่แยกรายปี (เปลี่ยนที่ `latestRequestSub` ใน `submission.ts` ที่เดียว); คำร้องที่ยื่นข้ามปี พ.ศ. ยังใช้ counter ตามปีของตัวเอง; ไม่ได้ตรวจกับข้อมูล production จริง (ไม่ได้ต่อ production)
 
 ## 8. ผลตรวจก่อนส่งมอบ (local, `ua_roster_test` / `ua_dev_round2`)
-ดูรายงานท้าย session: `test:db-guard`, `test:requests`, `test:stats`, `test:roster`, `test:gate-smoke`, `test:oauth-security`, `test:certificate`, `build:check`, svelte-check, build web — ผ่านทั้งหมดเมื่อรันต่อกัน 2 รอบสลับลำดับ; axe (wcag2a/aa) ไม่มี serious/critical ที่ 375/1280 ทั้ง light/dark ทุกหน้าหลัก
+ดูรายงานท้าย session: `test:db-guard`, `test:requests`, `test:stats`, `test:roster`, `test:roster-import`, `test:gate-smoke`, `test:oauth-security`, `test:certificate`, `build:check`, svelte-check, build web — ผ่านทั้งหมดเมื่อรันต่อกัน 2 รอบสลับลำดับ; axe (wcag2a/aa) ไม่มี serious/critical ที่ 375/1280 ทั้ง light/dark ทุกหน้าหลัก
+
+หลังรวม `origin/main` (merge commit "Merge origin/main into feat/round2-changes"): ตรวจซ้ำทั้งชุดบน tree ที่รวมแล้ว รวม roster import/export จาก main; หน้า `/roster` ของ main ถูกย้ายไปใช้ shared components

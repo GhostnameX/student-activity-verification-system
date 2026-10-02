@@ -5,6 +5,11 @@
 	import { user, loadSession } from '$lib/auth';
 	import { translate, type TKey } from '$lib/i18n';
 	import ImportRosterDialog from '$lib/components/ImportRosterDialog.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import Card from '$lib/components/Card.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
+	import StatusBadge, { type BadgeKind } from '$lib/components/StatusBadge.svelte';
 	import {
 		bulkDeleteRosterStudents,
 		bulkRestoreRosterStudents,
@@ -426,41 +431,30 @@
 		return translate($lang, status);
 	}
 
-	function statusClass(status: StudentStatus): string {
-		if (status === 'active') return 'bg-green-50 text-green-700 ring-green-200';
-		if (status === 'graduated') return 'bg-brand-50 text-brand-700 ring-brand-200';
-		return 'bg-amber-50 text-amber-700 ring-amber-200';
+	function statusKind(status: StudentStatus): BadgeKind {
+		if (status === 'active') return 'approved';
+		if (status === 'graduated') return 'checked';
+		return 'pending';
 	}
 </script>
 
 <div class="space-y-5">
-	<header class="flex flex-wrap items-start justify-between gap-4">
-		<div>
-			<h1 class="flex items-center gap-2 text-2xl font-bold text-ink-900 sm:text-3xl">
-				<UsersRound size={26} class="text-brand-600" />
-				{translate($lang, 'rosterManagement')}
-			</h1>
-			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'rosterSubtitle')}</p>
-		</div>
-		<div class="flex flex-wrap gap-2">
-			<button type="button" onclick={exportRoster} disabled={exporting} class="flex min-h-10 items-center gap-2 rounded-lg border border-ink-200 bg-surface px-4 py-2 text-sm font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-wait disabled:opacity-60">
-				<Download size={17} />
+	<PageHeader title={translate($lang, 'rosterManagement')} subtitle={translate($lang, 'rosterSubtitle')} icon={UsersRound}>
+		{#snippet actions()}
+			<Button onclick={exportRoster} disabled={exporting}>
+				<Download size={17} aria-hidden="true" />
 				{translate($lang, exporting ? 'exportingRoster' : 'exportRoster')}
-			</button>
-			<button type="button" onclick={() => (importOpen = true)} class="flex min-h-10 items-center gap-2 rounded-lg border border-brand-200 bg-surface px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">
-				<Upload size={17} />
+			</Button>
+			<Button onclick={() => (importOpen = true)}>
+				<Upload size={17} aria-hidden="true" />
 				{translate($lang, 'importRoster')}
-			</button>
-			<button
-				type="button"
-				onclick={openCreate}
-				class="flex min-h-10 items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700"
-			>
-				<UserPlus size={17} />
+			</Button>
+			<Button variant="primary" onclick={openCreate}>
+				<UserPlus size={17} aria-hidden="true" />
 				{translate($lang, 'addStudent')}
-			</button>
-		</div>
-	</header>
+			</Button>
+		{/snippet}
+	</PageHeader>
 	{#if exportError}
 		<div class="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{exportError}</div>
 	{/if}
@@ -542,24 +536,14 @@
 				<span class="mr-auto text-sm font-semibold text-ink-700 sm:mr-2">
 					{translate($lang, 'selectedStudents').replace('{count}', String(selectedIds.length))}
 				</span>
-				<button
-					type="button"
-					onclick={() => requestBulkAction('restore')}
-					disabled={selectedIds.length === 0 || bulkBusy}
-					class="flex min-h-10 items-center gap-2 rounded-lg border border-green-200 bg-surface px-3 py-2 text-sm font-semibold text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-40"
-				>
-					<RotateCcw size={16} />
-					{translate($lang, 'bulkRestore')}
-				</button>
-				<button
-					type="button"
-					onclick={() => requestBulkAction('delete')}
-					disabled={selectedIds.length === 0 || bulkBusy}
-					class="flex min-h-10 items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-				>
-					<Trash2 size={16} />
-					{translate($lang, 'bulkDelete')}
-				</button>
+					<Button onclick={() => requestBulkAction('restore')} disabled={selectedIds.length === 0 || bulkBusy}>
+						<RotateCcw size={16} aria-hidden="true" />
+						{translate($lang, 'bulkRestore')}
+					</Button>
+					<Button variant="danger" onclick={() => requestBulkAction('delete')} disabled={selectedIds.length === 0 || bulkBusy}>
+						<Trash2 size={16} aria-hidden="true" />
+						{translate($lang, 'bulkDelete')}
+					</Button>
 			</div>
 		</section>
 	{/if}
@@ -626,7 +610,7 @@
 				{#if loading}
 					<tr><td colspan="7" class="px-4 py-12 text-center text-ink-500">{translate($lang, 'submitting')}</td></tr>
 				{:else if rows.length === 0}
-					<tr><td colspan="7" class="px-4 py-12 text-center text-ink-500">{translate($lang, 'noResults')}</td></tr>
+					<tr><td colspan="7" class="p-4"><EmptyState message={translate($lang, 'noResults')} icon={UsersRound} /></td></tr>
 				{:else}
 					{#each rows as student (student.studentId)}
 						<tr class={`border-b border-ink-50 last:border-0 ${student.deletedAt ? 'bg-red-50/40' : 'hover:bg-ink-50/60'}`}>
@@ -647,8 +631,8 @@
 							</td>
 							<td class="px-4 py-3">
 								<div class="flex flex-wrap gap-1.5">
-									<span class={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusClass(student.status)}`}>{statusLabel(student.status)}</span>
-									{#if student.deletedAt}<span class="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 ring-1 ring-red-200">{translate($lang, 'deletedStatus')}</span>{/if}
+									<StatusBadge kind={statusKind(student.status)} label={statusLabel(student.status)} />
+									{#if student.deletedAt}<StatusBadge kind="rejected" label={translate($lang, 'deletedStatus')} />{/if}
 								</div>
 							</td>
 							<td class="max-w-64 px-4 py-3 text-ink-600">
@@ -676,10 +660,10 @@
 		{#if loading}
 			<div class="py-12 text-center text-sm text-ink-500">{translate($lang, 'submitting')}</div>
 		{:else if rows.length === 0}
-			<div class="py-12 text-center text-sm text-ink-500">{translate($lang, 'noResults')}</div>
+			<EmptyState message={translate($lang, 'noResults')} icon={UsersRound} />
 		{:else}
 			{#each rows as student (student.studentId)}
-				<article class={`min-w-0 rounded-lg border p-4 ${student.deletedAt ? 'border-red-200 bg-red-50/40' : 'border-ink-100 bg-surface'}`}>
+				<Card class={`min-w-0 !p-4 ${student.deletedAt ? '!border-rejected-ring !bg-rejected-soft/40' : ''}`}>
 					<div class="flex items-start justify-between gap-3">
 						<div class="flex min-w-0 items-start gap-3">
 							<input
@@ -706,10 +690,12 @@
 					<div class="mt-3 grid grid-cols-2 gap-2 text-xs text-ink-600">
 						<span class="col-span-2">{student.major}</span>
 						<span>{student.groupName ?? '-'}</span><span>{student.level ?? '-'}</span>
-						<span class={`w-fit rounded-full px-2 py-1 font-semibold ring-1 ${statusClass(student.status)}`}>{statusLabel(student.status)}</span>
-						{#if student.deletedAt}<span class="w-fit rounded-full bg-red-50 px-2 py-1 font-semibold text-red-700 ring-1 ring-red-200">{translate($lang, 'deletedStatus')}</span>{/if}
+						<div class="col-span-2 flex flex-wrap gap-1.5">
+							<StatusBadge kind={statusKind(student.status)} label={statusLabel(student.status)} />
+							{#if student.deletedAt}<StatusBadge kind="rejected" label={translate($lang, 'deletedStatus')} />{/if}
+						</div>
 					</div>
-				</article>
+				</Card>
 			{/each}
 		{/if}
 	</div>

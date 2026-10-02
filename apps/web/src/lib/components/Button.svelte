@@ -24,7 +24,7 @@
 	}: Props = $props();
 
 	const variants = {
-		primary: 'bg-brand-600 text-white shadow-soft hover:bg-brand-700',
+		primary: 'bg-brand-solid text-white shadow-soft hover:bg-brand-solid-hover',
 		secondary: 'border border-ink-200 bg-surface text-ink-700 shadow-soft hover:bg-ink-50',
 		dark: 'bg-ink-900 text-ink-50 shadow-soft hover:bg-ink-800',
 		danger: 'bg-red-600 text-white shadow-soft hover:bg-red-700',

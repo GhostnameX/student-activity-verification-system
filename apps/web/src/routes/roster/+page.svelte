@@ -2,6 +2,9 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { lang } from '$lib/store';
+	import Button from '$lib/components/Button.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { bangkokYear } from '$lib/datetime';
 	import { user, loadSession } from '$lib/auth';
 	import { translate, type TKey } from '$lib/i18n';
@@ -314,30 +317,25 @@
 	}
 
 	function statusClass(status: StudentStatus): string {
-		if (status === 'active') return 'bg-green-50 text-green-700 ring-green-200';
-		if (status === 'graduated') return 'bg-brand-50 text-brand-700 ring-brand-200';
-		return 'bg-amber-50 text-amber-700 ring-amber-200';
+		if (status === 'active') return 'bg-approved-soft text-approved ring-approved-ring';
+		if (status === 'graduated') return 'bg-checked-soft text-checked ring-checked-ring';
+		return 'bg-pending-soft text-pending ring-pending-ring';
 	}
 </script>
 
 <div class="space-y-5">
-	<header class="flex flex-wrap items-start justify-between gap-4">
-		<div>
-			<h1 class="flex items-center gap-2 text-2xl font-bold text-ink-900 sm:text-3xl">
-				<UsersRound size={26} class="text-brand-600" />
-				{translate($lang, 'rosterManagement')}
-			</h1>
-			<p class="mt-1 text-sm text-ink-500">{translate($lang, 'rosterSubtitle')}</p>
-		</div>
-		<button
-			type="button"
-			onclick={openCreate}
-			class="flex min-h-10 items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700"
-		>
-			<UserPlus size={17} />
-			{translate($lang, 'addStudent')}
-		</button>
-	</header>
+	<PageHeader
+		title={translate($lang, 'rosterManagement')}
+		subtitle={translate($lang, 'rosterSubtitle')}
+		icon={UsersRound}
+	>
+		{#snippet actions()}
+			<Button variant="primary" onclick={openCreate}>
+				<UserPlus size={17} aria-hidden="true" />
+				{translate($lang, 'addStudent')}
+			</Button>
+		{/snippet}
+	</PageHeader>
 
 	<section class="border-y border-ink-100 bg-surface px-0 py-4 sm:px-4" aria-label={translate($lang, 'filters')}>
 		<div class="grid gap-3 md:grid-cols-[minmax(15rem,1fr)_auto_auto] xl:grid-cols-[minmax(18rem,1fr)_12rem_15rem_auto]">
@@ -402,14 +400,14 @@
 	</section>
 
 	{#if message}
-		<div class={`border px-4 py-3 text-sm ${messageError ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
+		<div class={`border px-4 py-3 text-sm ${messageError ? 'border-rejected-ring bg-rejected-soft text-rejected' : 'border-approved-ring bg-approved-soft text-approved'}`}>
 			{message}
 		</div>
 	{/if}
 	{#if loadError}
-		<div class="flex items-center justify-between gap-3 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+		<div class="flex items-center justify-between gap-3 border border-rejected-ring bg-rejected-soft px-4 py-3 text-sm text-rejected">
 			<span>{loadError}</span>
-			<button type="button" onclick={loadRoster} class="rounded-lg p-2 hover:bg-red-100" aria-label={translate($lang, 'refresh')}>
+			<button type="button" onclick={loadRoster} class="rounded-lg p-2 hover:bg-rejected-soft" aria-label={translate($lang, 'refresh')}>
 				<RefreshCw size={16} />
 			</button>
 		</div>
@@ -431,10 +429,10 @@
 				{#if loading}
 					<tr><td colspan="6" class="px-4 py-12 text-center text-ink-500">{translate($lang, 'submitting')}</td></tr>
 				{:else if rows.length === 0}
-					<tr><td colspan="6" class="px-4 py-12 text-center text-ink-500">{translate($lang, 'noResults')}</td></tr>
+					<tr><td colspan="6" class="px-4 py-6"><EmptyState message={translate($lang, 'noResults')} /></td></tr>
 				{:else}
 					{#each rows as student (student.studentId)}
-						<tr class={`border-b border-ink-50 last:border-0 ${student.deletedAt ? 'bg-red-50/40' : 'hover:bg-ink-50/60'}`}>
+						<tr class={`border-b border-ink-50 last:border-0 ${student.deletedAt ? 'bg-rejected-soft/40' : 'hover:bg-ink-50/60'}`}>
 							<td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-ink-700">{student.studentId}</td>
 							<td class="px-4 py-3 font-medium text-ink-900">{student.firstName} {student.lastName}</td>
 							<td class="px-4 py-3 text-ink-600">
@@ -444,7 +442,7 @@
 							<td class="px-4 py-3">
 								<div class="flex flex-wrap gap-1.5">
 									<span class={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusClass(student.status)}`}>{statusLabel(student.status)}</span>
-									{#if student.deletedAt}<span class="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 ring-1 ring-red-200">{translate($lang, 'deletedStatus')}</span>{/if}
+									{#if student.deletedAt}<span class="rounded-full bg-rejected-soft px-2.5 py-1 text-xs font-semibold text-rejected ring-1 ring-rejected-ring">{translate($lang, 'deletedStatus')}</span>{/if}
 								</div>
 							</td>
 							<td class="max-w-64 px-4 py-3 text-ink-600">
@@ -455,9 +453,9 @@
 								<div class="flex justify-end gap-1.5">
 									<button type="button" onclick={() => openEdit(student)} class="rounded-lg p-2 text-ink-600 transition hover:bg-brand-50 hover:text-brand-700" title={translate($lang, 'editStudent')}><Pencil size={16} /></button>
 									{#if student.deletedAt}
-										<button type="button" onclick={() => restore(student)} disabled={restoringId === student.studentId} class="rounded-lg p-2 text-green-700 transition hover:bg-green-50 disabled:opacity-50" title={translate($lang, 'restoreStudent')}><RotateCcw size={16} class={restoringId === student.studentId ? 'animate-spin' : ''} /></button>
+										<button type="button" onclick={() => restore(student)} disabled={restoringId === student.studentId} class="rounded-lg p-2 text-approved transition hover:bg-approved-soft disabled:opacity-50" title={translate($lang, 'restoreStudent')}><RotateCcw size={16} class={restoringId === student.studentId ? 'animate-spin' : ''} /></button>
 									{:else}
-										<button type="button" onclick={() => (deleteTarget = student)} class="rounded-lg p-2 text-red-600 transition hover:bg-red-50" title={translate($lang, 'deleteStudent')}><Trash2 size={16} /></button>
+										<button type="button" onclick={() => (deleteTarget = student)} class="rounded-lg p-2 text-rejected transition hover:bg-rejected-soft" title={translate($lang, 'deleteStudent')}><Trash2 size={16} /></button>
 									{/if}
 								</div>
 							</td>
@@ -472,10 +470,10 @@
 		{#if loading}
 			<div class="py-12 text-center text-sm text-ink-500">{translate($lang, 'submitting')}</div>
 		{:else if rows.length === 0}
-			<div class="py-12 text-center text-sm text-ink-500">{translate($lang, 'noResults')}</div>
+			<EmptyState message={translate($lang, 'noResults')} />
 		{:else}
 			{#each rows as student (student.studentId)}
-				<article class={`rounded-lg border p-4 ${student.deletedAt ? 'border-red-200 bg-red-50/40' : 'border-ink-100 bg-surface'}`}>
+				<article class={`rounded-lg border p-4 ${student.deletedAt ? 'border-rejected-ring bg-rejected-soft/40' : 'border-ink-100 bg-surface'}`}>
 					<div class="flex items-start justify-between gap-3">
 						<div class="min-w-0">
 							<p class="truncate font-semibold text-ink-900">{student.firstName} {student.lastName}</p>
@@ -484,9 +482,9 @@
 						<div class="flex shrink-0 gap-1">
 							<button type="button" onclick={() => openEdit(student)} class="rounded-lg p-2 text-ink-600 hover:bg-ink-50" aria-label={translate($lang, 'editStudent')}><Pencil size={16} /></button>
 							{#if student.deletedAt}
-								<button type="button" onclick={() => restore(student)} disabled={restoringId === student.studentId} class="rounded-lg p-2 text-green-700 hover:bg-green-50 disabled:opacity-50" aria-label={translate($lang, 'restoreStudent')}><RotateCcw size={16} /></button>
+								<button type="button" onclick={() => restore(student)} disabled={restoringId === student.studentId} class="rounded-lg p-2 text-approved hover:bg-approved-soft disabled:opacity-50" aria-label={translate($lang, 'restoreStudent')}><RotateCcw size={16} /></button>
 							{:else}
-								<button type="button" onclick={() => (deleteTarget = student)} class="rounded-lg p-2 text-red-600 hover:bg-red-50" aria-label={translate($lang, 'deleteStudent')}><Trash2 size={16} /></button>
+								<button type="button" onclick={() => (deleteTarget = student)} class="rounded-lg p-2 text-rejected hover:bg-rejected-soft" aria-label={translate($lang, 'deleteStudent')}><Trash2 size={16} /></button>
 							{/if}
 						</div>
 					</div>
@@ -494,7 +492,7 @@
 						<span class="col-span-2">{student.major}</span>
 						<span>{student.groupName ?? '-'}</span><span>{student.level ?? '-'}</span>
 						<span class={`w-fit rounded-full px-2 py-1 font-semibold ring-1 ${statusClass(student.status)}`}>{statusLabel(student.status)}</span>
-						{#if student.deletedAt}<span class="w-fit rounded-full bg-red-50 px-2 py-1 font-semibold text-red-700 ring-1 ring-red-200">{translate($lang, 'deletedStatus')}</span>{/if}
+						{#if student.deletedAt}<span class="w-fit rounded-full bg-rejected-soft px-2 py-1 font-semibold text-rejected ring-1 ring-rejected-ring">{translate($lang, 'deletedStatus')}</span>{/if}
 					</div>
 				</article>
 			{/each}
@@ -556,10 +554,10 @@
 				</label>
 			</div>
 
-			{#if formError}<p class="mt-4 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</p>{/if}
+			{#if formError}<p class="mt-4 border border-rejected-ring bg-rejected-soft px-3 py-2 text-sm text-rejected">{formError}</p>{/if}
 			<div class="mt-6 flex justify-end gap-2 border-t border-ink-100 pt-4">
-				<button type="button" onclick={closeModal} class="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50">{translate($lang, 'cancel')}</button>
-				<button type="submit" disabled={saving} class="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">{saving ? translate($lang, 'submitting') : translate($lang, 'save')}</button>
+				<Button onclick={closeModal}>{translate($lang, 'cancel')}</Button>
+				<Button type="submit" variant="primary" disabled={saving}>{saving ? translate($lang, 'submitting') : translate($lang, 'save')}</Button>
 			</div>
 		</form>
 	</div>
@@ -570,10 +568,10 @@
 		<div class="w-full max-w-md rounded-lg bg-surface p-6 shadow-lift">
 			<h2 class="text-lg font-bold text-ink-900">{translate($lang, 'deleteStudent')}</h2>
 			<p class="mt-2 text-sm text-ink-600">{deleteTarget.firstName} {deleteTarget.lastName} · {deleteTarget.studentId}</p>
-			<p class="mt-4 text-sm text-red-700">{translate($lang, 'confirmDeleteStudent')}</p>
+			<p class="mt-4 text-sm text-rejected">{translate($lang, 'confirmDeleteStudent')}</p>
 			<div class="mt-6 flex justify-end gap-2">
-				<button type="button" onclick={() => (deleteTarget = null)} disabled={deleting} class="rounded-lg border border-ink-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50">{translate($lang, 'cancel')}</button>
-				<button type="button" onclick={confirmDelete} disabled={deleting} class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{deleting ? translate($lang, 'submitting') : translate($lang, 'delete')}</button>
+				<Button onclick={() => (deleteTarget = null)} disabled={deleting}>{translate($lang, 'cancel')}</Button>
+				<Button variant="danger" onclick={confirmDelete} disabled={deleting}>{deleting ? translate($lang, 'submitting') : translate($lang, 'delete')}</Button>
 			</div>
 		</div>
 	</div>

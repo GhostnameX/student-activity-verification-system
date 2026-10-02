@@ -206,9 +206,9 @@
 	}
 
 	function revisionStateClass(state: string) {
-		if (state === 'needs_revision') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
-		if (state === 'resubmitted') return 'bg-blue-50 text-blue-700 ring-1 ring-blue-200';
-		if (state === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
+		if (state === 'needs_revision') return 'bg-rejected-soft text-rejected ring-1 ring-rejected-ring';
+		if (state === 'resubmitted') return 'bg-checked-soft text-checked ring-1 ring-checked-ring';
+		if (state === 'approved') return 'bg-approved-soft text-approved ring-1 ring-approved-ring';
 		return 'bg-ink-100 text-ink-600 ring-1 ring-ink-200';
 	}
 
@@ -250,7 +250,7 @@
 				<CircleAlert size={16} class="shrink-0 text-amber-600" />
 				<div class="flex flex-1 flex-wrap items-center justify-between gap-2">
 					<span>{translate($lang, 'phoneMissingWarning')}</span>
-					<a href="/profile" class="shrink-0 font-semibold text-amber-700 hover:underline">
+					<a href="/profile" class="shrink-0 font-semibold text-pending hover:underline">
 						{translate($lang, 'profile')}
 					</a>
 				</div>
@@ -310,7 +310,7 @@
 						<label for="slot1" class="block text-sm font-medium text-ink-700">
 							{translate($lang, 'slot1Evidence')} *
 						</label>
-						<span class="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-rejected">
+						<span class="rounded-full bg-rejected-soft px-2 py-0.5 text-[11px] font-semibold text-rejected">
 							{translate($lang, 'requiredLabel')}
 						</span>
 					</div>
@@ -389,7 +389,7 @@
 				<button
 					type="submit"
 					disabled={loading}
-					class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-2.5 font-medium text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-50"
+					class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-solid py-2.5 font-medium text-white shadow-soft transition hover:bg-brand-solid-hover disabled:opacity-50"
 				>
 					<Send size={17} />
 					{loading ? translate($lang, 'submitting') : translate($lang, 'submitRequest')}
@@ -469,9 +469,11 @@
 						</button>
 						<button
 							onclick={refresh}
-							class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink-500 transition hover:bg-ink-50 hover:text-ink-600"
+							aria-label={translate($lang, 'refresh')}
+							title={translate($lang, 'refresh')}
+							class="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink-500 transition hover:bg-ink-50 hover:text-ink-600"
 						>
-							<RefreshCw size={13} />
+							<RefreshCw size={13} aria-hidden="true" />
 						</button>
 					</div>
 				</div>
@@ -579,7 +581,7 @@
 											</span>
 											{slotLabel}
 											{#if a.slot === 1}
-												<span class="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-rejected">
+												<span class="rounded-full bg-rejected-soft px-2 py-0.5 text-[10px] font-semibold text-rejected">
 													{translate($lang, 'requiredLabel')}
 												</span>
 											{:else}
@@ -640,8 +642,8 @@
 									{/if}
 
 									{#if detail.status === 'revision_required' && slotsToFix.includes(a.slot ?? -1)}
-										<div class="mt-3 rounded-xl bg-red-50/70 px-3 py-2.5">
-											<label for="resubmit-file-{a.slot}" class="flex cursor-pointer items-center gap-2 text-sm text-red-700">
+										<div class="mt-3 rounded-xl bg-rejected-soft/70 px-3 py-2.5">
+											<label for="resubmit-file-{a.slot}" class="flex cursor-pointer items-center gap-2 text-sm text-rejected">
 												<Upload size={14} class="shrink-0 text-red-500" />
 												{#if resubmitFiles[a.slot!]}
 													<span class="line-clamp-1">{resubmitFiles[a.slot!]!.name}</span>
@@ -676,14 +678,14 @@
 							<p class="text-sm text-ink-500">{translate($lang, 'resubmitEmpty')}</p>
 						{:else}
 							{#if resubmitMsg}
-								<p class="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+								<p class="mb-3 rounded-xl border border-rejected-ring bg-rejected-soft px-3 py-2 text-sm text-rejected">
 									{resubmitMsg}
 								</p>
 							{/if}
 							<button
 								onclick={doResubmit}
 								disabled={resubmitting || slotsToFix.some((s) => !resubmitFiles[s])}
-								class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-2.5 font-medium text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-50"
+								class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-solid py-2.5 font-medium text-white shadow-soft transition hover:bg-brand-solid-hover disabled:opacity-50"
 							>
 								<Send size={16} />
 								{resubmitting ? translate($lang, 'submitting') : translate($lang, 'resubmit')}

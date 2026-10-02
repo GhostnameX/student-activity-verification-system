@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
+	import Card from '$lib/components/Card.svelte';
 	import { lang } from '$lib/store';
 	import { user } from '$lib/auth';
 	import { translate } from '$lib/i18n';
@@ -56,13 +58,10 @@
 		</h1>
 		<p class="mb-10 text-xl text-ink-500">{translate($lang, 'tagline')}</p>
 
-		<a
-			href={path}
-			class="inline-flex items-center gap-2.5 rounded-2xl bg-brand-600 px-10 py-4 text-lg font-medium text-white shadow-lift transition hover:-translate-y-0.5 hover:bg-brand-700"
-		>
-			<Icon size={20} />
+		<Button href={path} variant="primary" class="px-10 py-4 text-lg">
+			<Icon size={20} aria-hidden="true" />
 			{translate($lang, action)}
-		</a>
+		</Button>
 	</div>
 {:else}
 	<div class="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
@@ -78,32 +77,24 @@
 			<p class="mb-10 text-xl text-ink-500 xl:text-2xl">{translate($lang, 'tagline')}</p>
 
 			<div class="flex flex-wrap items-center justify-center gap-4 lg:justify-start">
-				<a
-					href="/auth/signin"
-					class="rounded-2xl bg-brand-600 px-9 py-4 text-base font-semibold text-white shadow-lift transition hover:-translate-y-0.5 hover:bg-brand-700"
-				>
+				<Button href="/auth/signin" variant="primary" class="px-9 py-4 text-base">
 					{translate($lang, 'login')}
-				</a>
-				<a
-					href="/auth/signin?mode=signup"
-					class="rounded-2xl border border-ink-200 bg-surface px-9 py-4 text-base font-semibold text-ink-700 transition hover:-translate-y-0.5 hover:bg-ink-50"
-				>
+				</Button>
+				<Button href="/auth/signin?mode=signup" class="px-9 py-4 text-base">
 					{translate($lang, 'signUp')}
-				</a>
+				</Button>
 			</div>
 		</div>
 
 		<div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
 			{#each features as f (f.title)}
-				<div
-					class="rounded-card border border-ink-100 bg-surface p-6 shadow-soft transition hover:-translate-y-1 hover:shadow-lift"
-				>
+				<Card interactive class="p-6!">
 					<div class="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
 						<f.icon size={22} />
 					</div>
 					<h3 class="mb-1 text-base font-bold text-ink-900">{translate($lang, f.title as 'stats')}</h3>
 					<p class="text-sm text-ink-500">{translate($lang, f.desc as 'stats')}</p>
-				</div>
+				</Card>
 			{/each}
 		</div>
 	</div>

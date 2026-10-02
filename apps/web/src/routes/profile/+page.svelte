@@ -1,4 +1,8 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
+	import Card from '$lib/components/Card.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { onMount } from 'svelte';
 	import { lang } from '$lib/store';
 	import { user, loadSession } from '$lib/auth';
@@ -155,19 +159,16 @@
 		'w-full rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-sm text-ink-900 transition focus:border-brand-500 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-brand-100';
 	const phoneInputClass = inputClass.replace('px-3.5', 'pl-10 pr-3.5');
 	const saveBtnClass =
-		'flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-medium text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-50';
+		'flex items-center justify-center gap-2 rounded-xl bg-brand-solid px-4 py-2.5 text-sm font-medium text-white shadow-soft transition hover:bg-brand-solid-hover disabled:opacity-50';
 </script>
 
 <div class="mx-auto max-w-lg py-4">
 	<div class="mb-6">
-		<h1 class="text-2xl font-extrabold tracking-tight text-ink-900 sm:text-3xl">
-			{translate($lang, 'profileTitle')}
-		</h1>
-		<p class="mt-1 text-sm text-ink-500">{translate($lang, 'tagline')}</p>
+		<PageHeader title={translate($lang, 'profileTitle')} subtitle={translate($lang, 'tagline')} />
 	</div>
 
 	{#if $user}
-		<div class="rounded-card border border-ink-100 bg-surface p-6 shadow-soft">
+		<Card class="p-6!">
 			<div class="flex flex-col gap-5">
 				<div class="flex items-start gap-4">
 					<div class="shrink-0">
@@ -193,30 +194,22 @@
 							onchange={onAvatarPick}
 						/>
 						<div class="mt-2 flex gap-1.5">
-							<button
-								onclick={() => avatarInput?.click()}
-								disabled={avatarLoading}
-								class="flex items-center gap-1 rounded-lg border border-ink-200 px-2 py-1.5 text-xs font-medium text-ink-700 transition hover:bg-ink-50 disabled:opacity-50"
-							>
-								<Camera size={13} />
+							<Button onclick={() => avatarInput?.click()} disabled={avatarLoading} class="px-3 text-xs">
+								<Camera size={13} aria-hidden="true" />
 								{translate($lang, 'changePhoto')}
-							</button>
+							</Button>
 							{#if $user.avatarUrl}
-								<button
-									onclick={onRemoveAvatar}
-									disabled={avatarLoading}
-									class="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
-								>
-									<Trash2 size={13} />
+								<Button onclick={onRemoveAvatar} disabled={avatarLoading} class="px-3 text-xs text-rejected!">
+									<Trash2 size={13} aria-hidden="true" />
 									{translate($lang, 'removePhoto')}
-								</button>
+								</Button>
 							{/if}
 						</div>
 						{#if avatarMsg}
-							<p class="mt-2 text-xs text-green-700">{avatarMsg}</p>
+							<p class="mt-2 text-xs text-approved">{avatarMsg}</p>
 						{/if}
 						{#if avatarErr}
-							<p class="mt-2 text-xs text-red-600">{avatarErr}</p>
+							<p class="mt-2 text-xs text-rejected">{avatarErr}</p>
 						{/if}
 					</div>
 
@@ -243,10 +236,10 @@
 								</button>
 							</div>
 							{#if nameMsg}
-								<p class="mt-1.5 text-xs text-green-700">{nameMsg}</p>
+								<p class="mt-1.5 text-xs text-approved">{nameMsg}</p>
 							{/if}
 							{#if nameErr}
-								<p class="mt-1.5 text-xs text-red-600">{nameErr}</p>
+								<p class="mt-1.5 text-xs text-rejected">{nameErr}</p>
 							{/if}
 						{:else}
 							<p class="truncate text-lg font-bold text-ink-900">{$user.name}</p>
@@ -263,7 +256,7 @@
 								<span
 									class={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
 										$user.kind === 'emergency'
-											? 'bg-amber-100 text-amber-700'
+											? 'bg-pending-soft text-pending'
 											: 'bg-ink-100 text-ink-700'
 									}`}
 								>
@@ -295,21 +288,21 @@
 					</div>
 				{/if}
 			</div>
-		</div>
+		</Card>
 
 		{#if !isStaff}
-			<div class="mt-5 rounded-card border border-ink-100 bg-surface p-6 shadow-soft">
+			<Card class="mt-5 p-6!">
 				<div class="mb-4 flex items-center gap-2 border-b border-ink-100 pb-4">
 					<User size={18} class="text-brand-600" />
 					<h2 class="font-bold text-ink-900">{translate($lang, 'profileTitle')}</h2>
 				</div>
 				{#if errorMsg}
-					<div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+					<div class="mb-4 rounded-xl border border-rejected-ring bg-rejected-soft px-4 py-3 text-sm text-rejected">
 						{errorMsg}
 					</div>
 				{/if}
 				{#if successMsg}
-					<div class="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+					<div class="mb-4 rounded-xl border border-approved-ring bg-approved-soft px-4 py-3 text-sm text-approved">
 						{successMsg}
 					</div>
 				{/if}
@@ -334,31 +327,27 @@
 						</div>
 						<p class="mt-1.5 text-xs text-ink-500">{translate($lang, 'phoneOnCertificate')}</p>
 					</div>
-					<button
-						type="submit"
-						disabled={loading}
-						class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-2.5 font-medium text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-50"
-					>
-						<Save size={17} />
+					<Button type="submit" variant="primary" disabled={loading} class="w-full">
+						<Save size={17} aria-hidden="true" />
 						{loading ? translate($lang, 'submitting') : translate($lang, 'save')}
-					</button>
+					</Button>
 				</form>
-			</div>
+			</Card>
 		{/if}
 
 		{#if isStaff}
-			<div class="mt-5 rounded-card border border-ink-100 bg-surface p-6 shadow-soft">
+			<Card class="mt-5 p-6!">
 				<div class="mb-4 flex items-center gap-2 border-b border-ink-100 pb-4">
 					<KeyRound size={18} class="text-brand-600" />
 					<h2 class="font-bold text-ink-900">{translate($lang, 'changePassword')}</h2>
 				</div>
 				{#if pwMsg}
-					<div class="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+					<div class="mb-4 rounded-xl border border-approved-ring bg-approved-soft px-4 py-3 text-sm text-approved">
 						{pwMsg}
 					</div>
 				{/if}
 				{#if pwErr}
-					<div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+					<div class="mb-4 rounded-xl border border-rejected-ring bg-rejected-soft px-4 py-3 text-sm text-rejected">
 						{pwErr}
 					</div>
 				{/if}
@@ -399,21 +388,19 @@
 							class={inputClass}
 						/>
 					</div>
-					<button
+					<Button
+						variant="primary"
 						onclick={savePassword}
 						disabled={pwLoading || !pwCur || !pwNew || !pwConfirm}
-						class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-2.5 font-medium text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-50"
+						class="w-full"
 					>
-						<KeyRound size={16} />
+						<KeyRound size={16} aria-hidden="true" />
 						{pwLoading ? translate($lang, 'submitting') : translate($lang, 'confirm')}
-					</button>
+					</Button>
 				</div>
-			</div>
+			</Card>
 		{/if}
 	{:else}
-		<div class="rounded-2xl border border-dashed border-ink-200 bg-surface/60 px-6 py-10 text-center">
-			<CircleCheck size={28} class="mx-auto mb-2 text-ink-300" />
-			<p class="text-sm text-ink-500">{translate($lang, 'mustLogin')}</p>
-		</div>
+		<EmptyState message={translate($lang, 'mustLogin')} icon={CircleCheck} />
 	{/if}
 </div>

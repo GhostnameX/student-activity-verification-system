@@ -258,7 +258,8 @@
 				{#if stats && stats.byFaculty.length === 0}
 					<p class="text-sm text-ink-500">{translate($lang, 'noRequests')}</p>
 				{:else}
-					<div class="overflow-x-auto">
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex (scrollable region must be keyboard reachable) -->
+					<div class="overflow-x-auto" tabindex="0" role="region" aria-label={translate($lang, 'stats')}>
 						<table class="w-full text-left text-sm">
 							<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
 								<tr>
@@ -288,7 +289,8 @@
 			</div>
 		</div>
 
-		<div class="overflow-x-auto rounded-card border border-ink-100 bg-surface shadow-soft">
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex (scrollable region must be keyboard reachable) -->
+		<div class="overflow-x-auto rounded-card border border-ink-100 bg-surface shadow-soft" tabindex="0" role="region" aria-label={translate($lang, 'allRequests')}>
 			<table class="w-full text-left text-sm">
 				<thead class="border-b border-ink-100 bg-ink-50/70 text-xs font-semibold uppercase tracking-wide text-ink-500">
 					<tr>
@@ -329,7 +331,8 @@
 			{#if auditLogs.length === 0}
 				<p class="text-sm text-ink-500">{translate($lang, 'noAuditLogs')}</p>
 			{:else}
-				<div class="overflow-x-auto">
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex (scrollable region must be keyboard reachable) -->
+				<div class="overflow-x-auto" tabindex="0" role="region" aria-label={translate($lang, 'stats')}>
 					<table class="w-full text-left text-sm">
 						<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
 							<tr>
@@ -383,7 +386,8 @@
 			{#if staffList.length === 0}
 				<p class="text-sm text-ink-500">{translate($lang, 'noResults')}</p>
 			{:else}
-				<div class="overflow-x-auto">
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex (scrollable region must be keyboard reachable) -->
+				<div class="overflow-x-auto" tabindex="0" role="region" aria-label={translate($lang, 'stats')}>
 					<table class="w-full text-left text-sm">
 						<thead class="border-b border-ink-100 text-xs font-semibold uppercase tracking-wide text-ink-500">
 							<tr>
@@ -417,7 +421,7 @@
 									<td class="px-3 py-2.5">
 										<span
 											class={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-												s.isActive ? 'bg-green-50 text-green-700 ring-1 ring-green-200' : 'bg-red-50 text-red-700 ring-1 ring-red-200'
+												s.isActive ? 'bg-approved-soft text-approved ring-1 ring-approved-ring' : 'bg-rejected-soft text-rejected ring-1 ring-rejected-ring'
 											}`}
 										>
 											{translate($lang, s.isActive ? 'accountActive' : 'accountDisabled')}
@@ -436,7 +440,7 @@
 												onclick={() => toggleStaffActive(s)}
 												title={translate($lang, s.isActive ? 'disableAccount' : 'enableAccount')}
 												class={`rounded-lg p-2 transition ${
-													s.isActive ? 'bg-red-50 text-rejected hover:bg-red-100' : 'bg-green-50 text-approved hover:bg-green-100'
+													s.isActive ? 'bg-rejected-soft text-rejected hover:bg-rejected-soft' : 'bg-approved-soft text-approved hover:bg-approved-soft'
 												}`}
 											>
 												<Power size={15} />
@@ -555,7 +559,7 @@
 						<button
 							onclick={saveStaff}
 							disabled={savingStaff}
-							class="flex items-center gap-1.5 rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+							class="flex items-center gap-1.5 rounded-xl bg-brand-solid px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-solid-hover disabled:cursor-not-allowed disabled:opacity-60"
 						>
 							{savingStaff ? translate($lang, 'submitting') : translate($lang, 'save')}
 						</button>

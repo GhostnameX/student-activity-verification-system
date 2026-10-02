@@ -18,6 +18,9 @@
 	--color-brand-800: #1929b8;
 	--color-brand-900: #1b2a90;
 	--color-brand-950: #151b57;
+	/* Filled buttons (white text): >= 4.5:1 in both themes. */
+	--color-brand-solid: #1e40f7;
+	--color-brand-solid-hover: #172fe3;
 
 	--color-ink-50: #f6f7fb;
 	--color-ink-100: #eceef5;
@@ -73,6 +76,8 @@
 	--color-brand-800: #b0c5ff;
 	--color-brand-900: #d7e1ff;
 	--color-brand-950: #edf2ff;
+	--color-brand-solid: #3450d6;
+	--color-brand-solid-hover: #2f4bd0;
 
 	--color-ink-50: #14161f;
 	--color-ink-100: #1c1f2b;

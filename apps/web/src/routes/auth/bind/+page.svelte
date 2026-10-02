@@ -82,7 +82,7 @@
 			{:else if phase === 'expired'}
 				<div class="py-4 text-center">
 					<div
-						class="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-600"
+						class="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-rejected-soft text-rejected"
 					>
 						<ShieldCheck size={26} />
 					</div>
@@ -92,7 +92,7 @@
 					</p>
 					<a
 						href="/auth/signin"
-						class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3 font-semibold text-white shadow-soft transition hover:bg-brand-700"
+						class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-solid py-3 font-semibold text-white shadow-soft transition hover:bg-brand-solid-hover"
 					>
 						<ArrowLeft size={17} />
 						{translate($lang, 'bindBackToSignIn')}
@@ -118,7 +118,7 @@
 				</div>
 
 				{#if errorMsg}
-					<div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+					<div class="mb-4 rounded-xl border border-rejected-ring bg-rejected-soft px-4 py-3 text-sm text-rejected">
 						{errorMsg}
 					</div>
 				{/if}
@@ -177,7 +177,7 @@
 					<button
 						type="submit"
 						disabled={submitting}
-						class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3 font-semibold text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-50"
+						class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-solid py-3 font-semibold text-white shadow-soft transition hover:bg-brand-solid-hover disabled:opacity-50"
 					>
 						{#if submitting}
 							<LoaderCircle size={17} class="animate-spin" />

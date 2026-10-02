@@ -146,7 +146,7 @@
 <div class="flex min-h-screen flex-col bg-ink-50">
 	<header class="sticky top-0 z-40 border-b border-ink-100 bg-surface/90 backdrop-blur">
 		<div class="mx-auto flex h-16 max-w-[1600px] items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 xl:px-10">
-			<a href="/" class="group flex min-w-0 items-center gap-2.5">
+			<a href="/" class="group flex min-w-0 items-center gap-2.5" aria-label={translate($lang, 'appName')}>
 				<span
 					class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft transition-transform group-hover:scale-105"
 				>
@@ -207,7 +207,7 @@
 							<Bell size={16} />
 							{#if unread > 0}
 								<span
-									class="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white"
+									class="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rejected-soft0 px-1 text-[10px] font-bold text-white"
 								>
 									{unread > 99 ? '99+' : unread}
 								</span>
@@ -336,7 +336,7 @@
 								<a
 									href="/auth/signout"
 									role="menuitem"
-									class="flex min-h-11 items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
+									class="flex min-h-11 items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-rejected transition hover:bg-rejected-soft"
 								>
 									<LogOut size={16} aria-hidden="true" />
 									{translate($lang, 'logout')}
@@ -347,7 +347,7 @@
 				{:else}
 					<a
 						href="/auth/signin"
-						class="rounded-xl bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-soft transition hover:bg-brand-700 sm:px-5"
+						class="rounded-xl bg-brand-solid px-3.5 py-2 text-sm font-medium text-white shadow-soft transition hover:bg-brand-solid-hover sm:px-5"
 					>
 						{translate($lang, 'login')}
 					</a>
@@ -408,7 +408,7 @@
 				</button>
 				<a
 					href="/auth/signout"
-					class="flex min-h-12 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
+					class="flex min-h-12 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-rejected transition hover:bg-rejected-soft"
 				>
 					<LogOut size={19} />
 					<span>{translate($lang, 'logout')}</span>

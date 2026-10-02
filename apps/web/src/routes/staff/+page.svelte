@@ -184,9 +184,9 @@
 	}
 
 	function revisionStateClass(state: string) {
-		if (state === 'needs_revision') return 'bg-red-50 text-red-700 ring-1 ring-red-200';
-		if (state === 'resubmitted') return 'bg-blue-50 text-blue-700 ring-1 ring-blue-200';
-		if (state === 'approved') return 'bg-green-50 text-green-700 ring-1 ring-green-200';
+		if (state === 'needs_revision') return 'bg-rejected-soft text-rejected ring-1 ring-rejected-ring';
+		if (state === 'resubmitted') return 'bg-checked-soft text-checked ring-1 ring-checked-ring';
+		if (state === 'approved') return 'bg-approved-soft text-approved ring-1 ring-approved-ring';
 		return 'bg-ink-100 text-ink-600 ring-1 ring-ink-200';
 	}
 </script>
@@ -200,39 +200,45 @@
 			</span>
 		{/if}
 	</div>
+	{#if r.status === 'rejected' && r.rejectionReason}
+		<p class="mt-1.5 break-words text-xs text-rejected">
+			{translate($lang, 'reason')}: {r.rejectionReason}
+		</p>
+	{/if}
 {/snippet}
 
 {#snippet actionCell(r: RequestItem)}
 	{#if r.status === 'pending'}
 		{#if $user?.role === 'admin'}
-			<div class="flex flex-wrap gap-2 md:justify-end xl:flex-nowrap">
+			<div class="flex flex-wrap gap-2 md:flex-nowrap md:justify-end">
 				<button
 					onclick={(e) => { e.stopPropagation(); openRevision(r.id); }}
-					class="flex min-h-11 items-center gap-1.5 rounded-control bg-orange-700 px-3 py-2 text-xs font-semibold text-white shadow-soft transition hover:bg-orange-800"
+					title={translate($lang, 'requestRevision')}
+					class="flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-control bg-orange-700 px-3 py-2 text-xs font-semibold text-white shadow-soft transition hover:bg-orange-800"
 				>
 					<RotateCcw size={14} aria-hidden="true" />
-					{translate($lang, 'requestRevision')}
+					<span class="md:max-lg:sr-only">{translate($lang, 'requestRevision')}</span>
 				</button>
 				<button
 					onclick={(e) => { e.stopPropagation(); approve(r.id); }}
-					class="flex min-h-11 items-center gap-1.5 rounded-control bg-green-700 px-3 py-2 text-xs font-semibold text-white shadow-soft transition hover:bg-green-800"
+					title={translate($lang, 'approve')}
+					class="flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-control bg-green-700 px-3 py-2 text-xs font-semibold text-white shadow-soft transition hover:bg-green-800"
 				>
 					<Check size={14} aria-hidden="true" />
-					{translate($lang, 'approve')}
+					<span class="md:max-lg:sr-only">{translate($lang, 'approve')}</span>
 				</button>
 				<button
 					onclick={(e) => { e.stopPropagation(); rejectId = r.id; }}
-					class="flex min-h-11 items-center gap-1.5 rounded-control bg-red-700 px-3 py-2 text-xs font-semibold text-white shadow-soft transition hover:bg-red-800"
+					title={translate($lang, 'reject')}
+					class="flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-control bg-red-700 px-3 py-2 text-xs font-semibold text-white shadow-soft transition hover:bg-red-800"
 				>
 					<X size={14} aria-hidden="true" />
-					{translate($lang, 'reject')}
+					<span class="md:max-lg:sr-only">{translate($lang, 'reject')}</span>
 				</button>
 			</div>
 		{:else}
 			<span class="text-xs text-ink-500">{translate($lang, 'readOnly')}</span>
 		{/if}
-	{:else if r.status === 'rejected' && r.rejectionReason}
-		<span class="text-xs text-rejected">{r.rejectionReason}</span>
 	{/if}
 {/snippet}
 
@@ -250,7 +256,7 @@
 	</PageHeader>
 
 	{#if actionMsg}
-		<div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+		<div class="rounded-xl border border-rejected-ring bg-rejected-soft px-4 py-3 text-sm text-rejected">
 			{actionMsg}
 		</div>
 	{/if}
@@ -292,7 +298,7 @@
 							<td class="px-5 py-4">
 								{@render badges(r)}
 							</td>
-							<td class="px-5 py-4">
+							<td class="whitespace-nowrap px-5 py-4">
 								{@render actionCell(r)}
 							</td>
 						</tr>
@@ -375,7 +381,7 @@
 
 					{#if detail.staffCheckedAt}
 						<div
-							class="mb-5 flex items-start gap-2 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-800 ring-1 ring-sky-200"
+							class="mb-5 flex items-start gap-2 rounded-xl bg-checked-soft px-4 py-3 text-sm text-checked ring-1 ring-checked-ring"
 						>
 							<BadgeCheck size={18} class="mt-0.5 shrink-0" />
 							<div>
@@ -468,7 +474,7 @@
 							</div>
 						{/if}
 					{:else if detail.status === 'rejected' && detail.rejectionReason}
-						<div class="border-t border-ink-100 pt-4 text-sm text-red-600">
+						<div class="border-t border-ink-100 pt-4 text-sm text-rejected">
 							{translate($lang, 'reason')}: {detail.rejectionReason}
 						</div>
 					{/if}
@@ -544,7 +550,7 @@
 					</div>
 
 					{#if revisionMsg}
-						<p class="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+						<p class="mb-3 rounded-xl border border-rejected-ring bg-rejected-soft px-3 py-2 text-sm text-rejected">
 							{revisionMsg}
 						</p>
 					{/if}

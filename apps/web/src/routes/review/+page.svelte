@@ -171,7 +171,7 @@
 				onclick={() => (filter = f)}
 				aria-pressed={filter === f}
 				class="min-h-11 rounded-full px-4 py-2 text-sm font-semibold transition {filter === f
-					? 'bg-brand-600 text-white shadow-soft'
+					? 'bg-brand-solid text-white shadow-soft'
 					: 'border border-ink-200 bg-surface text-ink-600 hover:bg-ink-50'}"
 			>
 				{filterLabel(f)}
@@ -250,7 +250,7 @@
 					</div>
 				{:else if detailError}
 					<div class="flex items-start justify-between gap-3">
-						<p class="text-sm text-red-700" role="alert">{detailError}</p>
+						<p class="text-sm text-rejected" role="alert">{detailError}</p>
 						<button
 							onclick={closeDetail}
 							class="rounded-lg p-1.5 text-ink-500 transition hover:bg-ink-50 hover:text-ink-700"
@@ -385,7 +385,7 @@
 									<button
 										onclick={confirmCheck}
 										disabled={checking}
-										class="min-h-11 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700 disabled:opacity-60"
+										class="min-h-11 rounded-xl bg-brand-solid px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-solid-hover disabled:opacity-60"
 									>
 										{translate($lang, 'staffReviewConfirm')}
 									</button>
@@ -395,7 +395,7 @@
 							<div class="flex justify-end">
 								<button
 									onclick={() => (confirming = true)}
-									class="flex min-h-11 items-center gap-2 rounded-xl bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-700"
+									class="flex min-h-11 items-center gap-2 rounded-xl bg-brand-solid px-5 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-solid-hover"
 								>
 									<BadgeCheck size={16} />
 									{translate($lang, 'staffReviewConfirm')}

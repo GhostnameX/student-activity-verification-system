@@ -144,13 +144,13 @@
 
 	{#if errorMsg}
 		<div
-			class="flex flex-wrap items-center justify-between gap-3 rounded-control border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+			class="flex flex-wrap items-center justify-between gap-3 rounded-control border border-rejected-ring bg-rejected-soft px-4 py-3 text-sm text-rejected"
 			role="alert"
 		>
 			<span>{errorMsg}</span>
 			<button
 				onclick={refresh}
-				class="flex min-h-11 items-center gap-1.5 rounded-lg border border-red-200 bg-surface px-3 py-1.5 font-semibold"
+				class="flex min-h-11 items-center gap-1.5 rounded-lg border border-rejected-ring bg-surface px-3 py-1.5 font-semibold"
 			>
 				<RefreshCw size={14} />
 				{translate($lang, 'refresh')}

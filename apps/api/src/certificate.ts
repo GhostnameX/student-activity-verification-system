@@ -3,7 +3,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { certificateDateFields, stripThaiNamePrefix } from "./certificate-format";
+import { certificateDateFields, fitCenteredInRange, stripThaiNamePrefix } from "./certificate-format";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,6 +38,25 @@ const SIGNATURE_MAX_WIDTH = 180;
 // Center of the reviewer box ("ผู้ตรวจสอบกิจกรรม" caption spans x 244–330).
 const REVIEWER_DATE_CENTER_X = 287;
 const REQUEST_NUMBER_X = 517.7;
+
+/**
+ * Dotted fields that hold centred text. startX/endX are the first/last "." of the template's
+ * dot run, measured from the template PDF itself (PyMuPDF rawdict, per-character bbox of the
+ * "." glyphs on that line; the caption glyphs before/after the run delimit it); baselineY is the
+ * text baseline in PDF coordinates (origin bottom-left) taken from the same line.
+ * Name run ends where the "รหัสนักศึกษา" caption starts (x 364.6).
+ */
+export const CENTERED_FIELDS = {
+  studentName: { startX: 140.04, endX: 364.59, baselineY: 584.26 },
+  studentId: { startX: 419.81, endX: 537.63, baselineY: 584.26 },
+  phone: { startX: 109.19, endX: 305.34, baselineY: 564.67 },
+  // "เขียนที่" run ends at the template's trailing space (x 540.1).
+  location: { startX: 392.25, endX: 539.41, baselineY: 639.46 },
+  // Top date: the three dot runs after "วันที่", "เดือน" and "พ.ศ." (the dots inside "พ.ศ." are not part of a field).
+  dateDay: { startX: 315.03, endX: 351.17, baselineY: 611.86 },
+  dateMonth: { startX: 373.5, endX: 468.98, baselineY: 611.86 },
+  dateYear: { startX: 484.99, endX: 539.18, baselineY: 611.86 },
+} as const;
 
 const FACULTY_ROWS: Array<{ label: string; baselineY: number }> = [
   { label: "สาขาวิชาการจัดการ", baselineY: 545.23 },
@@ -75,19 +94,13 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
   const page = pdfDoc.getPage(0);
   const black = rgb(0, 0, 0);
 
-  function drawRight(text: string, endX: number, baselineY: number, size: number, f = font) {
-    if (!text) return;
-    const w = f.widthOfTextAtSize(text, size);
-    page.drawText(text, { x: endX - w, y: baselineY, size, font: f, color: black });
-  }
-
   function drawLeft(text: string, startX: number, baselineY: number, size: number, f = font) {
     if (!text) return;
     page.drawText(text, { x: startX, y: baselineY, size, font: f, color: black });
   }
 
-  // Centered text that shrinks (1pt steps) until it fits maxWidth, down to minSize.
-  function drawCentered(
+  // Centered on a point; shrinks (1pt steps) until it fits maxWidth, down to minSize.
+  function drawCenteredAt(
     text: string,
     centerX: number,
     baselineY: number,
@@ -104,6 +117,13 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
     page.drawText(text, { x: centerX - w / 2, y: baselineY, size: s, font, color: black });
   }
 
+  // Centred inside a dotted field (see CENTERED_FIELDS); shrinks to fit, never touches the captions.
+  function drawCentered(text: string, startX: number, endX: number, baselineY: number, size: number) {
+    if (!text) return;
+    const fit = fitCenteredInRange((t, sz) => font.widthOfTextAtSize(t, sz), text, startX, endX, size);
+    page.drawText(text, { x: fit.x, y: baselineY, size: fit.size, font, color: black });
+  }
+
   const printedName = stripThaiNamePrefix(data.studentName);
 
   // 1. Replace the template's dotted placeholder and hard-coded /2569 with
@@ -113,23 +133,26 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
   drawLeft(String(data.requestNumber), REQUEST_NUMBER_X, 753.24, 14);
 
   // 2. เขียนที่ (location)
-  drawLeft(data.location, 394, 639.46, 16);
+  const loc = CENTERED_FIELDS.location;
+  drawCentered(data.location, loc.startX, loc.endX, loc.baselineY, 16);
 
   // 3. วันที่ (top): day / month / year — from reviewed_at, independent of the reviewer-box time (step 9)
   const { top: reviewDates, reviewerLine } = certificateDateFields(data);
-  drawRight(String(reviewDates.dateDay), 346, 611.86, 16);
-  drawRight(reviewDates.dateMonth, 464, 611.86, 16);
-  drawRight(String(reviewDates.dateYear), 534, 611.86, 16);
+  for (const [text, f] of [
+    [String(reviewDates.dateDay), CENTERED_FIELDS.dateDay],
+    [reviewDates.dateMonth, CENTERED_FIELDS.dateMonth],
+    [String(reviewDates.dateYear), CENTERED_FIELDS.dateYear],
+  ] as const) {
+    drawCentered(text, f.startX, f.endX, f.baselineY, 16);
+  }
 
-  // 4. ข้าพเจ้า: student name (without title) + รหัสนักศึกษา
-  // Space between the "ข้าพเจ้า" caption and the รหัสนักศึกษา caption is ~220pt; shrink long names to fit.
-  let nameSize = 16;
-  while (nameSize > 11 && font.widthOfTextAtSize(printedName, nameSize) > 220) nameSize -= 1;
-  drawRight(printedName, 359, 584.26, nameSize);
-  if (data.studentId) drawRight(data.studentId, 532, 584.26, 16);
+  // 4. ข้าพเจ้า: student name (without title) + รหัสนักศึกษา, centred in their dotted fields
+  const { studentName: nameField, studentId: idField, phone: phoneField } = CENTERED_FIELDS;
+  drawCentered(printedName, nameField.startX, nameField.endX, nameField.baselineY, 16);
+  if (data.studentId) drawCentered(data.studentId, idField.startX, idField.endX, idField.baselineY, 16);
 
   // 5. เบอร์โทร
-  if (data.phone) drawRight(data.phone, 300, 564.67, 16);
+  if (data.phone) drawCentered(data.phone, phoneField.startX, phoneField.endX, phoneField.baselineY, 16);
 
   // 6. สาขา checkbox (√ over dots)
   const rowIdx = findFacultyRow(data.faculty);
@@ -150,15 +173,15 @@ export async function generateCertificatePDF(data: CertificateData): Promise<Buf
   // caption is blanked and redrawn one line lower to make room; the dashed divider
   // stays exactly where the template has it.
   page.drawRectangle({ x: 258, y: 218, width: 98, height: 19, color: rgb(1, 1, 1) });
-  drawCentered(`(${printedName})`, SIGNATURE_CENTER_X, 223, 16, SIGNATURE_MAX_WIDTH, 12);
-  drawCentered("นักศึกษาผู้ยื่นคำร้อง", SIGNATURE_CENTER_X, 207.5, 14);
+  drawCenteredAt(`(${printedName})`, SIGNATURE_CENTER_X, 223, 16, SIGNATURE_MAX_WIDTH, 12);
+  drawCenteredAt("นักศึกษาผู้ยื่นคำร้อง", SIGNATURE_CENTER_X, 207.5, 14);
 
   // 9. Reviewer box "วันที่......" (between "(ว่าที่ร้อยตรีหญิง…)" above and
   // "เจ้าหน้าที่ฝ่ายพัฒนานักศึกษา" below): first-submission time (requests.submitted_at,
   // Asia/Bangkok), never the approval/render time. Blank the template dots (x 235–339,
   // y 57.5–75) and write the full string centred on the same line.
   page.drawRectangle({ x: 233, y: 58, width: 108, height: 17, color: rgb(1, 1, 1) });
-  drawCentered(reviewerLine, REVIEWER_DATE_CENTER_X, 61.44, 15, 230, 12);
+  drawCenteredAt(reviewerLine, REVIEWER_DATE_CENTER_X, 61.44, 15, 230, 12);
 
   const bytes = await pdfDoc.save();
   return Buffer.from(bytes);

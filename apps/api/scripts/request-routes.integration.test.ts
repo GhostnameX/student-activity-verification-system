@@ -40,6 +40,7 @@ const {
   notifications,
   requestAttachmentRevisions,
   requestAttachments,
+  requestRevisionNotes,
   requests,
   sessions,
   staff,
@@ -446,7 +447,7 @@ describe("state machine", () => {
       expect({ status, route: "reject", code: reject.status }).toEqual({ status, route: "reject", code: 400 });
       const revise = await api("POST", `/api/requests/${r.id}/request-revision`, {
         cookie: admin,
-        body: { slots: [1] },
+        body: { slots: [1], note: "ขาดหลักฐานหน้า 1" },
       });
       expect({ status, route: "revise", code: revise.status }).toEqual({ status, route: "revise", code: 400 });
       expect(await statusOf(r.id)).toBe(status);
@@ -457,7 +458,7 @@ describe("state machine", () => {
     const r = await seedRequest(STUDENT_A);
     const flag = await api("POST", `/api/requests/${r.id}/request-revision`, {
       cookie: admin,
-      body: { slots: [1] },
+      body: { slots: [1], note: "ขาดหลักฐานหน้า 1" },
     });
     expect(flag.status).toBe(200);
     expect(await statusOf(r.id)).toBe("revision_required");
@@ -474,6 +475,107 @@ describe("state machine", () => {
       error: "flagged_slots_not_replaced",
     });
     expect(await statusOf(r.id)).toBe("revision_required");
+  });
+
+  test("request-revision without a note, or with a blank note, is 400 and changes nothing", async () => {
+    const r = await seedRequest(STUDENT_A);
+    for (const body of [{ slots: [1] }, { slots: [1], note: "" }, { slots: [1], note: "   " }, { slots: [1], note: "   " }]) {
+      const res = await api("POST", `/api/requests/${r.id}/request-revision`, { cookie: admin, body });
+      expect({ status: res.status, error: res.body.error }).toEqual({ status: 400, error: "note_required" });
+    }
+    expect(await statusOf(r.id)).toBe("pending");
+    expect(await db.select().from(requestRevisionNotes).where(eq(requestRevisionNotes.requestId, r.id))).toHaveLength(0);
+  });
+
+  test("a note longer than 1000 characters is 400; exactly 1000 (after trimming) is accepted", async () => {
+    const tooLong = await seedRequest(STUDENT_A);
+    const res = await api("POST", `/api/requests/${tooLong.id}/request-revision`, {
+      cookie: admin,
+      body: { slots: [1], note: "ก".repeat(1001) },
+    });
+    expect({ status: res.status, error: res.body.error }).toEqual({ status: 400, error: "note_too_long" });
+    expect(await statusOf(tooLong.id)).toBe("pending");
+
+    const edge = await seedRequest(STUDENT_A);
+    const ok = await api("POST", `/api/requests/${edge.id}/request-revision`, {
+      cookie: admin,
+      body: { slots: [1], note: `  ${"ก".repeat(1000)}  ` },
+    });
+    expect(ok.status).toBe(200);
+    const [row] = await db.select().from(requestRevisionNotes).where(eq(requestRevisionNotes.requestId, edge.id));
+    expect(row.note).toHaveLength(1000);
+  });
+
+  test("a successful revision stores the note, flags the slots and notifies the student with the reason", async () => {
+    const r = await seedRequest(STUDENT_A);
+    const res = await api("POST", `/api/requests/${r.id}/request-revision`, {
+      cookie: admin,
+      body: { slots: [1], note: "  รูปไม่ชัด กรุณาถ่ายใหม่  " },
+    });
+    expect(res.status).toBe(200);
+    expect(await statusOf(r.id)).toBe("revision_required");
+
+    const rows = await db.select().from(requestRevisionNotes).where(eq(requestRevisionNotes.requestId, r.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].note).toBe("รูปไม่ชัด กรุณาถ่ายใหม่");
+    expect(rows[0].slots).toEqual([1]);
+    expect(rows[0].authorStaffId).toBe(ADMIN_ID);
+
+    const notes = await db.select().from(notifications).where(eq(notifications.requestId, r.id));
+    expect(notes).toHaveLength(1);
+    expect(notes[0].studentId).toBe(STUDENT_A);
+    expect(notes[0].title).toBe("คำร้องต้องแก้ไขเอกสาร");
+    expect(notes[0].body).toContain("รูปไม่ชัด กรุณาถ่ายใหม่");
+
+    const audit = await db.select().from(auditLogs).where(eq(auditLogs.targetId, r.id));
+    expect(audit.some((a) => a.action === "request_revision")).toBe(true);
+  });
+
+  test("GET detail returns the note history newest first; author name only for staff/admin; other students get 403", async () => {
+    const r = await seedRequest(STUDENT_A);
+    await db.insert(requestRevisionNotes).values([
+      { requestId: r.id, authorStaffId: ADMIN_ID, note: "รอบแรก", slots: [1], createdAt: new Date("2026-10-01T01:00:00Z") },
+      { requestId: r.id, authorStaffId: ADMIN_ID, note: "รอบสอง", slots: [1, 2], createdAt: new Date("2026-10-02T01:00:00Z") },
+    ]);
+
+    const asAdmin = await api("GET", `/api/requests/${r.id}`, { cookie: admin });
+    expect(asAdmin.status).toBe(200);
+    expect(asAdmin.body.revisionNotes.map((n: any) => n.note)).toEqual(["รอบสอง", "รอบแรก"]);
+    expect(asAdmin.body.revisionNotes[0].authorName).toBeTruthy();
+
+    const asStaff = await api("GET", `/api/requests/${r.id}`, { cookie: staffCookie });
+    expect(asStaff.status).toBe(200);
+    expect(asStaff.body.revisionNotes).toHaveLength(2);
+    expect(asStaff.body.revisionNotes[0].authorName).toBeTruthy();
+
+    const asOwner = await api("GET", `/api/requests/${r.id}`, { cookie: studentA });
+    expect(asOwner.status).toBe(200);
+    expect(asOwner.body.revisionNotes.map((n: any) => n.note)).toEqual(["รอบสอง", "รอบแรก"]);
+    for (const n of asOwner.body.revisionNotes) expect(n.authorName).toBeNull();
+    expect(JSON.stringify(asOwner.body)).not.toContain("authorStaffId");
+
+    // the student's list carries the latest reason only, with no author
+    await db.update(requests).set({ status: "revision_required" }).where(eq(requests.id, r.id));
+    const list = await api("GET", "/api/requests", { cookie: studentA });
+    const mine = list.body.find((x: any) => x.id === r.id);
+    expect(mine.latestRevisionNote.note).toBe("รอบสอง");
+    expect(mine.latestRevisionNote.slots).toEqual([1, 2]);
+    expect(JSON.stringify(mine.latestRevisionNote)).not.toContain("author");
+
+    const asOther = await api("GET", `/api/requests/${r.id}`, { cookie: studentB });
+    expect(asOther.status).toBe(403);
+    expect(JSON.stringify(asOther.body)).not.toContain("รอบสอง");
+  });
+
+  test("a staff session still cannot call request-revision (403), even with a note", async () => {
+    const r = await seedRequest(STUDENT_A);
+    const res = await api("POST", `/api/requests/${r.id}/request-revision`, {
+      cookie: staffCookie,
+      body: { slots: [1], note: "ลองส่งเอง" },
+    });
+    expect({ status: res.status, error: res.body.error }).toEqual({ status: 403, error: "admin_only" });
+    expect(await statusOf(r.id)).toBe("pending");
+    expect(await db.select().from(requestRevisionNotes).where(eq(requestRevisionNotes.requestId, r.id))).toHaveLength(0);
   });
 
   test("resubmit on a pending request is 400 not_revision_required", async () => {
@@ -621,7 +723,7 @@ describe("POST /api/requests/:id/staff-check", () => {
     await api("POST", `/api/requests/${r.id}/staff-check`, { cookie: staffCookie });
     const flag = await api("POST", `/api/requests/${r.id}/request-revision`, {
       cookie: admin,
-      body: { slots: [1] },
+      body: { slots: [1], note: "ขาดหลักฐานหน้า 1" },
     });
     expect(flag.status).toBe(200);
     const [flagged] = await db.select().from(requests).where(eq(requests.id, r.id));

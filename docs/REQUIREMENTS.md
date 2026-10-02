@@ -46,7 +46,7 @@ revision_required
 
 - **approve รับเฉพาะ `pending`** — หลัง revision_required ต้องรอ student resubmit กลับมาเป็น pending ก่อน
 - **reject รับเฉพาะ `pending`** — ไม่สามารถ reject จาก `revision_required` (สถานะนั้น ownership ของการกระทำอยู่ฝั่ง student)
-- **request revision รับเฉพาะ `pending`** — admin ต้อง flag slot อย่างน้อย 1 slot ให้เป็น `needs_revision`
+- **request revision รับเฉพาะ `pending`** — admin ต้อง flag slot อย่างน้อย 1 slot ให้เป็น `needs_revision` **ต้องมีเหตุผล (`note`) เสมอ**: ตัดช่องว่างหัวท้าย ห้ามว่าง ยาวไม่เกิน 1000 ตัวอักษร (ไม่มี/ว่าง → 400 `note_required`, ยาวเกิน → 400 `note_too_long`)
 - **resubmit รับเฉพาะ `revision_required`** — ต้องไม่มี required slot ใดที่ current revision ค้าง `needs_revision`; ผ่าน validation จึงเปลี่ยน request → `pending`
 
 ---
@@ -104,7 +104,7 @@ revision_required
 ## 5. ทุกการกระทำสำคัญต้องทำใน DB transaction เดียว (MUST)
 
 - **Admin approve**: (1) request → `approved` (2) current attachment revisions ที่เกี่ยวข้อง → `approved` — transaction เดียว
-- **Admin request revision**: (1) flag slot → `needs_revision` (อย่างน้อย 1 slot) (2) request → `revision_required` — transaction เดียว
+- **Admin request revision**: (1) flag slot → `needs_revision` (อย่างน้อย 1 slot) (2) request → `revision_required` — transaction เดียว (3) insert แถวใน `request_revision_notes` (note + slots + ผู้เขียน) — transaction เดียวกัน; หลัง commit แจ้งเตือนนักศึกษา "คำร้องต้องแก้ไขเอกสาร" พร้อมเหตุผล และส่งอีเมลแบบ best-effort เหมือน reject
 - **Admin reject**: request → `rejected` — **ไม่แก้/ไม่ลบ attachment revisions**
 - **Student resubmit**: ผ่าน validation → request → `pending` — transaction เดียว
 
@@ -169,3 +169,4 @@ revision_required
 | 2026-10-02 | Audit P-1: bind flow ต้องให้ local-part ของอีเมล = รหัสนักศึกษา และโดเมน = psru.ac.th (ผู้กำหนดงานยืนยันรูปแบบ `<รหัส>@psru.ac.th`) — 403 `email_student_mismatch` |
 | 2026-10-02 | ผู้กำหนดงานยืนยัน 2026-10-02: เวลายื่นอยู่บรรทัดวันที่ของช่องผู้ตรวจสอบ (ไม่ใช่ใต้ช่องนักศึกษา); วันที่ด้านบนมาจาก `reviewed_at`; ยกเลิกบรรทัด "ยื่นคำร้องเมื่อ" ใต้ลายเซ็นนักศึกษา และเส้นประกลับตำแหน่งเดิม (แก้ D8) |
 | 2026-10-02 | Phase 6 review: staff-check เขียน audit log + notification ใน transaction เดียวกับการตั้ง `staff_checked_*` ตาม §8 (ต่างจาก approve/reject ที่เป็น best-effort หลัง commit); เปอร์เซ็นต์ในกราฟ/การ์ดไม่แสดง 100% ถ้ายังมีคนไม่ยื่น |
+| 2026-10-03 | Follow-up (migration 0022): ตาราง `request_revision_notes` (request_id FK cascade, author_staff_id FK set null, note, slots smallint[], created_at timestamptz; index (request_id, created_at); RLS เปิด) เก็บเหตุผลทุกรอบที่ส่งกลับแก้ไข; `GET /api/requests/:id` ส่ง `revisionNotes` (ใหม่สุดก่อน) ให้นักศึกษาเจ้าของ/staff/admin — ชื่อผู้เขียนเห็นเฉพาะ staff/admin ฝั่งนักศึกษาแสดงเป็น "เจ้าหน้าที่"; รายการของนักศึกษามี `latestRevisionNote` เฉพาะคำร้องที่ถูกส่งกลับ; staff ยังเรียก request-revision ไม่ได้ (403) |

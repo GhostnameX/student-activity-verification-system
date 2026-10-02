@@ -47,6 +47,18 @@ export interface AttachmentRevision {
   uploadedAt: string;
 }
 
+export interface RevisionNote {
+  id: string;
+  note: string;
+  slots: number[];
+  createdAt: string;
+  /** Staff/admin only; null for the student (the UI shows a generic "staff" label). */
+  authorName: string | null;
+}
+
+/** Same limit as the API (REVISION_NOTE_MAX_LENGTH). */
+export const REVISION_NOTE_MAX_LENGTH = 1000;
+
 export interface RequestItem {
   id: string;
   status: RequestStatus;
@@ -68,6 +80,10 @@ export interface RequestItem {
     studentId?: string | null;
   };
   attachments?: Attachment[];
+  /** Reasons given when the request was sent back for revision, newest first (detail only). */
+  revisionNotes?: RevisionNote[];
+  /** Student list only: the latest reason for a request that was sent back (no author). */
+  latestRevisionNote?: { note: string; slots: number[]; createdAt: string } | null;
 }
 
 export interface NotificationItem {
@@ -237,10 +253,10 @@ export async function rejectRequest(id: string, reason?: string): Promise<void> 
   });
 }
 
-export async function requestRevisionRequest(id: string, slots: number[]): Promise<void> {
+export async function requestRevisionRequest(id: string, slots: number[], note: string): Promise<void> {
   await apiFetch(`/api/requests/${id}/request-revision`, {
     method: "POST",
-    body: JSON.stringify({ slots }),
+    body: JSON.stringify({ slots, note }),
   });
 }
 

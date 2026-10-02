@@ -53,6 +53,33 @@
 	--color-checked: #075985;
 	--color-checked-soft: #f0f9ff;
 	--color-checked-ring: #7dd3fc;
+	/* Stat cards: full soft tint, dark number. text on soft >= 7:1 in both themes. */
+	--color-tone-ink-soft: #f1f2f9;
+	--color-tone-ink-ring: #d5d9e8;
+	--color-tone-ink-text: #34374b;
+	--color-tone-brand-soft: #eef4ff;
+	--color-tone-brand-ring: #bcd3ff;
+	--color-tone-brand-text: #1b2a90;
+	--color-tone-green-soft: #f0fdf4;
+	--color-tone-green-ring: #86efac;
+	--color-tone-green-text: #14532d;
+	--color-tone-amber-soft: #fffbeb;
+	--color-tone-amber-ring: #fcd34d;
+	--color-tone-amber-text: #78350f;
+	--color-tone-orange-soft: #fff7ed;
+	--color-tone-orange-ring: #fdba74;
+	--color-tone-orange-text: #7c2d12;
+	--color-tone-red-soft: #fef2f2;
+	--color-tone-red-ring: #fca5a5;
+	--color-tone-red-text: #7f1d1d;
+	/* Submission-rate tiers (red < 30%, amber 30-70%, green > 70%): card fill, bar fill, bar track.
+	   fill is >= 3:1 on its soft card; the level is also written out, never colour alone. */
+	--color-tier-low-fill: #dc2626;
+	--color-tier-low-track: #fecaca;
+	--color-tier-mid-fill: #b45309;
+	--color-tier-mid-track: #fde68a;
+	--color-tier-high-fill: #15803d;
+	--color-tier-high-track: #bbf7d0;
 	/* chart fill / track */
 	--color-bar-fill: #16a34a;
 	--color-bar-track: #fef3c7;
@@ -110,6 +137,30 @@
 	--color-checked-ring: #1f5a7a;
 	--color-bar-fill: #22c55e;
 	--color-bar-track: #3a2e0f;
+	--color-tier-low-fill: #f87171;
+	--color-tier-low-track: #5a2222;
+	--color-tier-mid-fill: #fbbf24;
+	--color-tier-mid-track: #5a4513;
+	--color-tier-high-fill: #4ade80;
+	--color-tier-high-track: #1d4a2c;
+	--color-tone-ink-soft: #1f2233;
+	--color-tone-ink-ring: #383e54;
+	--color-tone-ink-text: #f1f2f8;
+	--color-tone-brand-soft: #14204a;
+	--color-tone-brand-ring: #2c4388;
+	--color-tone-brand-text: #d7e1ff;
+	--color-tone-green-soft: #12301d;
+	--color-tone-green-ring: #21643a;
+	--color-tone-green-text: #bbf7d0;
+	--color-tone-amber-soft: #3a2e0f;
+	--color-tone-amber-ring: #6b5316;
+	--color-tone-amber-text: #fde68a;
+	--color-tone-orange-soft: #3b2312;
+	--color-tone-orange-ring: #6e4020;
+	--color-tone-orange-text: #fed7aa;
+	--color-tone-red-soft: #3b1616;
+	--color-tone-red-ring: #7a2c2c;
+	--color-tone-red-text: #fecaca;
 
 	--shadow-soft: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -12px rgb(0 0 0 / 0.5);
 	--shadow-lift: 0 2px 4px rgb(0 0 0 / 0.35), 0 16px 40px -16px rgb(0 0 0 / 0.6);

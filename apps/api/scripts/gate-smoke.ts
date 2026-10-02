@@ -668,7 +668,7 @@ async function main(): Promise<number> {
   // ==========================================================
 
   // --- 4a. request-revision flag slot 1 only ---
-  const revReq = await api(`/api/requests/${reqId}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1] } });
+  const revReq = await api(`/api/requests/${reqId}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1], note: "gate-smoke revision reason" } });
   record("4a-request-revision-slot1", revReq.status === 200 && revReq.json?.status === "revision_required" && JSON.stringify(revReq.json?.slots) === "[1]", `status=${revReq.status} json=${JSON.stringify(revReq.json)}`);
 
   const afterFlag = await db.select().from(requestAttachmentRevisions).where(inArray(requestAttachmentRevisions.attachmentId, dbAtts.map(a => a.id))).orderBy(requestAttachmentRevisions.revisionNumber);
@@ -683,7 +683,7 @@ async function main(): Promise<number> {
   record("4a-request-state", reqState.status === "revision_required", `status=${reqState.status}`);
 
   // --- 4b. request-revision from revision_required → rejected ---
-  const revAgain = await api(`/api/requests/${reqId}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [2] } });
+  const revAgain = await api(`/api/requests/${reqId}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [2], note: "gate-smoke revision reason" } });
   record("4b-revision-from-revreq-400", revAgain.status === 400, `status=${revAgain.status} err=${revAgain.json?.error}`);
 
   // --- 4c. student B cannot resubmit A's request ---
@@ -751,7 +751,7 @@ async function main(): Promise<number> {
     rollUpload2.attachment,
   ] } });
   created.requests.push(rollReq.json?.id);
-  await api(`/api/requests/${rollReq.json?.id}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1, 2] } });
+  await api(`/api/requests/${rollReq.json?.id}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1, 2], note: "gate-smoke revision reason" } });
 
   const rollAtts = await db.select().from(requestAttachments).where(eq(requestAttachments.requestId, rollReq.json?.id)).orderBy(requestAttachments.slot);
   const rollRevsBefore = await db.select().from(requestAttachmentRevisions).where(inArray(requestAttachmentRevisions.attachmentId, rollAtts.map(a => a.id))).orderBy(requestAttachmentRevisions.revisionNumber);
@@ -793,12 +793,12 @@ async function main(): Promise<number> {
   const guardReq = await api("/api/requests", { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: [guardUpload.attachment] } });
   const guardReqId = guardReq.json?.id;
   created.requests.push(guardReqId);
-  await api(`/api/requests/${guardReqId}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1] } });
+  await api(`/api/requests/${guardReqId}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1], note: "gate-smoke revision reason" } });
   const approveFromRevReq = await api(`/api/requests/${guardReqId}/approve`, { method: "POST", cookie: `ua_session=${cookieAdmin}` });
   record("4g-approve-from-revreq-400", approveFromRevReq.status === 400, `status=${approveFromRevReq.status} err=${approveFromRevReq.json?.error}`);
   const rejectFromRevReq = await api(`/api/requests/${guardReqId}/reject`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { reason: "test" } });
   record("4h-reject-from-revreq-400", rejectFromRevReq.status === 400, `status=${rejectFromRevReq.status} err=${rejectFromRevReq.json?.error}`);
-  const revisionFromRevReq = await api(`/api/requests/${guardReqId}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1] } });
+  const revisionFromRevReq = await api(`/api/requests/${guardReqId}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1], note: "gate-smoke revision reason" } });
   record("4i-revision-from-revreq-400", revisionFromRevReq.status === 400, `status=${revisionFromRevReq.status} err=${revisionFromRevReq.json?.error}`);
 
   // guardReq still revision_required (no partial)
@@ -956,7 +956,7 @@ async function main(): Promise<number> {
   record("10a-request-seq-persisted", rn1Db?.requestSequence != null && rn1Db?.requestYear != null, `seq=${rn1Db?.requestSequence} year=${rn1Db?.requestYear}`);
 
   // 10b. request-revision + resubmit → request number unchanged
-  const rnRev = await api(`/api/requests/${rn1.json?.id}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1] } });
+  const rnRev = await api(`/api/requests/${rn1.json?.id}/request-revision`, { method: "POST", cookie: `ua_session=${cookieAdmin}`, body: { slots: [1], note: "gate-smoke revision reason" } });
   const rnResub = await api(`/api/requests/${rn1.json?.id}/resubmit`, { method: "POST", cookie: `ua_session=${cookieA}`, body: { attachments: await creating(1) } });
   const rn1Detail = await api(`/api/requests/${rn1.json?.id}`, { cookie: `ua_session=${cookieA}` });
   record("10b-seq-unchanged-revision-resubmit", rnRev.status === 200 && rnResub.status === 200 && (rn1Detail.json?.requestNumber ?? null) === rn1num, `reqNum=${rn1Detail.json?.requestNumber}`);

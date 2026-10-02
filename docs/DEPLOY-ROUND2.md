@@ -390,3 +390,57 @@ COMMIT;
 ดูรายงานท้าย session: `test:db-guard`, `test:requests`, `test:stats`, `test:roster`, `test:roster-import`, `test:gate-smoke`, `test:oauth-security`, `test:certificate`, `build:check`, svelte-check, build web — ผ่านทั้งหมดเมื่อรันต่อกัน 2 รอบสลับลำดับ; axe (wcag2a/aa) ไม่มี serious/critical ที่ 375/1280 ทั้ง light/dark ทุกหน้าหลัก
 
 หลังรวม `origin/main` (merge commit "Merge origin/main into feat/round2-changes"): ตรวจซ้ำทั้งชุดบน tree ที่รวมแล้ว รวม roster import/export จาก main; หน้า `/roster` ของ main ถูกย้ายไปใช้ shared components
+
+---
+
+## 9. Follow-up: 0022 (เหตุผลตอนส่งคำร้องกลับไปแก้ไข) — branch `feat/round2-followups`
+
+> **ต้องรันบน production ก่อน merge/deploy โค้ดของ branch นี้** เพราะ `POST /api/requests/:id/request-revision` และ `GET /api/requests/:id` อ่าน/เขียนตาราง `request_revision_notes` ถ้ายังไม่มีตาราง ทั้งสอง endpoint จะตอบ 500
+> ขอวลีอนุมัติแยก (เช่น `APPROVE PROD ROUND2 MIGRATION 0022`) และเป็นการเพิ่มตารางใหม่ + เปิด RLS (AGENTS.md ต้องถามยืนยันก่อนแตะ RLS) — ไม่แตะตารางหรือข้อมูลเดิม ไม่ลบอะไร
+
+**ตรวจก่อน (อ่านอย่างเดียว):** production มี 0021 แล้ว และยังไม่มีตารางนี้
+```sql
+BEGIN TRANSACTION READ ONLY;
+SELECT bool_or(table_name='request_revision_notes') AS has_0022,
+       bool_or(table_name='requests' AND column_name='staff_checked_at') AS has_0021
+  FROM information_schema.columns WHERE table_schema='public';   -- ต้อง has_0021=true, has_0022=false/NULL
+ROLLBACK;
+```
+
+**SQL ตรงตัวของ `packages/db/drizzle/0022_request_revision_notes.sql`** (รันเป็น transaction เดียว; ไม่รันซ้ำเพราะ `IF NOT EXISTS`):
+```sql
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS "request_revision_notes" (
+	"id" text PRIMARY KEY NOT NULL,
+	"request_id" text NOT NULL REFERENCES "public"."requests"("id") ON DELETE cascade,
+	"author_staff_id" text REFERENCES "public"."staff"("id") ON DELETE set null,
+	"note" text NOT NULL,
+	"slots" smallint[] NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "request_revision_notes_request_created_idx" ON "request_revision_notes" USING btree ("request_id","created_at");
+ALTER TABLE "request_revision_notes" ENABLE ROW LEVEL SECURITY;
+COMMIT;
+```
+
+**ตรวจหลังรัน (อ่านอย่างเดียว):**
+```sql
+BEGIN TRANSACTION READ ONLY;
+SELECT column_name, data_type FROM information_schema.columns
+ WHERE table_schema='public' AND table_name='request_revision_notes' ORDER BY ordinal_position;
+   -- id text, request_id text, author_staff_id text, note text, slots ARRAY, created_at timestamp with time zone
+SELECT indexname FROM pg_indexes WHERE tablename='request_revision_notes';   -- ต้องมี request_revision_notes_request_created_idx
+SELECT relrowsecurity FROM pg_class WHERE relname='request_revision_notes';  -- ต้อง true
+SELECT count(*) FROM public.request_revision_notes;                         -- 0
+ROLLBACK;
+```
+
+**Rollback** (ใช้ได้เฉพาะก่อนมีใครกดส่งกลับแก้ไขด้วยโค้ดใหม่ — หลังจากนั้นตารางเก็บเหตุผลจริง ห้ามลบโดยไม่ได้อนุมัติ):
+```sql
+DROP TABLE IF EXISTS "request_revision_notes";   -- DESTRUCTIVE ต่อข้อมูลในตารางนี้เท่านั้น ขออนุมัติแยก
+```
+
+**ลำดับ:** รัน 0022 → ตรวจ → merge/deploy API → deploy Web (API ก่อนเสมอ: เว็บใหม่ส่ง `note` ที่ API เก่าไม่รู้จัก ส่วน API ใหม่รับคำขอจากเว็บเก่าไม่ได้เพราะเว็บเก่าไม่ส่ง `note` → ตอบ 400 `note_required` จนกว่า Web ใหม่จะขึ้น ให้ deploy สองฝั่งต่อเนื่อง)
+
+**Smoke test หลัง deploy:** admin ส่งคำร้องกลับแก้ไขโดยไม่กรอกเหตุผล → ต้องไม่ผ่าน; กรอกเหตุผล → นักศึกษาเจ้าของเห็นกล่อง "สิ่งที่ต้องแก้ไข" + มีแจ้งเตือน; staff เรียก request-revision ได้ 403; นักศึกษาคนอื่นอ่านคำร้องนั้นได้ 403; อีเมลถึงนักศึกษา 1 ฉบับ (ทดสอบกับบัญชีทดสอบ)

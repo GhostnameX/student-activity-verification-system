@@ -14,6 +14,7 @@
 	import HorizontalBarChart, { type BarItem } from '$lib/components/HorizontalBarChart.svelte';
 	import SubmissionRoster from '$lib/components/SubmissionRoster.svelte';
 	import StatCard from '$lib/components/StatCard.svelte';
+	import { formatPercent } from '$lib/percent';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
@@ -117,10 +118,6 @@
 		})),
 	);
 
-	function ratePct(rate: number) {
-		return `${rate >= 1 ? 100 : Math.min(99, Math.round(rate * 100))}%`;
-	}
-
 	let crumbGroupLabel = $derived(
 		group === NO_GROUP ? groupText(null) : group ? groupText(group) : '',
 	);
@@ -184,13 +181,13 @@
 				label={translate($lang, 'notSubmittedCount')}
 				value={stats.notSubmitted}
 				icon={UserX}
-				tone="amber"
+				tone="orange"
 				ariaLabel="{translate($lang, 'viewNotSubmitted')}: {stats.notSubmitted}"
 				onclick={() => navigate({ state: 'not_submitted' })}
 			/>
 			<StatCard
 				label={translate($lang, 'submissionRate')}
-				value={ratePct(stats.rate)}
+				value={formatPercent(stats.submitted, stats.total)}
 				icon={TrendingUp}
 				tone="brand"
 			/>

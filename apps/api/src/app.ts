@@ -6,6 +6,7 @@ import {
   requests,
   requestAttachments,
   requestAttachmentRevisions,
+  requestRevisionNotes,
   attachmentUploads,
   notifications,
   auditLogs,
@@ -114,7 +115,7 @@ function requestNumberLabel(sequence: number | null, year: number | null): strin
 async function sendStatusEmail(opts: {
   to: string;
   studentName: string;
-  status: "approved" | "rejected";
+  status: "approved" | "rejected" | "revision_required";
   reason?: string | null;
   attachments?: Array<{ filename: string; content: string }>;
 }) {
@@ -124,10 +125,14 @@ async function sendStatusEmail(opts: {
   }
   const th = opts.status === "approved"
     ? "คำร้องของคุณได้รับการอนุมัติ"
-    : "คำร้องของคุณถูกไม่อนุมัติ";
+    : opts.status === "revision_required"
+      ? "คำร้องของคุณต้องแก้ไขเอกสาร"
+      : "คำร้องของคุณถูกไม่อนุมัติ";
   const body = opts.status === "approved"
     ? `สวัสดี คุณ${opts.studentName} คำร้องของคุณได้รับการอนุมัติแล้ว\nกรุณาตรวจสอบใบรับรองที่แนบมาด้วย`
-    : `สวัสดี คุณ${opts.studentName} คำร้องของคุณถูกไม่อนุมัติ${opts.reason ? `\nเหตุผล: ${opts.reason}` : ""}`;
+    : opts.status === "revision_required"
+      ? `สวัสดี คุณ${opts.studentName} คำร้องของคุณต้องแก้ไขเอกสาร${opts.reason ? `\nเหตุผล: ${opts.reason}` : ""}\nกรุณาเข้าระบบเพื่อแนบเอกสารที่แก้ไขแล้วและส่งคำร้องอีกครั้ง`
+      : `สวัสดี คุณ${opts.studentName} คำร้องของคุณถูกไม่อนุมัติ${opts.reason ? `\nเหตุผล: ${opts.reason}` : ""}`;
   try {
     const payload: Record<string, unknown> = {
       from: EMAIL_FROM,
@@ -187,6 +192,9 @@ async function notifyUser(opts: {
     requestId: opts.requestId ?? null,
   }).catch((e) => console.log(`[notify] insert failed: ${e}`));
 }
+
+// Max length of the reason an admin must give when sending a request back for revision.
+const REVISION_NOTE_MAX_LENGTH = 1000;
 
 const submissionListQuery = {
   query: t.Object({
@@ -463,10 +471,34 @@ export const app = new Elysia()
         .from(requests)
         .where(where)
         .orderBy(desc(requests.submittedAt));
-      return list.map((r) => ({
-        ...r,
-        requestNumber: requestNumberLabel(r.requestSequence, r.requestYear),
-      }));
+      // The latest reason for requests sent back, so the list can show "what to fix" without
+      // opening each one. No author: students never see who wrote it.
+      const sentBack = list.filter((r) => r.status === "revision_required").map((r) => r.id);
+      const latest = sentBack.length
+        ? await db
+            .selectDistinctOn([requestRevisionNotes.requestId], {
+              requestId: requestRevisionNotes.requestId,
+              note: requestRevisionNotes.note,
+              slots: requestRevisionNotes.slots,
+              createdAt: requestRevisionNotes.createdAt,
+            })
+            .from(requestRevisionNotes)
+            .where(inArray(requestRevisionNotes.requestId, sentBack))
+            .orderBy(
+              requestRevisionNotes.requestId,
+              desc(requestRevisionNotes.createdAt),
+              desc(requestRevisionNotes.id),
+            )
+        : [];
+      const latestById = new Map(latest.map((n) => [n.requestId, n]));
+      return list.map((r) => {
+        const n = latestById.get(r.id);
+        return {
+          ...r,
+          requestNumber: requestNumberLabel(r.requestSequence, r.requestYear),
+          latestRevisionNote: n ? { note: n.note, slots: n.slots, createdAt: n.createdAt } : null,
+        };
+      });
     }
 
     // admin and staff share the reviewer list; staff is read-only and gets no
@@ -568,6 +600,24 @@ export const app = new Elysia()
       revisions: revisions.filter((r) => r.attachmentId === a.id),
     }));
 
+    // Reason history of "send back for revision", newest first. The author's name is for
+    // staff/admin only; the student sees the note without who wrote it.
+    const noteRows = await db
+      .select({
+        id: requestRevisionNotes.id,
+        note: requestRevisionNotes.note,
+        slots: requestRevisionNotes.slots,
+        createdAt: requestRevisionNotes.createdAt,
+        authorName: staff.fullName,
+      })
+      .from(requestRevisionNotes)
+      .leftJoin(staff, eq(requestRevisionNotes.authorStaffId, staff.id))
+      .where(eq(requestRevisionNotes.requestId, params.id))
+      .orderBy(desc(requestRevisionNotes.createdAt), desc(requestRevisionNotes.id));
+    const revisionNotes = noteRows.map((n) =>
+      role === "student" ? { ...n, authorName: null } : n,
+    );
+
     // The student sees when the documents were checked, not who checked them;
     // staff get no student contact fields.
     const { staffCheckedByName: _checker, ...withoutChecker } = req;
@@ -581,6 +631,7 @@ export const app = new Elysia()
       ...visible,
       requestNumber: requestNumberLabel(req.requestSequence, req.requestYear),
       attachments: attachmentsWithRevisions,
+      revisionNotes,
     };
   })
 
@@ -1123,6 +1174,16 @@ export const app = new Elysia()
         return { error: "admin_only" };
       }
 
+      const note = (body.note ?? "").trim();
+      if (note.length === 0) {
+        set.status = 400;
+        return { error: "note_required" };
+      }
+      if (note.length > REVISION_NOTE_MAX_LENGTH) {
+        set.status = 400;
+        return { error: "note_too_long", max: REVISION_NOTE_MAX_LENGTH };
+      }
+
       const existing = await db
         .select({ status: requests.status })
         .from(requests)
@@ -1185,6 +1246,13 @@ export const app = new Elysia()
           .set({ revisionState: "needs_revision" })
           .where(inArray(requestAttachmentRevisions.id, revIds));
 
+        await tx.insert(requestRevisionNotes).values({
+          requestId: params.id,
+          authorStaffId: user.id,
+          note,
+          slots: [...new Set(flagSlots)].sort(),
+        });
+
         return true;
       });
       if (!done) {
@@ -1200,14 +1268,48 @@ export const app = new Elysia()
         metadata: {
           status: "revision_required",
           slots: flagSlots,
+          note,
         },
       });
+
+      // best-effort after commit, like reject: the status and the reason are already saved,
+      // so a failure here must not fail the request.
+      const [student] = await db
+        .select({
+          studentId: requests.studentId,
+          studentName: sql<string>`${students.firstName} || ' ' || ${students.lastName}`,
+          studentEmail: students.email,
+        })
+        .from(requests)
+        .innerJoin(students, eq(requests.studentId, students.studentId))
+        .where(eq(requests.id, params.id));
+      if (student) {
+        await notifyUser({
+          studentId: student.studentId,
+          title: "คำร้องต้องแก้ไขเอกสาร",
+          body: `เหตุผล: ${note}`,
+          requestId: params.id,
+        });
+        if (student.studentEmail) {
+          const to = student.studentEmail;
+          setImmediate(() => {
+            sendStatusEmail({
+              to,
+              studentName: student.studentName,
+              status: "revision_required",
+              reason: note,
+            }).catch((e) => console.log(`[email] send failed: ${e}`));
+          });
+        }
+      }
 
       return { status: "revision_required", slots: flagSlots };
     },
     {
       body: t.Object({
         slots: t.Array(t.Integer()),
+        // validated by hand so a missing/blank note answers 400 (not Elysia's 422)
+        note: t.Optional(t.String()),
       }),
     },
   )

@@ -11,7 +11,18 @@
 		"sourceMap": true,
 		"strict": true,
 		"moduleResolution": "bundler"
-	}
+	},
+	// Replaces the generated exclude: same entries plus tests/ (bun:test files, run by `bun run test:unit`).
+	"exclude": [
+		"./node_modules/**",
+		"./tests/**",
+		"./src/service-worker.js",
+		"./src/service-worker/**/*.js",
+		"./src/service-worker.ts",
+		"./src/service-worker/**/*.ts",
+		"./src/service-worker.d.ts",
+		"./src/service-worker/**/*.d.ts"
+	]
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
 	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
 	//

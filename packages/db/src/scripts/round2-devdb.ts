@@ -2,7 +2,7 @@
  * Local-only dev database `ua_dev_round2`: the current schema plus FAKE data,
  * for looking at the round-2 UI in a browser.
  *
- *   setup     clone ua_dev -> ua_dev_round2, apply 0016 through 0021 only
+ *   setup     clone ua_dev -> ua_dev_round2, apply 0016 through 0022 only
  *   seed      fill ua_dev_round2 with fake students/requests/staff and write
  *             apps/api/.env.dev-round2.local (git-ignored)
  *   reset     setup + seed
@@ -23,7 +23,7 @@
 
 import { Client, Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { hash } from "@node-rs/argon2";
 import { spawnSync } from "child_process";
 import { randomBytes, randomUUID } from "crypto";
@@ -47,6 +47,7 @@ const MIGRATIONS_TO_APPLY = [
   "0019_remove_legacy_activities.sql",
   "0020_durable_oauth_login_state.sql",
   "0021_staff_document_check.sql",
+  "0022_request_revision_notes.sql",
 ] as const;
 
 // scripts/ -> src/ -> db/ -> packages/ -> repo root
@@ -282,6 +283,12 @@ const NOTES = [
 ];
 
 const REJECT_REASONS = ["เอกสารไม่ครบถ้วน", "ชื่อกิจกรรมไม่ตรงกับหลักฐานที่แนบ"];
+const REVISION_NOTES = [
+  "รูปหลักฐานไม่ชัด อ่านรายละเอียดไม่ออก กรุณาถ่ายใหม่ให้เห็นข้อความครบ",
+  "ชื่อในเอกสารไม่ตรงกับชื่อนักศึกษา กรุณาแนบเอกสารที่ถูกต้อง",
+  "ขาดหน้าที่ 2 ของเอกสาร กรุณาแนบให้ครบทุกหน้า",
+  "ไฟล์เป็นภาพกลับด้าน กรุณาหมุนภาพให้อ่านได้แล้วอัปโหลดใหม่",
+];
 
 /** Deterministic PRNG so repeated seeds give the same screenshots. */
 function mulberry32(seed: number): () => number {
@@ -456,6 +463,34 @@ async function seed(target: DbTarget): Promise<void> {
             .update(schema.requestAttachments)
             .set({ currentRevisionId: rev.id })
             .where(eq(schema.requestAttachments.id, attachmentId));
+        }
+
+        if (status === "revision_required") {
+          // Reason history (migration 0022): an earlier round for some, always a latest one.
+          const first = new Date(submittedAt.getTime() + 6 * 3_600_000);
+          const last = new Date(Math.min(submittedAt.getTime() + 30 * 3_600_000, now - 60_000));
+          const notes: Array<typeof schema.requestRevisionNotes.$inferInsert> = [];
+          if (rand() < 0.4) {
+            notes.push({ requestId: id, authorStaffId: adminId, note: pick(REVISION_NOTES), slots: [1], createdAt: first });
+          }
+          notes.push({
+            requestId: id,
+            authorStaffId: adminId,
+            note: pick(REVISION_NOTES),
+            slots: slots === 2 && rand() < 0.5 ? [1, 2] : [1],
+            createdAt: last,
+          });
+          await db.insert(schema.requestRevisionNotes).values(notes);
+          const [slot1] = await db
+            .select({ id: schema.requestAttachments.currentRevisionId })
+            .from(schema.requestAttachments)
+            .where(and(eq(schema.requestAttachments.requestId, id), eq(schema.requestAttachments.slot, 1)));
+          if (slot1?.id) {
+            await db
+              .update(schema.requestAttachmentRevisions)
+              .set({ revisionState: "needs_revision" })
+              .where(eq(schema.requestAttachmentRevisions.id, slot1.id));
+          }
         }
 
         if (staffChecked && staffCheckedAt) {

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { certificateDateFields, certificateReviewDates, formatReviewedDateThai, formatSubmittedAtThai, stripThaiNamePrefix } from "../src/certificate-format";
+import fontkit from "@pdf-lib/fontkit";
+import { readFileSync } from "fs";
+import path from "path";
+import { PDFDocument } from "pdf-lib";
+import { CENTERED_FIELDS } from "../src/certificate";
+import { certificateDateFields, fitCenteredInRange, certificateReviewDates, formatReviewedDateThai, formatSubmittedAtThai, stripThaiNamePrefix } from "../src/certificate-format";
 
 describe("formatSubmittedAtThai", () => {
   test("formats Asia/Bangkok, Buddhist year, 24h", () => {
@@ -95,5 +100,74 @@ describe("stripThaiNamePrefix", () => {
   });
   test("never returns empty", () => {
     expect(stripThaiNamePrefix("นาย ")).toBe("นาย");
+  });
+});
+
+describe("fitCenteredInRange (dotted-field centring)", () => {
+  // 5pt per character at 10pt => width = chars * size / 2
+  const measure = (t: string, s: number) => (t.length * s) / 2;
+
+  test("short text keeps its size and is centred exactly", () => {
+    const r = fitCenteredInRange(measure, "abcd", 100, 200, 16); // width 32
+    expect(r.size).toBe(16);
+    expect(r.x).toBe(100 + (100 - 32) / 2);
+    expect(r.x + measure("abcd", r.size) / 2).toBe(150);
+  });
+  test("shrinks 1pt at a time until it fits with 4pt margins", () => {
+    const text = "x".repeat(20); // 16pt=160, 14pt=140, 12pt=120
+    const r = fitCenteredInRange(measure, text, 0, 130, 16); // usable 122
+    expect(r.size).toBe(12);
+    expect(measure(text, r.size)).toBeLessThanOrEqual(130 - 8);
+  });
+  test("margin is respected when shrinking stops early", () => {
+    const text = "x".repeat(20);
+    const r = fitCenteredInRange(measure, text, 0, 160, 16); // 16pt=160 > 152, 15pt=150 ok
+    expect(r.size).toBe(15);
+    expect(r.x).toBe((160 - 150) / 2);
+  });
+  test("never goes below minSize for margin reasons alone", () => {
+    const text = "x".repeat(20); // 12pt = 120, field 124 => margin cannot be met at 12
+    const r = fitCenteredInRange(measure, text, 0, 124, 16);
+    expect(r.size).toBe(12);
+    expect(r.x).toBe(2);
+  });
+  test("wider than the whole field at minSize: shrinks further, never overflows", () => {
+    const text = "x".repeat(20);
+    const r = fitCenteredInRange(measure, text, 0, 100, 16); // 10pt = 100
+    expect(r.size).toBe(10);
+    expect(r.x).toBeGreaterThanOrEqual(0);
+    expect(r.x + measure(text, r.size)).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("real font in the template's dotted fields", () => {
+  const fontPath = path.join(import.meta.dir, "..", "assets", "fonts", "THSarabunNew.ttf");
+  const longest = stripThaiNamePrefix("นางสาว ปรีชญาพัชร์ สุวรรณภูมิพัฒนกุลวงศ์ศิริเกียรติ ศรีสวัสดิ์นฤมิตรชัยพิพัฒน์");
+  async function measurer() {
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(fontkit);
+    const font = await doc.embedFont(readFileSync(fontPath));
+    return (t: string, s: number) => font.widthOfTextAtSize(t, s);
+  }
+  test("normal name, id and phone are centred at 16pt inside their fields", async () => {
+    const m = await measurer();
+    for (const [text, f] of [
+      ["สมชาย ใจดี", CENTERED_FIELDS.studentName],
+      ["6512345678", CENTERED_FIELDS.studentId],
+      ["0812345678", CENTERED_FIELDS.phone],
+    ] as const) {
+      const r = fitCenteredInRange(m, text, f.startX, f.endX, 16);
+      expect(r.size).toBe(16);
+      expect(r.x + m(text, r.size) / 2).toBeCloseTo((f.startX + f.endX) / 2, 6);
+    }
+  });
+  test("longest tested name shrinks to 12pt and stays inside the name field", async () => {
+    const m = await measurer();
+    const f = CENTERED_FIELDS.studentName;
+    const r = fitCenteredInRange(m, longest, f.startX, f.endX, 16);
+    expect(r.size).toBeLessThan(16);
+    expect(r.size).toBeGreaterThanOrEqual(12);
+    expect(r.x).toBeGreaterThanOrEqual(f.startX);
+    expect(r.x + m(longest, r.size)).toBeLessThanOrEqual(f.endX);
   });
 });

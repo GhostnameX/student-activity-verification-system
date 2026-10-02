@@ -74,3 +74,30 @@ export function stripThaiNamePrefix(name: string): string {
   }
   return trimmed;
 }
+
+export interface CenteredFit {
+  /** Left x to pass to drawText. */
+  x: number;
+  size: number;
+}
+
+/**
+ * Centre `text` inside the dotted field [startX, endX]. Shrinks 1pt at a time until the text fits
+ * with `margin` pt on each side, but not below `minSize`. If it is still wider than the whole field
+ * at `minSize`, keeps shrinking (down to `hardMinSize`) purely so it can never run into the caption
+ * next to the field. Pure: `measure` is injected so it is testable without a font.
+ */
+export function fitCenteredInRange(
+  measure: (text: string, size: number) => number,
+  text: string,
+  startX: number,
+  endX: number,
+  size: number,
+  { minSize = 12, margin = 4, hardMinSize = 9 }: { minSize?: number; margin?: number; hardMinSize?: number } = {},
+): CenteredFit {
+  const width = endX - startX;
+  let s = size;
+  while (s > minSize && measure(text, s) > width - 2 * margin) s -= 1;
+  while (s > hardMinSize && measure(text, s) > width) s -= 1;
+  return { x: startX + (width - measure(text, s)) / 2, size: s };
+}
